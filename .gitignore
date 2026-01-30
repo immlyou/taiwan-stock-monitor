@@ -1,6 +1,9 @@
 # 環境變數 (含 API Keys)
 .env
 
+# Streamlit Secrets
+.streamlit/secrets.toml
+
 # Python
 __pycache__/
 *.py[cod]

@@ -40,6 +40,54 @@ st.set_page_config(
     layout='wide',
 )
 
+
+# ========== 密碼驗證 ==========
+def check_password():
+    """驗證使用者密碼"""
+    def password_entered():
+        if st.session_state["password"] == st.secrets["passwords"]["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.markdown("""
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh">
+            <div style="text-align:center;margin-bottom:2rem">
+                <span style="font-size:4rem">📊</span>
+                <h1 style="margin:1rem 0 0.5rem 0;font-size:2rem">台股戰情中心</h1>
+                <p style="color:#888;font-size:0.9rem">Taiwan Stock Command Center</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("🔐 請輸入密碼", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.markdown("""
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh">
+            <div style="text-align:center;margin-bottom:2rem">
+                <span style="font-size:4rem">📊</span>
+                <h1 style="margin:1rem 0 0.5rem 0;font-size:2rem">台股戰情中心</h1>
+                <p style="color:#888;font-size:0.9rem">Taiwan Stock Command Center</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("🔐 請輸入密碼", type="password", on_change=password_entered, key="password")
+            st.error("❌ 密碼錯誤，請重試")
+        return False
+    else:
+        return True
+
+
+if not check_password():
+    st.stop()
+
+
 # 初始化 Session State
 init_session_state()
 
