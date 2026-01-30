@@ -1,0 +1,58 @@
+# 環境變數 (含 API Keys)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Data cache (可選擇保留或忽略)
+data/*_cache.json
+
+# Logs
+*.log
+logs/
+
+# FinLab 資料檔案 (太大，不應放入 Git)
+*.pickle
+*.pkl
+expiry.pkl
+
+# 策略與投資組合設定 (本地保留)
+saved_strategies.json
+data/watchlists.json
+data/alerts.json
+data/portfolios.json
+data/trading_journal.json
+
+# Reports
+reports/
+
+# Legacy Flask files
+legacy/
