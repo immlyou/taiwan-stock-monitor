@@ -223,9 +223,12 @@ def get_cache_warmer() -> CacheWarmer:
 
 def _setup_default_tasks(warmer: CacheWarmer):
     """設定預設預熱任務"""
-    from core.data_loader import get_loader
+    from core.data_loader import get_loader, is_streamlit_cloud
 
     loader = get_loader()
+
+    # 雲端環境只預熱必要資料，避免記憶體超限 (Streamlit Cloud 免費方案 1GB)
+    cloud_mode = is_streamlit_cloud()
 
     # 必要資料 (優先級 0)
     warmer.add_task(
@@ -242,43 +245,45 @@ def _setup_default_tasks(warmer: CacheWarmer):
         required=True
     )
 
-    # 常用資料 (優先級 1)
-    warmer.add_task(
-        name="成交量",
-        loader=lambda: loader.get('volume'),
-        priority=1
-    )
+    # 雲端環境跳過非必要預熱，按需載入以節省記憶體
+    if not cloud_mode:
+        # 常用資料 (優先級 1)
+        warmer.add_task(
+            name="成交量",
+            loader=lambda: loader.get('volume'),
+            priority=1
+        )
 
-    warmer.add_task(
-        name="本益比",
-        loader=lambda: loader.get('pe_ratio'),
-        priority=1
-    )
+        warmer.add_task(
+            name="本益比",
+            loader=lambda: loader.get('pe_ratio'),
+            priority=1
+        )
 
-    warmer.add_task(
-        name="股價淨值比",
-        loader=lambda: loader.get('pb_ratio'),
-        priority=1
-    )
+        warmer.add_task(
+            name="股價淨值比",
+            loader=lambda: loader.get('pb_ratio'),
+            priority=1
+        )
 
-    # 次要資料 (優先級 2)
-    warmer.add_task(
-        name="殖利率",
-        loader=lambda: loader.get('dividend_yield'),
-        priority=2
-    )
+        # 次要資料 (優先級 2)
+        warmer.add_task(
+            name="殖利率",
+            loader=lambda: loader.get('dividend_yield'),
+            priority=2
+        )
 
-    warmer.add_task(
-        name="營收成長",
-        loader=lambda: loader.get('revenue_yoy'),
-        priority=2
-    )
+        warmer.add_task(
+            name="營收成長",
+            loader=lambda: loader.get('revenue_yoy'),
+            priority=2
+        )
 
-    warmer.add_task(
-        name="大盤指數",
-        loader=lambda: loader.get_benchmark(),
-        priority=2
-    )
+        warmer.add_task(
+            name="大盤指數",
+            loader=lambda: loader.get_benchmark(),
+            priority=2
+        )
 
 
 def warmup_on_startup(show_progress: bool = True) -> Dict:
