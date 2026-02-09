@@ -11,17 +11,19 @@ from datetime import datetime, date
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 st.set_page_config(page_title='交易日誌', page_icon='📝', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='journal')
 
-st.title('📝 交易日誌')
-st.markdown('記錄您的交易決策與心得反思')
-st.markdown('---')
+render_page_header('交易日誌', icon='📝')
 
 # 日誌檔案路徑
 JOURNAL_FILE = Path(__file__).parent.parent.parent / 'data' / 'trading_journal.json'
@@ -38,7 +40,7 @@ def save_journal(journal_data):
         json.dump(journal_data, f, ensure_ascii=False, indent=2, default=str)
 
 # 載入數據
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_stock_info():
     loader = get_loader()
     return loader.get_stock_info()
@@ -47,7 +49,7 @@ try:
     stock_info = load_stock_info()
     active_stocks = get_active_stocks()
 except Exception as e:
-    st.error(f'載入數據失敗: {e}')
+    show_error(e, title='載入數據失敗', suggestion='請確認 FinLab API 設定是否正確')
     stock_info = pd.DataFrame()
     active_stocks = []
 
@@ -221,7 +223,7 @@ with tab2:
                     st.info(entry['lesson'])
 
     else:
-        st.info('沒有符合條件的日誌')
+        show_empty_state('沒有符合條件的日誌', icon='📝', suggestion='請嘗試調整篩選條件，或新增您的第一筆交易日誌')
 
 # ========== 統計分析 ==========
 with tab3:
@@ -295,7 +297,7 @@ with tab3:
             st.metric('有記錄教訓', lesson_count)
 
     else:
-        st.info('尚無日誌數據，開始記錄您的交易吧！')
+        show_empty_state('尚無日誌數據', icon='📝', suggestion='開始記錄您的交易，累積寶貴的交易經驗')
 
 # ========== 匯出功能 ==========
 st.markdown('---')

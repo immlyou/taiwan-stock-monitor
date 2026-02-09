@@ -19,6 +19,9 @@ from app.components.charts import (
 )
 from config import STRATEGY_PRESETS
 from app.components.sidebar import render_sidebar_mini
+from app.components.error_handler import show_error
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys
 )
@@ -31,7 +34,7 @@ init_session_state()
 # 渲染側邊欄
 render_sidebar_mini(current_page='backtest')
 
-st.title('📊 回測分析')
+render_page_header("回測分析", icon="📈")
 
 # 顯示資料日期
 try:
@@ -39,7 +42,7 @@ try:
     data_start = loader.get('close').index.min().strftime('%Y-%m-%d')
     data_end = loader.get('close').index.max().strftime('%Y-%m-%d')
     st.caption(f'📅 可用資料期間: {data_start} ~ {data_end}')
-except:
+except Exception:
     st.caption('📅 資料日期: 載入中...')
 
 st.markdown('---')
@@ -336,20 +339,20 @@ if run_button:
             )
 
             # 儲存結果
-            st.session_state['backtest_result'] = result
-            st.session_state['result_strategy'] = strategy_type
+            set_state(StateKeys.BACKTEST_RESULT, result)
+            set_state(StateKeys.RESULT_STRATEGY, strategy_type)
 
             st.success('✅ 回測完成！')
 
         except Exception as e:
-            st.error(f'回測時發生錯誤: {e}')
+            show_error(e, title='回測時發生錯誤')
             import traceback
             st.code(traceback.format_exc())
 
 # ========== 顯示回測結果 ==========
-if 'backtest_result' in st.session_state:
-    result = st.session_state['backtest_result']
-    strategy_name = st.session_state.get('result_strategy', '')
+if get_state(StateKeys.BACKTEST_RESULT) is not None:
+    result = get_state(StateKeys.BACKTEST_RESULT)
+    strategy_name = get_state(StateKeys.RESULT_STRATEGY, '')
 
     st.markdown('---')
     st.subheader(f'📈 {strategy_name} 回測結果')
@@ -423,7 +426,7 @@ if 'backtest_result' in st.session_state:
             fig_monthly = create_monthly_returns_heatmap(returns)
             st.plotly_chart(fig_monthly, use_container_width=True)
         except Exception:
-            st.info('月報酬率數據不足')
+            show_empty_state('月報酬率數據不足', icon='📅')
 
     # 交易記錄
     st.markdown('#### 交易記錄')
@@ -456,7 +459,7 @@ if 'backtest_result' in st.session_state:
             mime='text/csv',
         )
     else:
-        st.info('無交易記錄')
+        show_empty_state('無交易記錄', icon='📋')
 
 # ========== 說明 ==========
 with st.expander('📖 回測說明'):

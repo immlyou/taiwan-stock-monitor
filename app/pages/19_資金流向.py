@@ -17,7 +17,7 @@ from datetime import datetime
 # 設定路徑
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import STREAMLIT_CONFIG
+from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.money_flow import (
     calculate_institutional_flow,
@@ -27,6 +27,9 @@ from core.money_flow import (
     get_continuous_buy_stocks,
 )
 from app.components.sidebar import render_sidebar
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 # 頁面設定
 st.set_page_config(
@@ -39,11 +42,10 @@ st.set_page_config(
 render_sidebar(current_page='money_flow')
 
 # 標題
-st.title('💸 資金流向分析')
-st.caption('追蹤三大法人（外資、投信、自營商）買賣超動向')
+render_page_header('資金流向', icon='💰')
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL['intraday'])
 def load_institutional_data():
     """載入法人買賣超資料"""
     loader = get_loader()
@@ -69,7 +71,7 @@ def load_institutional_data():
             'stock_info': stock_info,
         }
     except Exception as e:
-        st.error(f'載入資料失敗: {e}')
+        show_error(e, title='載入資料失敗', suggestion='請確認 FinLab API 設定是否正確')
         return None
 
 
@@ -362,7 +364,7 @@ with tab2:
                 trend_display[col] = trend_display[col].apply(lambda x: f'{x:+,.0f}')
             st.dataframe(trend_display, use_container_width=True)
     else:
-        st.info('無法取得趨勢資料')
+        show_empty_state('無法取得趨勢資料', icon='📈', suggestion='請確認資料是否已載入')
 
 # ===== Tab 3: 產業流向 =====
 with tab3:
@@ -382,7 +384,7 @@ with tab3:
             sector_display[col] = sector_display[col].apply(lambda x: f'{x:+,.0f}')
         st.dataframe(sector_display, use_container_width=True, hide_index=True)
     else:
-        st.info('無法取得產業資料')
+        show_empty_state('無法取得產業資料', icon='🏭', suggestion='請確認資料是否已載入')
 
 # ===== Tab 4: 連續買超 =====
 with tab4:
@@ -412,7 +414,7 @@ with tab4:
 
         st.info(f'共 {len(continuous_stocks)} 檔股票連續買超 {min_days} 天以上')
     else:
-        st.info(f'沒有股票連續買超 {min_days} 天以上')
+        show_empty_state(f'沒有股票連續買超 {min_days} 天以上', icon='🔥', suggestion='嘗試降低連續天數條件')
 
 # 頁尾說明
 st.markdown('---')

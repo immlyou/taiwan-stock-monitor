@@ -18,10 +18,13 @@ from datetime import datetime
 # 設定路徑
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import STREAMLIT_CONFIG
+from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.twse_api import get_taiex
 from app.components.sidebar import render_sidebar
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 # 頁面設定
 st.set_page_config(
@@ -34,11 +37,10 @@ st.set_page_config(
 render_sidebar(current_page='after_hours')
 
 # 標題
-st.title('📋 盤後籌碼總覽')
-st.caption('每日收盤後的市場籌碼報告')
+render_page_header('盤後總覽', icon='📊')
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL['intraday'])
 def load_after_hours_data():
     """載入盤後資料"""
     loader = get_loader()
@@ -243,7 +245,7 @@ with st.spinner('載入盤後資料...'):
     data = load_after_hours_data()
 
 if not data or 'close' not in data:
-    st.error('無法載入市場資料')
+    show_error(Exception('無法載入市場資料'), title='載入市場資料失敗', suggestion='請確認 FinLab API 設定及網路連線')
     st.stop()
 
 # 資料日期
@@ -340,7 +342,7 @@ with tab1:
         if len(df) > 0:
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info('無資料')
+            show_empty_state('無資料', icon='📭')
 
     with col2:
         st.markdown('**賣超 Top 10**')
@@ -348,7 +350,7 @@ with tab1:
         if len(df) > 0:
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info('無資料')
+            show_empty_state('無資料', icon='📭')
 
 with tab2:
     col1, col2 = st.columns(2)
@@ -358,7 +360,7 @@ with tab2:
         if len(df) > 0:
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info('無資料')
+            show_empty_state('無資料', icon='📭')
 
     with col2:
         st.markdown('**賣超 Top 10**')
@@ -366,7 +368,7 @@ with tab2:
         if len(df) > 0:
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info('無資料')
+            show_empty_state('無資料', icon='📭')
 
 with tab3:
     col1, col2 = st.columns(2)
@@ -376,7 +378,7 @@ with tab3:
         if len(df) > 0:
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info('無資料')
+            show_empty_state('無資料', icon='📭')
 
     with col2:
         st.markdown('**賣超 Top 10**')
@@ -384,7 +386,7 @@ with tab3:
         if len(df) > 0:
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
-            st.info('無資料')
+            show_empty_state('無資料', icon='📭')
 
 # ===== 融資融券變化 =====
 st.markdown('---')
@@ -398,7 +400,7 @@ with margin_col1:
     if len(df) > 0:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info('無融資資料')
+        show_empty_state('無融資資料', icon='📈', suggestion='融資融券資料通常在收盤後 18:00 更新')
 
 with margin_col2:
     st.markdown('**融資減少 Top 10**')
@@ -406,7 +408,7 @@ with margin_col2:
     if len(df) > 0:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info('無融資資料')
+        show_empty_state('無融資資料', icon='📈', suggestion='融資融券資料通常在收盤後 18:00 更新')
 
 # ===== 自選股籌碼追蹤 =====
 st.markdown('---')
@@ -425,11 +427,11 @@ if watchlists:
             if len(df) > 0:
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
-                st.info('無法取得自選股資料')
+                show_empty_state('無法取得自選股資料', icon='📊')
         else:
-            st.info('此清單沒有股票')
+            show_empty_state('此清單沒有股票', icon='📋', suggestion='請至自選股頁面新增股票')
 else:
-    st.info('尚未建立自選股清單。請至「自選股」頁面建立。')
+    show_empty_state('尚未建立自選股清單', icon='⭐', suggestion='請至「自選股」頁面建立您的第一個清單')
 
     # 顯示範例
     st.markdown('### 範例：熱門股票籌碼')

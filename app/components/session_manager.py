@@ -70,6 +70,31 @@ class StateKeys:
     TEMP_DATA = 'temp_data'                      # 暫存資料
     LAST_UPDATE = 'last_update'                  # 最後更新時間
 
+    # 選股篩選結果
+    SELECTION_RESULT = 'selection_result'         # 篩選結果
+    RESULT_STRATEGY_TYPE = 'result_strategy_type' # 篩選使用的策略類型
+    RESULT_PARAMS = 'result_params'              # 篩選使用的參數
+
+    # 回測結果
+    BACKTEST_RESULT = 'backtest_result'           # 回測執行結果
+    RESULT_STRATEGY = 'result_strategy'           # 回測策略名稱
+
+    # 策略管理
+    LOADED_STRATEGY = 'loaded_strategy'           # 載入的策略
+
+    # 參數優化
+    OPTIMIZATION_RESULT = 'optimization_result'   # 優化結果
+
+    # UI 對話框狀態
+    SHOW_EXPORT_DIALOG = 'show_export_dialog'     # 匯出對話框
+    SHOW_EXCEL_EXPORT = 'show_excel_export'       # Excel 匯出對話框
+
+    # 頁面內 UI 狀態
+    ANALYZE_STOCK_NAME = 'analyze_stock_name'     # 分析中的股票名稱
+    STOCK_LIST_PAGE = 'stock_list_page'           # 股票清單分頁
+    SELECTED_STOCK_DETAIL = 'selected_stock_detail'  # 產業分析中選中的股票
+    NEWS_SCANNER = 'news_scanner'                 # 新聞掃描器實例
+
 
 # 預設值定義
 DEFAULT_VALUES: Dict[str, Any] = {
@@ -103,6 +128,19 @@ DEFAULT_VALUES: Dict[str, Any] = {
     StateKeys.ALERTS: [],
     StateKeys.TEMP_DATA: {},
     StateKeys.LAST_UPDATE: None,
+    StateKeys.SELECTION_RESULT: None,
+    StateKeys.RESULT_STRATEGY_TYPE: None,
+    StateKeys.RESULT_PARAMS: None,
+    StateKeys.BACKTEST_RESULT: None,
+    StateKeys.RESULT_STRATEGY: None,
+    StateKeys.LOADED_STRATEGY: None,
+    StateKeys.OPTIMIZATION_RESULT: None,
+    StateKeys.SHOW_EXPORT_DIALOG: False,
+    StateKeys.SHOW_EXCEL_EXPORT: False,
+    StateKeys.ANALYZE_STOCK_NAME: '',
+    StateKeys.STOCK_LIST_PAGE: 0,
+    StateKeys.SELECTED_STOCK_DETAIL: None,
+    StateKeys.NEWS_SCANNER: None,
 }
 
 

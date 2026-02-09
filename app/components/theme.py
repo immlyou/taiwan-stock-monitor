@@ -247,6 +247,21 @@ def inject_professional_theme():
         background: transparent !important;
     }}
 
+    /* ===== 圖表容器 ===== */
+    .chart-container {{
+        background: {COLORS['secondary']};
+        border: 1px solid {COLORS['border']};
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }}
+    .chart-container .chart-title {{
+        color: {COLORS['text_primary']};
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }}
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -486,6 +501,18 @@ def create_mini_sparkline(values: list, color: str = None):
     '''
     return svg
 
+
+# 圖表 trace 色票（統一全站圖表線條顏色）
+CHART_PALETTE = [
+    '#3b82f6',  # Blue (accent)
+    '#f59e0b',  # Amber
+    '#8b5cf6',  # Purple
+    '#06b6d4',  # Cyan
+    '#ec4899',  # Pink
+    '#f97316',  # Orange
+    '#10b981',  # Emerald
+    '#6366f1',  # Indigo
+]
 
 # 預設主題
 DEFAULT_PLOTLY_LAYOUT = {

@@ -15,9 +15,11 @@ from plotly.subplots import make_subplots
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks, reset_all_caches
 from core.indicators import sma, rsi, macd, bollinger_bands, resample_ohlcv, get_timeframe_label, get_ma_periods_for_timeframe
-from app.components.charts import create_price_chart, create_technical_chart
+from app.components.charts import create_price_chart, create_technical_chart, apply_dark_theme
+from app.components.theme import DEFAULT_PLOTLY_LAYOUT, COLORS
 from app.components.sidebar import render_sidebar
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys,
@@ -48,7 +50,7 @@ init_session_state()
 render_sidebar(current_page='stock')
 
 # ==================== 資料載入 ====================
-@st.cache_data(ttl=3600, show_spinner="載入股票數據中...")
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner="載入股票數據中...")
 def load_stock_data():
     """載入基礎股票數據"""
     loader = get_loader()
@@ -67,7 +69,7 @@ def load_stock_data():
         'stock_info': loader.get_stock_info(),
     }
 
-@st.cache_data(ttl=1800, show_spinner="載入 FinLab 數據...")
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner="載入 FinLab 數據...")
 def load_finlab_data(data_key: str):
     """快取 FinLab 資料"""
     if FINLAB_AVAILABLE and finlab_data:
@@ -77,7 +79,7 @@ def load_finlab_data(data_key: str):
             return None
     return None
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_news_cache():
     """載入新聞快取"""
     cache_file = Path(__file__).parent.parent.parent / 'data' / 'news_cache.json'
@@ -247,14 +249,14 @@ if selected_stock:
     export_col1, export_col2, export_col3 = st.columns([3, 1, 1])
     with export_col2:
         if st.button('📄 匯出 PDF 報告', use_container_width=True, key='export_pdf_btn'):
-            st.session_state['show_export_dialog'] = True
+            set_state(StateKeys.SHOW_EXPORT_DIALOG, True)
 
     with export_col3:
         if st.button('📊 匯出 Excel', use_container_width=True, key='export_excel_btn'):
-            st.session_state['show_excel_export'] = True
+            set_state(StateKeys.SHOW_EXCEL_EXPORT, True)
 
     # 處理 PDF 報告匯出
-    if st.session_state.get('show_export_dialog', False):
+    if get_state(StateKeys.SHOW_EXPORT_DIALOG, False):
         from core.report_generator import ReportGenerator
         from core.indicators import rsi as calc_rsi, macd as calc_macd, bollinger_bands as calc_bb
 
@@ -335,7 +337,7 @@ if selected_stock:
             key='download_html_report'
         )
         st.caption('提示：下載後在瀏覽器開啟，按 Ctrl+P (或 Cmd+P) 即可列印為 PDF')
-        st.session_state['show_export_dialog'] = False
+        set_state(StateKeys.SHOW_EXPORT_DIALOG, False)
 
     st.markdown('---')
 
@@ -420,7 +422,7 @@ if selected_stock:
 
             fig.update_layout(
                 title=f'{selected_stock} {name} {tf_label}股價走勢',
-                template='plotly_white', height=600,
+                **DEFAULT_PLOTLY_LAYOUT,height=600,
                 xaxis_rangeslider_visible=False,
                 legend=dict(orientation='h', y=1.02)
             )
@@ -473,7 +475,7 @@ if selected_stock:
             fig_rsi.add_trace(go.Scatter(x=rsi_14.index, y=rsi_14, name='RSI(14)', line=dict(color='#2196F3')))
             fig_rsi.add_hline(y=70, line_dash='dash', line_color='red', annotation_text='超買')
             fig_rsi.add_hline(y=30, line_dash='dash', line_color='green', annotation_text='超賣')
-            fig_rsi.update_layout(title=f'RSI 指標 ({tf_label})', template='plotly_white', height=250)
+            fig_rsi.update_layout(title=f'RSI 指標 ({tf_label})', **DEFAULT_PLOTLY_LAYOUT,height=250)
             st.plotly_chart(fig_rsi, use_container_width=True)
 
             # MACD 圖
@@ -482,7 +484,7 @@ if selected_stock:
             fig_macd.add_trace(go.Scatter(x=signal_line.index, y=signal_line, name='Signal', line=dict(color='#FF9800')))
             colors = ['#ef5350' if v >= 0 else '#26a69a' for v in histogram]
             fig_macd.add_trace(go.Bar(x=histogram.index, y=histogram, name='Histogram', marker_color=colors))
-            fig_macd.update_layout(title=f'MACD 指標 ({tf_label})', template='plotly_white', height=250)
+            fig_macd.update_layout(title=f'MACD 指標 ({tf_label})', **DEFAULT_PLOTLY_LAYOUT,height=250)
             st.plotly_chart(fig_macd, use_container_width=True)
 
             # KD 圖 (新增)
@@ -498,7 +500,7 @@ if selected_stock:
                 fig_kd.add_trace(go.Scatter(x=d.index, y=d, name='D', line=dict(color='#FF9800')))
                 fig_kd.add_hline(y=80, line_dash='dash', line_color='red', annotation_text='超買')
                 fig_kd.add_hline(y=20, line_dash='dash', line_color='green', annotation_text='超賣')
-                fig_kd.update_layout(title=f'KD 指標 ({tf_label})', template='plotly_white', height=250)
+                fig_kd.update_layout(title=f'KD 指標 ({tf_label})', **DEFAULT_PLOTLY_LAYOUT,height=250)
                 st.plotly_chart(fig_kd, use_container_width=True)
 
         with sub_tab3:
@@ -544,7 +546,7 @@ if selected_stock:
                     fig_vol.add_trace(go.Scatter(x=tf_volume.index,
                                                 y=tf_volume.rolling(vol_long).mean()/1000,
                                                 name=f'{vol_long}MA', line=dict(color='orange', width=2)))
-                fig_vol.update_layout(title=f'成交量走勢 ({tf_label})', template='plotly_white', height=300)
+                fig_vol.update_layout(title=f'成交量走勢 ({tf_label})', **DEFAULT_PLOTLY_LAYOUT,height=300)
                 st.plotly_chart(fig_vol, use_container_width=True)
             else:
                 st.warning('無成交量資料')
@@ -594,7 +596,7 @@ if selected_stock:
                         if len(dealer_data) > 0:
                             fig.add_trace(go.Bar(x=dealer_data.tail(20).index, y=dealer_data.tail(20),
                                                 name='自營', marker_color='#F57C00'))
-                        fig.update_layout(title='三大法人買賣超 (近20日)', template='plotly_white',
+                        fig.update_layout(title='三大法人買賣超 (近20日)', **DEFAULT_PLOTLY_LAYOUT,
                                          height=350, barmode='group')
                         st.plotly_chart(fig, use_container_width=True)
 
@@ -654,7 +656,7 @@ if selected_stock:
                                 fig.add_trace(go.Scatter(x=short.tail(30).index, y=short.tail(30),
                                                         name='融券餘額', line=dict(color='#26a69a', width=2)),
                                              secondary_y=True)
-                            fig.update_layout(title='融資融券走勢 (近30日)', template='plotly_white', height=350)
+                            fig.update_layout(title='融資融券走勢 (近30日)', **DEFAULT_PLOTLY_LAYOUT,height=350)
                             fig.update_yaxes(title_text='融資(張)', secondary_y=False)
                             fig.update_yaxes(title_text='融券(張)', secondary_y=True)
                             st.plotly_chart(fig, use_container_width=True)
@@ -687,7 +689,7 @@ if selected_stock:
                             fig = go.Figure()
                             fig.add_trace(go.Scatter(x=hold.index, y=hold, fill='tozeroy',
                                                     name='外資持股比率', line=dict(color='#1976D2')))
-                            fig.update_layout(title='外資持股比率走勢', template='plotly_white', height=300)
+                            fig.update_layout(title='外資持股比率走勢', **DEFAULT_PLOTLY_LAYOUT,height=300)
                             st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning('找不到外資持股資料')
@@ -772,7 +774,7 @@ if selected_stock:
                                 ), secondary_y=True)
 
                             fig.update_layout(title='籌碼集中度變化',
-                                            template='plotly_white', height=350)
+                                            **DEFAULT_PLOTLY_LAYOUT,height=350)
                             fig.update_yaxes(title_text='持股比例 (%)', secondary_y=False)
                             fig.update_yaxes(title_text='股東人數', secondary_y=True)
                             st.plotly_chart(fig, use_container_width=True)
@@ -893,7 +895,7 @@ if selected_stock:
                                                     name='股價', line=dict(color='#1976D2', width=2)))
 
                             fig.update_layout(title=f'{selected_stock} 本益比河流圖',
-                                            template='plotly_white', height=450)
+                                            **DEFAULT_PLOTLY_LAYOUT,height=450)
                             st.plotly_chart(fig, use_container_width=True)
 
                             # 目前估值位置
@@ -953,7 +955,7 @@ if selected_stock:
                                                     name='股價', line=dict(color='#1976D2', width=2)))
 
                             fig.update_layout(title=f'{selected_stock} 股價淨值比河流圖',
-                                            template='plotly_white', height=450)
+                                            **DEFAULT_PLOTLY_LAYOUT,height=450)
                             st.plotly_chart(fig, use_container_width=True)
 
                             current_pb = pb.iloc[-1]
@@ -1083,7 +1085,7 @@ if selected_stock:
                     if revenue_yoy is not None and len(revenue_yoy) > 0:
                         fig.add_trace(go.Scatter(x=revenue_yoy.index, y=revenue_yoy, name='年增率(%)',
                                                 line=dict(color='orange', width=2)), secondary_y=True)
-                    fig.update_layout(title='月營收與年增率', template='plotly_white', height=400)
+                    fig.update_layout(title='月營收與年增率', **DEFAULT_PLOTLY_LAYOUT,height=400)
                     fig.update_yaxes(title_text='營收(億)', secondary_y=False)
                     fig.update_yaxes(title_text='年增率(%)', secondary_y=True)
                     st.plotly_chart(fig, use_container_width=True)
@@ -1112,7 +1114,7 @@ if selected_stock:
                             fig = go.Figure()
                             fig.add_trace(go.Bar(x=[str(x) for x in eps.index], y=eps,
                                                 name='EPS', marker_color='steelblue'))
-                            fig.update_layout(title='每季EPS趨勢', template='plotly_white', height=350)
+                            fig.update_layout(title='每季EPS趨勢', **DEFAULT_PLOTLY_LAYOUT,height=350)
                             st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning('找不到EPS資料')
@@ -1159,7 +1161,7 @@ if selected_stock:
                         for name, _, series in metrics:
                             fig.add_trace(go.Scatter(x=[str(x) for x in series.tail(12).index],
                                                     y=series.tail(12), name=name))
-                        fig.update_layout(title='獲利能力趨勢', template='plotly_white', height=350)
+                        fig.update_layout(title='獲利能力趨勢', **DEFAULT_PLOTLY_LAYOUT,height=350)
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning('找不到獲利能力資料')
@@ -1277,7 +1279,7 @@ if selected_stock:
                                                     name='營業利益', marker_color='#2196F3'))
                             fig.add_trace(go.Bar(x=[str(x)[:7] for x in ni.index], y=ni/1e8,
                                                 name='稅後淨利', marker_color='#4CAF50'))
-                            fig.update_layout(title='季度獲利趨勢', template='plotly_white',
+                            fig.update_layout(title='季度獲利趨勢', **DEFAULT_PLOTLY_LAYOUT,
                                             height=350, barmode='group')
                             fig.update_yaxes(title_text='金額 (億元)')
                             st.plotly_chart(fig, use_container_width=True)
@@ -1444,7 +1446,7 @@ if selected_stock:
                             fig.add_trace(go.Bar(x=[str(x)[:7] for x in icf.index], y=icf/1e8,
                                                 name='投資支出', marker_color='#f44336'))
 
-                        fig.update_layout(title='現金流量趨勢', template='plotly_white',
+                        fig.update_layout(title='現金流量趨勢', **DEFAULT_PLOTLY_LAYOUT,
                                         height=350, barmode='group')
                         fig.update_yaxes(title_text='金額 (億元)')
                         st.plotly_chart(fig, use_container_width=True)
@@ -1522,7 +1524,7 @@ if selected_stock:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=dy.tail(252).index, y=dy.tail(252),
                                             fill='tozeroy', name='殖利率', line=dict(color='#4CAF50')))
-                    fig.update_layout(title='殖利率走勢', template='plotly_white', height=300)
+                    fig.update_layout(title='殖利率走勢', **DEFAULT_PLOTLY_LAYOUT,height=300)
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info('無殖利率資料')
@@ -1587,7 +1589,7 @@ if selected_stock:
                             line_width = 3 if comp_stock == selected_stock else 1
                             fig.add_trace(go.Scatter(x=normalized.index, y=normalized,
                                                     name=f'{comp_stock}', line=dict(width=line_width)))
-                fig.update_layout(title='股價相對強弱 (基期=100)', template='plotly_white', height=400)
+                fig.update_layout(title='股價相對強弱 (基期=100)', **DEFAULT_PLOTLY_LAYOUT,height=400)
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info('找不到同產業股票進行比較')

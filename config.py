@@ -237,6 +237,14 @@ NOTIFICATION_CONFIG = {
     },
 }
 
+# Cache TTL 設定 (秒)
+CACHE_TTL = {
+    'realtime': 60,       # 即時資料 (報價、當前市場)
+    'intraday': 300,      # 盤中資料 (市場總覽、熱力圖)
+    'daily': 3600,        # 日頻資料 (分析、回測)
+    'static': 86400,      # 靜態資料 (股票資訊、產業分類)
+}
+
 # Streamlit 設定
 STREAMLIT_CONFIG = {
     'page_title': '台股分析系統',

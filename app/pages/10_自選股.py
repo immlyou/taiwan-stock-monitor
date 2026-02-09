@@ -11,12 +11,16 @@ import io
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys,
     navigate_to_stock_analysis
 )
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 st.set_page_config(page_title='自選股', page_icon='⭐', layout='wide')
 
@@ -26,9 +30,7 @@ init_session_state()
 # 渲染側邊欄
 render_sidebar_mini(current_page='watchlist')
 
-st.title('⭐ 自選股清單')
-st.markdown('管理您關注的股票')
-st.markdown('---')
+render_page_header('自選股', icon='⭐')
 
 # 自選股檔案路徑
 WATCHLIST_FILE = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
@@ -45,7 +47,7 @@ def save_watchlists(watchlists):
         json.dump(watchlists, f, ensure_ascii=False, indent=2, default=str)
 
 # 載入數據
-@st.cache_data(ttl=3600, show_spinner='載入數據中...')
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')
 def load_data():
     loader = get_loader()
     return {
@@ -61,7 +63,7 @@ try:
     stock_info = data['stock_info']
     active_stocks = get_active_stocks()
 except Exception as e:
-    st.error(f'載入數據失敗: {e}')
+    show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常，或嘗試重新整理頁面')
     st.stop()
 
 # 股票選項
@@ -342,13 +344,13 @@ if selected_watchlist != '-- 新建清單 --' and selected_watchlist in watchlis
                     else:
                         st.error('CSV 必須包含「代號」欄位')
                 except Exception as e:
-                    st.error(f'匯入失敗: {e}')
+                    show_error(e, title='匯入失敗', suggestion='請確認 CSV 檔案格式是否正確')
 
     else:
-        st.info('此清單尚無股票，請在上方新增股票。')
+        show_empty_state('此清單尚無股票', icon='⭐', suggestion='請在上方搜尋並新增股票')
 
 else:
-    st.info('請在側邊欄選擇或建立自選股清單')
+    show_empty_state('尚未選擇自選股清單', icon='⭐', suggestion='請在側邊欄選擇或建立自選股清單')
 
 # ========== 說明 ==========
 with st.expander('📖 使用說明'):

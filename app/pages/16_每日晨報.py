@@ -15,11 +15,15 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import STREAMLIT_CONFIG
+from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.news_scanner import NewsScanner, RSS_FEEDS
 from core.hot_stocks import HotStockAnalyzer, get_hot_stocks_integrated
 from app.components.sidebar import render_sidebar
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
+from app.components.session_manager import set_state, StateKeys
 
 st.set_page_config(
     page_title=f"{STREAMLIT_CONFIG['page_title']} - 每日晨報",
@@ -32,7 +36,7 @@ render_sidebar(current_page='morning_report')
 
 
 # ========== 資料載入 ==========
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_stock_info():
     loader = get_loader()
     return loader.get_stock_info()
@@ -53,7 +57,7 @@ def load_watchlist():
 try:
     stock_info = load_stock_info()
 except Exception as e:
-    st.error(f'載入股票資訊失敗: {e}')
+    show_error(e, title='載入股票資訊失敗', suggestion='請確認 FinLab API 設定是否正確')
     stock_info = None
 
 
@@ -76,29 +80,24 @@ scanner = get_scanner()
 scanner.load_cache()
 
 # 同步到 session_state (給其他需要的地方使用)
-st.session_state.news_scanner = scanner
+set_state(StateKeys.NEWS_SCANNER, scanner)
 
 
 # ========== 頁面標題 ==========
-title_col1, title_col2 = st.columns([4, 1])
+render_page_header('每日晨報', icon='🌅')
 
-with title_col1:
-    st.title('📰 每日晨報')
-    st.caption('開盤前新聞掃描，掌握利多利空訊息')
-
-with title_col2:
-    if st.button('🔄 更新新聞', type='primary', use_container_width=True):
-        with st.spinner('正在抓取新聞...'):
-            try:
-                news_list = scanner.fetch_all_feeds()
-                st.success(f'已更新 {len(news_list)} 則新聞')
-                st.rerun()
-            except Exception as e:
-                st.error(f'抓取失敗: {e}')
+if st.button('🔄 更新新聞', type='primary'):
+    with st.spinner('正在抓取新聞...'):
+        try:
+            news_list = scanner.fetch_all_feeds()
+            st.success(f'已更新 {len(news_list)} 則新聞')
+            st.rerun()
+        except Exception as e:
+            show_error(e, title='抓取新聞失敗', suggestion='請檢查網路連線狀態')
 
 # ========== 主要內容 ==========
 if not scanner.news_cache:
-    st.info('點擊「更新新聞」開始抓取最新新聞')
+    show_empty_state('尚無新聞資料', icon='📰', suggestion='點擊「更新新聞」開始抓取最新新聞')
 
     if st.button('🚀 立即抓取', use_container_width=True):
         with st.spinner('正在抓取新聞...'):
@@ -177,7 +176,7 @@ with main_col1:
                     st.markdown(f"[閱讀全文]({news['link']})")
                     st.markdown('---')
         else:
-            st.info('目前無利多新聞')
+            show_empty_state('目前無利多新聞', icon='📈')
 
     with news_col2:
         st.markdown('##### 📉 利空消息')
@@ -202,7 +201,7 @@ with main_col1:
                     st.markdown(f"[閱讀全文]({news['link']})")
                     st.markdown('---')
         else:
-            st.info('目前無利空新聞')
+            show_empty_state('目前無利空新聞', icon='📉')
 
 with main_col2:
     st.markdown('##### 🔥 熱門股票 Top 10')
@@ -254,7 +253,7 @@ with main_col2:
                     icon = {'positive': '📈', 'negative': '📉', 'neutral': '➖'}.get(news.sentiment, '➖')
                     st.markdown(f"{icon} [{news.title[:30]}...]({news.link})")
     else:
-        st.info('暫無熱門股票')
+        show_empty_state('暫無熱門股票', icon='🔥', suggestion='請先更新新聞資料')
 
 # ========== 整合分析：新聞+成交量+動能 ==========
 st.markdown('---')
@@ -372,7 +371,7 @@ try:
                     st.markdown(f"{stock.stock_id}: {stock.momentum_score:.0f}分 (5日:{stock.price_change_5d:+.1f}% {trend_icon})")
 
     else:
-        st.info('目前無符合條件的熱門股票，請先更新新聞資料')
+        show_empty_state('目前無符合條件的熱門股票', icon='🎯', suggestion='請先更新新聞資料以取得整合分析結果')
 
 except Exception as e:
     st.warning(f'整合分析暫時無法使用: {e}')
@@ -425,7 +424,7 @@ if watchlists:
                     stocks_str = ', '.join(news.stocks[:3])
                     st.markdown(f"{icon} **{news.title[:60]}** `{stocks_str}` [連結]({news.link})")
             else:
-                st.info('自選股近期無相關新聞')
+                show_empty_state('自選股近期無相關新聞', icon='⭐')
 else:
     st.caption('💡 建立自選股清單可追蹤關注標的的新聞')
 

@@ -52,6 +52,11 @@ def calculate_annualized_return(portfolio_values: pd.Series) -> float:
 
     total_return = portfolio_values.iloc[-1] / portfolio_values.iloc[0]
     years = total_days / 365.0
+
+    # 防護：當投資組合歸零或為負時 (理論上不該發生但防禦性處理)
+    if total_return <= 0:
+        return -100.0
+
     annualized = (total_return ** (1 / years)) - 1
 
     return annualized * 100
@@ -191,13 +196,19 @@ def calculate_win_rate(trades: pd.DataFrame) -> float:
 
 def calculate_profit_factor(trades: pd.DataFrame) -> float:
     """
-    計算獲利因子 (總獲利 / 總虧損)
+    計算獲利因子 (總獲利金額 / 總虧損金額)
+
+    使用 PnL 絕對金額而非報酬率百分比，
+    以正確反映不同規模交易的實際貢獻。
     """
     if len(trades) == 0:
         return 0.0
 
-    profits = trades[trades['return'] > 0]['return'].sum()
-    losses = abs(trades[trades['return'] < 0]['return'].sum())
+    # 優先使用 pnl 欄位 (絕對金額)，若無則退回 return (百分比)
+    pnl_col = 'pnl' if 'pnl' in trades.columns else 'return'
+
+    profits = trades[trades[pnl_col] > 0][pnl_col].sum()
+    losses = abs(trades[trades[pnl_col] < 0][pnl_col].sum())
 
     if losses == 0:
         return float('inf') if profits > 0 else 0.0

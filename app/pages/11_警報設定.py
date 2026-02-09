@@ -11,18 +11,20 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.indicators import rsi, macd
 from app.components.sidebar import render_sidebar_mini
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 st.set_page_config(page_title='警報設定', page_icon='🔔', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='alerts')
 
-st.title('🔔 警報設定')
-st.markdown('設定價格與技術指標警報，條件觸發時通知您')
-st.markdown('---')
+render_page_header('警報設定', icon='🔔')
 
 # 警報檔案路徑
 ALERTS_FILE = Path(__file__).parent.parent.parent / 'data' / 'alerts.json'
@@ -39,7 +41,7 @@ def save_alerts(alerts_data):
         json.dump(alerts_data, f, ensure_ascii=False, indent=2, default=str)
 
 # 載入數據
-@st.cache_data(ttl=3600, show_spinner='載入數據中...')
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')
 def load_data():
     loader = get_loader()
     return {
@@ -59,7 +61,7 @@ try:
     stock_info = data['stock_info']
     active_stocks = get_active_stocks()
 except Exception as e:
-    st.error(f'載入數據失敗: {e}')
+    show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常，或嘗試重新整理頁面')
     st.stop()
 
 # 股票選項
@@ -232,7 +234,7 @@ if alerts:
 
                 st.markdown('---')
         else:
-            st.info('目前沒有啟用中的警報')
+            show_empty_state('目前沒有啟用中的警報', icon='🟢', suggestion='請在上方建立新的警報')
 
     with tab2:
         triggered_alerts = [a for a in alerts if a.get('triggered')]
@@ -265,7 +267,7 @@ if alerts:
 
                 st.markdown('---')
         else:
-            st.info('目前沒有已觸發的警報')
+            show_empty_state('目前沒有已觸發的警報', icon='🔴')
 
     with tab3:
         disabled_alerts = [a for a in alerts if not a.get('enabled')]
@@ -296,10 +298,10 @@ if alerts:
 
                 st.markdown('---')
         else:
-            st.info('目前沒有已停用的警報')
+            show_empty_state('目前沒有已停用的警報', icon='⚪')
 
 else:
-    st.info('尚未建立任何警報')
+    show_empty_state('尚未建立任何警報', icon='🔔', suggestion='請在上方建立您的第一個警報')
 
 st.markdown('---')
 

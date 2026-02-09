@@ -12,12 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
 from config import STRATEGY_PARAMS
 from app.components.sidebar import render_sidebar
+from app.components.error_handler import show_error
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 
 st.set_page_config(page_title='策略管理', page_icon='⚙️', layout='wide')
 render_sidebar(current_page='strategy')
 
-st.title('策略管理')
-st.markdown('自訂並儲存選股策略參數')
+render_page_header("策略管理", icon="🎯")
 st.markdown('---')
 
 # 策略設定檔路徑
@@ -160,7 +162,7 @@ with tab1:
             st.success(f'策略 "{strategy_name}" 已儲存！')
             st.rerun()
         else:
-            st.error('請輸入策略名稱')
+            show_error(Exception('請輸入策略名稱'), title='缺少策略名稱')
 
 # ==================== 已儲存策略 ====================
 with tab2:
@@ -179,7 +181,7 @@ with tab2:
 
                 with col2:
                     if st.button('載入', key=f'load_{name}'):
-                        st.session_state['loaded_strategy'] = strategy
+                        set_state(StateKeys.LOADED_STRATEGY, strategy)
                         st.info(f'已載入策略 "{name}"，請切換到「選股篩選」頁面使用')
 
                     if st.button('刪除', key=f'delete_{name}'):
@@ -188,7 +190,7 @@ with tab2:
                         st.warning(f'已刪除策略 "{name}"')
                         st.rerun()
     else:
-        st.info('尚未儲存任何策略。請在「建立策略」分頁中建立並儲存策略。')
+        show_empty_state('尚未儲存任何策略', icon='📋', suggestion='請在「建立策略」分頁中建立並儲存策略')
 
 # ==================== 策略比較 ====================
 with tab3:
@@ -238,7 +240,7 @@ with tab3:
             st.dataframe(df, use_container_width=True, hide_index=True)
 
     else:
-        st.info('需要至少儲存 2 個策略才能進行比較。')
+        show_empty_state('需要至少儲存 2 個策略才能進行比較', icon='⚖️', suggestion='請先在「建立策略」分頁中建立更多策略')
 
 # 預設策略說明
 st.markdown('---')

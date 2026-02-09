@@ -144,15 +144,16 @@ class AlertEngine:
             short_ma = calculate_sma(stock_close, short_period)
             long_ma = calculate_sma(stock_close, long_period)
 
-            # 檢查黃金交叉
-            prev_short = short_ma.iloc[-2]
-            prev_long = long_ma.iloc[-2]
-            curr_short = short_ma.iloc[-1]
-            curr_long = long_ma.iloc[-1]
+            # 檢查黃金交叉 (需要至少 2 個資料點)
+            if len(short_ma) >= 2 and len(long_ma) >= 2:
+                prev_short = short_ma.iloc[-2]
+                prev_long = long_ma.iloc[-2]
+                curr_short = short_ma.iloc[-1]
+                curr_long = long_ma.iloc[-1]
 
-            is_triggered = (prev_short <= prev_long) and (curr_short > curr_long)
-            current_value = curr_short
-            message = f'MA{short_period}={curr_short:.2f} 向上穿越 MA{long_period}={curr_long:.2f}'
+                is_triggered = (prev_short <= prev_long) and (curr_short > curr_long)
+                current_value = curr_short
+                message = f'MA{short_period}={curr_short:.2f} 向上穿越 MA{long_period}={curr_long:.2f}'
 
         elif alert_type == 'ma_cross_down':
             if isinstance(target_value, str) and ',' in target_value:
@@ -163,26 +164,36 @@ class AlertEngine:
             short_ma = calculate_sma(stock_close, short_period)
             long_ma = calculate_sma(stock_close, long_period)
 
-            prev_short = short_ma.iloc[-2]
-            prev_long = long_ma.iloc[-2]
-            curr_short = short_ma.iloc[-1]
-            curr_long = long_ma.iloc[-1]
+            # 需要至少 2 個資料點
+            if len(short_ma) >= 2 and len(long_ma) >= 2:
+                prev_short = short_ma.iloc[-2]
+                prev_long = long_ma.iloc[-2]
+                curr_short = short_ma.iloc[-1]
+                curr_long = long_ma.iloc[-1]
 
-            is_triggered = (prev_short >= prev_long) and (curr_short < curr_long)
-            current_value = curr_short
-            message = f'MA{short_period}={curr_short:.2f} 向下穿越 MA{long_period}={curr_long:.2f}'
+                is_triggered = (prev_short >= prev_long) and (curr_short < curr_long)
+                current_value = curr_short
+                message = f'MA{short_period}={curr_short:.2f} 向下穿越 MA{long_period}={curr_long:.2f}'
 
         elif alert_type == 'new_high':
             lookback = int(target_value)
-            highest = stock_close.tail(lookback).max()
-            is_triggered = current_price >= highest
+            # 比較當前價格與「之前」N日的最高價 (排除今日)
+            if len(stock_close) > lookback:
+                prev_highest = stock_close.iloc[-(lookback+1):-1].max()
+                is_triggered = current_price > prev_highest
+            else:
+                is_triggered = False
             current_value = current_price
             message = f'股價 {current_price:.2f} 創 {lookback} 日新高'
 
         elif alert_type == 'new_low':
             lookback = int(target_value)
-            lowest = stock_close.tail(lookback).min()
-            is_triggered = current_price <= lowest
+            # 比較當前價格與「之前」N日的最低價 (排除今日)
+            if len(stock_close) > lookback:
+                prev_lowest = stock_close.iloc[-(lookback+1):-1].min()
+                is_triggered = current_price < prev_lowest
+            else:
+                is_triggered = False
             current_value = current_price
             message = f'股價 {current_price:.2f} 創 {lookback} 日新低'
 

@@ -12,15 +12,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config import NOTIFICATION_CONFIG, DATA_DIR
 from app.components.sidebar import render_sidebar_mini
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 st.set_page_config(page_title='系統設定', page_icon='⚙️', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='settings')
 
-st.title('⚙️ 系統設定')
-st.markdown('管理通知設定、自動更新排程和系統偏好')
-st.markdown('---')
+render_page_header('系統設定', icon='⚙️')
 
 # 設定檔路徑
 SETTINGS_FILE = Path(__file__).parent.parent.parent / 'data' / 'settings.json'
@@ -101,7 +102,7 @@ if line_token and st.button('🔔 測試 LINE 通知'):
             st.error(f'❌ 發送失敗: {response.text}')
 
     except Exception as e:
-        st.error(f'發送錯誤: {e}')
+        show_error(e, title='發送通知失敗', suggestion='請確認 LINE Notify Token 是否正確')
 
 st.markdown('---')
 
@@ -235,7 +236,7 @@ if st.button('💾 儲存排程設定'):
             st.info(f'排程檔案: {plist_path}')
 
         except Exception as e:
-            st.error(f'設定排程失敗: {e}')
+            show_error(e, title='設定排程失敗', suggestion='請確認系統權限設定')
     else:
         # 停用排程
         plist_path = Path.home() / 'Library' / 'LaunchAgents' / 'com.finlab.daily-update.plist'
@@ -275,7 +276,7 @@ with col1:
             except subprocess.TimeoutExpired:
                 st.warning('更新超時，請稍後重試')
             except Exception as e:
-                st.error(f'執行錯誤: {e}')
+                show_error(e, title='數據更新失敗', suggestion='請確認更新腳本是否存在')
 
 with col2:
     if st.button('📊 立即執行選股', use_container_width=True):
@@ -299,7 +300,7 @@ with col2:
             except subprocess.TimeoutExpired:
                 st.warning('執行超時')
             except Exception as e:
-                st.error(f'執行錯誤: {e}')
+                show_error(e, title='選股執行失敗', suggestion='請確認選股腳本是否存在')
 
 st.markdown('---')
 
@@ -483,7 +484,7 @@ try:
         st.metric('已下市股票', summary.get('delisted_stocks', '-'))
 
 except Exception as e:
-    st.error(f'無法載入系統資訊: {e}')
+    show_error(e, title='無法載入系統資訊', suggestion='請確認資料檔案是否存在')
 
 # 顯示設定檔位置
 st.markdown('**設定檔位置：**')

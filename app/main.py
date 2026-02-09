@@ -17,7 +17,7 @@ from datetime import datetime
 # 設定路徑
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import STREAMLIT_CONFIG
+from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader, get_data_summary, reset_all_caches
 from core.realtime_quote import fetch_realtime_quotes
 from core.twse_api import get_taiex
@@ -54,7 +54,7 @@ inject_professional_theme()
 render_sidebar(current_page='home')
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL['intraday'])
 def load_market_overview():
     """載入市場總覽資料"""
     loader = get_loader()
@@ -69,6 +69,7 @@ def load_market_overview():
         # 計算漲跌幅
         if len(close) > 1:
             change_pct = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2] * 100).fillna(0)
+            change_pct = change_pct.replace([np.inf, -np.inf], 0)
             data['change_pct'] = change_pct
 
             # 市場統計
@@ -88,21 +89,21 @@ def load_market_overview():
         foreign = loader.get('foreign_investors')
         if foreign is not None and len(foreign) > 0:
             data['foreign_total'] = foreign.iloc[-1].sum() / 1000  # 轉為張
-    except:
+    except Exception:
         data['foreign_total'] = None
 
     try:
         trust = loader.get('investment_trust')
         if trust is not None and len(trust) > 0:
             data['trust_total'] = trust.iloc[-1].sum() / 1000
-    except:
+    except Exception:
         data['trust_total'] = None
 
     try:
         dealer = loader.get('dealer')
         if dealer is not None and len(dealer) > 0:
             data['dealer_total'] = dealer.iloc[-1].sum() / 1000
-    except:
+    except Exception:
         data['dealer_total'] = None
 
     # 股票資訊
@@ -566,7 +567,7 @@ with row3_col2:
             st.markdown(create_ranking_table('外資買超 TOP 10', rows, '🌍'), unsafe_allow_html=True)
         else:
             st.info('無法人資料')
-    except:
+    except Exception:
         st.info('無法人資料')
 
 # 投信買超榜
@@ -595,7 +596,7 @@ with row3_col3:
             st.markdown(create_ranking_table('投信買超 TOP 10', rows, '🏦'), unsafe_allow_html=True)
         else:
             st.info('無法人資料')
-    except:
+    except Exception:
         st.info('無法人資料')
 
 st.markdown('<div style="margin-bottom:2rem"></div>', unsafe_allow_html=True)

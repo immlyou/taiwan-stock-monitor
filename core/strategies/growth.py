@@ -169,16 +169,18 @@ class GrowthStrategy(BaseStrategy):
 
         date_idx = data.index.get_loc(date)
         consecutive = pd.Series(0, index=data.columns)
+        # 追蹤每支股票是否仍在連續成長中
+        still_growing = pd.Series(True, index=data.columns)
 
+        # 從指定日期往前回溯
         for i in range(date_idx, -1, -1):
             is_growth = data.iloc[i] > 0
-            consecutive = consecutive.where(~is_growth, consecutive + 1)
-            # 一旦不成長就停止計數
-            if i < date_idx:
-                mask = data.iloc[i] <= 0
-                consecutive = consecutive.where(~mask, consecutive)
-                # 如果這個月不成長，跳出
-                if not is_growth.any():
-                    break
+            # 只有仍在連續成長的股票才累加
+            still_growing = still_growing & is_growth
+            consecutive = consecutive + still_growing.astype(int)
+
+            # 如果所有股票都停止成長，提前結束
+            if not still_growing.any():
+                break
 
         return consecutive

@@ -170,8 +170,10 @@ def rsi(data: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     gain = delta.where(delta > 0, 0)
     loss = (-delta).where(delta < 0, 0)
 
-    avg_gain = gain.rolling(window=period, min_periods=1).mean()
-    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+    # 使用 Wilder's smoothing (等同於 alpha=1/period 的 EMA)
+    # 這是業界標準 RSI 公式，與各大看盤軟體一致
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi_value = 100 - (100 / (1 + rs))
@@ -252,7 +254,15 @@ def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
 
-    tr = pd.concat([tr1, tr2, tr3], axis=0).max(level=0)
+    # 使用 np.maximum 取代已移除的 .max(level=0) (pandas 2.0+)
+    if isinstance(tr1, pd.DataFrame):
+        tr = pd.DataFrame(
+            np.maximum(np.maximum(tr1.values, tr2.values), tr3.values),
+            index=high.index, columns=high.columns
+        )
+    else:
+        tr = np.maximum(np.maximum(tr1, tr2), tr3)
+
     atr_value = tr.rolling(window=period, min_periods=1).mean()
 
     return atr_value

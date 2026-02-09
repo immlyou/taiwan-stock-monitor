@@ -12,6 +12,15 @@ from typing import Dict, Optional, List
 import pandas as pd
 from threading import Lock
 
+# 載入 .env 檔案中的環境變數
+try:
+    from dotenv import load_dotenv
+    # 從專案根目錄載入 .env
+    _env_path = Path(__file__).parent.parent / '.env'
+    load_dotenv(_env_path)
+except ImportError:
+    pass
+
 # 嘗試載入 streamlit (非必要)
 try:
     import streamlit as st

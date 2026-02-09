@@ -1,30 +1,53 @@
 """
-財報分析頁面 - 基本面分析工具
+財報分析頁面 - 進階基本面分析工具
+6 個分頁：財報總覽、獲利能力、估值分析、營收分析、現金流分析、價值篩選
 """
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import sys
 from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.error_handler import show_error
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.charts import apply_dark_theme
+from app.components.theme import DEFAULT_PLOTLY_LAYOUT, COLORS, CHART_PALETTE
 
 st.set_page_config(page_title='財報分析', page_icon='📑', layout='wide')
 
-# 渲染側邊欄
 render_sidebar_mini(current_page='financial')
+render_page_header('財報分析', icon='📋')
 
-st.title('📑 財報分析')
-st.markdown('基本面數據分析與估值計算')
-st.markdown('---')
+# ========== FinLab 資料存取 ==========
+try:
+    from finlab import data as finlab_data
+    FINLAB_AVAILABLE = True
+except ImportError:
+    FINLAB_AVAILABLE = False
+    finlab_data = None
 
-# 載入數據
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner=False)
+def load_finlab(data_key: str):
+    """快取 FinLab 資料"""
+    if FINLAB_AVAILABLE and finlab_data:
+        try:
+            return finlab_data.get(data_key)
+        except Exception:
+            return None
+    return None
+
+
+# ========== 基礎資料載入 ==========
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_data():
     loader = get_loader()
     return {
@@ -38,6 +61,7 @@ def load_data():
         'stock_info': loader.get_stock_info(),
     }
 
+
 try:
     data = load_data()
     close = data['close']
@@ -50,477 +74,700 @@ try:
     stock_info = data['stock_info']
     active_stocks = get_active_stocks()
 except Exception as e:
-    show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常，或嘗試重新整理頁面')
+    show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常')
     st.stop()
 
-# 股票選擇
 stock_options = [f"{row['stock_id']} {row['name']}"
                  for _, row in stock_info.iterrows()
                  if row['stock_id'] in active_stocks]
 
-# Tab 選擇
-tab1, tab2, tab3, tab4 = st.tabs(['🔍 個股分析', '📊 估值比較', '📈 營收分析', '🎯 價值選股'])
 
-# ========== 個股分析 ==========
+# ========== 工具函式 ==========
+def _latest(df, stock_id):
+    """安全取得最新值"""
+    if df is not None and stock_id in df.columns:
+        s = df[stock_id].dropna()
+        if len(s) > 0:
+            return s.iloc[-1]
+    return None
+
+
+def _tail(df, stock_id, n=20):
+    """安全取得尾端 n 筆"""
+    if df is not None and stock_id in df.columns:
+        s = df[stock_id].dropna()
+        if len(s) > 0:
+            return s.tail(n)
+    return None
+
+
+def _metric_display(label, value, fmt='{:.2f}', suffix=''):
+    """顯示 metric，處理 None"""
+    if value is not None and not (isinstance(value, float) and (np.isnan(value) or np.isinf(value))):
+        st.metric(label, f'{fmt.format(value)}{suffix}')
+    else:
+        st.metric(label, 'N/A')
+
+
+def _valuation_position(current, mean, std):
+    """判斷估值位置"""
+    if current < mean - std:
+        return '偏低'
+    elif current > mean + std:
+        return '偏高'
+    return '合理'
+
+
+# ========== 6 個分頁 ==========
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    '📋 財報總覽', '💰 獲利能力', '📊 估值分析',
+    '📈 營收分析', '💵 現金流分析', '🎯 價值篩選'
+])
+
+
+# ==================== Tab 1: 財報總覽 ====================
 with tab1:
-    st.markdown('### 個股基本面分析')
+    st.markdown('### 財報總覽')
 
     selected_stock = st.selectbox(
-        '選擇股票',
-        stock_options,
+        '選擇股票', stock_options,
         index=0 if stock_options else None,
-        key='financial_stock_select'
+        key='fin_overview_stock'
     )
 
     if selected_stock:
-        stock_id = selected_stock.split(' ')[0]
-        stock_name = selected_stock.split(' ')[1] if len(selected_stock.split(' ')) > 1 else ''
+        sid = selected_stock.split(' ')[0]
+        sname = ' '.join(selected_stock.split(' ')[1:])
 
-        st.markdown(f'#### {stock_id} {stock_name}')
+        st.markdown(f'#### {sid} {sname}')
 
-        # 估值指標
-        st.markdown('##### 估值指標')
+        # KPI 卡片列
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1:
+            _metric_display('收盤價', _latest(close, sid))
+        with c2:
+            _metric_display('本益比', _latest(pe_ratio, sid))
+        with c3:
+            _metric_display('股價淨值比', _latest(pb_ratio, sid))
+        with c4:
+            _metric_display('殖利率', _latest(dividend_yield, sid), suffix='%')
+        with c5:
+            eps_data = load_finlab('financial_statement:每股盈餘')
+            _metric_display('EPS', _latest(eps_data, sid))
+        with c6:
+            roe_data = load_finlab('fundamental_features:ROE稅後')
+            _metric_display('ROE', _latest(roe_data, sid), suffix='%')
 
-        col1, col2, col3, col4 = st.columns(4)
+        st.markdown('---')
 
-        with col1:
-            if pe_ratio is not None and stock_id in pe_ratio.columns:
-                current_pe = pe_ratio[stock_id].dropna().iloc[-1] if len(pe_ratio[stock_id].dropna()) > 0 else None
-                if current_pe is not None:
-                    st.metric('本益比 (P/E)', f'{current_pe:.2f}')
-                else:
-                    st.metric('本益比 (P/E)', 'N/A')
-            else:
-                st.metric('本益比 (P/E)', 'N/A')
-
-        with col2:
-            if pb_ratio is not None and stock_id in pb_ratio.columns:
-                current_pb = pb_ratio[stock_id].dropna().iloc[-1] if len(pb_ratio[stock_id].dropna()) > 0 else None
-                if current_pb is not None:
-                    st.metric('股價淨值比 (P/B)', f'{current_pb:.2f}')
-                else:
-                    st.metric('股價淨值比 (P/B)', 'N/A')
-            else:
-                st.metric('股價淨值比 (P/B)', 'N/A')
-
-        with col3:
-            if dividend_yield is not None and stock_id in dividend_yield.columns:
-                current_yield = dividend_yield[stock_id].dropna().iloc[-1] if len(dividend_yield[stock_id].dropna()) > 0 else None
-                if current_yield is not None:
-                    st.metric('殖利率', f'{current_yield:.2f}%')
-                else:
-                    st.metric('殖利率', 'N/A')
-            else:
-                st.metric('殖利率', 'N/A')
-
-        with col4:
-            if close is not None and stock_id in close.columns:
-                current_price = close[stock_id].dropna().iloc[-1] if len(close[stock_id].dropna()) > 0 else None
-                if current_price is not None:
-                    st.metric('收盤價', f'{current_price:.2f}')
-                else:
-                    st.metric('收盤價', 'N/A')
-            else:
-                st.metric('收盤價', 'N/A')
-
-        # 估值歷史走勢
-        st.markdown('##### 估值歷史走勢')
-
+        # 趨勢圖：EPS + ROE
         col1, col2 = st.columns(2)
 
         with col1:
-            if pe_ratio is not None and stock_id in pe_ratio.columns:
-                pe_data = pe_ratio[stock_id].dropna().tail(252)
-                if len(pe_data) > 0:
-                    st.markdown('**本益比走勢**')
-                    st.line_chart(pe_data)
-
-                    # 本益比統計
-                    pe_mean = pe_data.mean()
-                    pe_std = pe_data.std()
-                    pe_current = pe_data.iloc[-1]
-
-                    col_a, col_b, col_c = st.columns(3)
-                    col_a.metric('平均', f'{pe_mean:.2f}')
-                    col_b.metric('標準差', f'{pe_std:.2f}')
-
-                    # 判斷目前位置
-                    if pe_current < pe_mean - pe_std:
-                        position = '偏低'
-                    elif pe_current > pe_mean + pe_std:
-                        position = '偏高'
-                    else:
-                        position = '合理'
-                    col_c.metric('目前位置', position)
+            eps_series = _tail(eps_data, sid, 20)
+            if eps_series is not None and len(eps_series) > 0:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    x=eps_series.index, y=eps_series.values,
+                    name='EPS',
+                    marker_color=[COLORS['up'] if v >= 0 else COLORS['down'] for v in eps_series.values]
+                ))
+                apply_dark_theme(fig, height=320, title='每股盈餘 (EPS) 趨勢')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                show_empty_state('EPS 資料不可用', icon='📊')
 
         with col2:
-            if pb_ratio is not None and stock_id in pb_ratio.columns:
-                pb_data = pb_ratio[stock_id].dropna().tail(252)
-                if len(pb_data) > 0:
-                    st.markdown('**股價淨值比走勢**')
-                    st.line_chart(pb_data)
+            roe_series = _tail(roe_data, sid, 20)
+            roa_data = load_finlab('fundamental_features:ROA稅後息前')
+            roa_series = _tail(roa_data, sid, 20)
 
-                    # 股價淨值比統計
-                    pb_mean = pb_data.mean()
-                    pb_std = pb_data.std()
-                    pb_current = pb_data.iloc[-1]
+            if roe_series is not None and len(roe_series) > 0:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=roe_series.index, y=roe_series.values,
+                    name='ROE', mode='lines+markers',
+                    line=dict(color=CHART_PALETTE[0], width=2)
+                ))
+                if roa_series is not None and len(roa_series) > 0:
+                    fig.add_trace(go.Scatter(
+                        x=roa_series.index, y=roa_series.values,
+                        name='ROA', mode='lines+markers',
+                        line=dict(color=CHART_PALETTE[1], width=2)
+                    ))
+                apply_dark_theme(fig, height=320, title='ROE / ROA 趨勢')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                show_empty_state('ROE 資料不可用', icon='📊')
 
-                    col_a, col_b, col_c = st.columns(3)
-                    col_a.metric('平均', f'{pb_mean:.2f}')
-                    col_b.metric('標準差', f'{pb_std:.2f}')
+        # 利潤率摘要
+        gm = load_finlab('fundamental_features:營業毛利率')
+        om = load_finlab('fundamental_features:營業利益率')
+        nm = load_finlab('fundamental_features:稅後淨利率')
 
-                    if pb_current < pb_mean - pb_std:
-                        position = '偏低'
-                    elif pb_current > pb_mean + pb_std:
-                        position = '偏高'
-                    else:
-                        position = '合理'
-                    col_c.metric('目前位置', position)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            _metric_display('毛利率', _latest(gm, sid), suffix='%')
+        with c2:
+            _metric_display('營益率', _latest(om, sid), suffix='%')
+        with c3:
+            _metric_display('淨利率', _latest(nm, sid), suffix='%')
+        with c4:
+            dr = load_finlab('fundamental_features:負債比率')
+            _metric_display('負債比率', _latest(dr, sid), suffix='%')
 
-        # 月營收分析
-        st.markdown('##### 月營收分析')
 
-        if monthly_revenue is not None and stock_id in monthly_revenue.columns:
-            rev_data = monthly_revenue[stock_id].dropna().tail(24)
-
-            if len(rev_data) > 0:
-                st.markdown('**月營收走勢 (近24個月)**')
-
-                # 轉換為億元
-                rev_chart = pd.DataFrame({
-                    '營收(億)': rev_data / 100000000
-                })
-                st.bar_chart(rev_chart)
-
-                # 營收統計
-                col1, col2, col3, col4 = st.columns(4)
-
-                with col1:
-                    latest_rev = rev_data.iloc[-1] / 100000000
-                    st.metric('最新月營收', f'{latest_rev:.2f} 億')
-
-                with col2:
-                    if revenue_yoy is not None and stock_id in revenue_yoy.columns:
-                        yoy = revenue_yoy[stock_id].dropna().iloc[-1] if len(revenue_yoy[stock_id].dropna()) > 0 else None
-                        if yoy is not None:
-                            st.metric('年增率 (YoY)', f'{yoy:+.2f}%')
-                        else:
-                            st.metric('年增率 (YoY)', 'N/A')
-                    else:
-                        st.metric('年增率 (YoY)', 'N/A')
-
-                with col3:
-                    if revenue_mom is not None and stock_id in revenue_mom.columns:
-                        mom = revenue_mom[stock_id].dropna().iloc[-1] if len(revenue_mom[stock_id].dropna()) > 0 else None
-                        if mom is not None:
-                            st.metric('月增率 (MoM)', f'{mom:+.2f}%')
-                        else:
-                            st.metric('月增率 (MoM)', 'N/A')
-                    else:
-                        st.metric('月增率 (MoM)', 'N/A')
-
-                with col4:
-                    # 累計年營收
-                    current_year = datetime.now().year
-                    ytd_rev = rev_data[rev_data.index.year == current_year].sum() / 100000000
-                    st.metric('本年累計營收', f'{ytd_rev:.2f} 億')
-
-# ========== 估值比較 ==========
+# ==================== Tab 2: 獲利能力 ====================
 with tab2:
-    st.markdown('### 估值比較分析')
+    st.markdown('### 獲利能力分析')
 
-    st.markdown('選擇多檔股票進行估值比較')
-
-    compare_stocks = st.multiselect(
-        '選擇比較股票 (最多 10 檔)',
-        stock_options,
-        max_selections=10
+    sel2 = st.selectbox(
+        '選擇股票', stock_options,
+        index=0 if stock_options else None,
+        key='fin_profit_stock'
     )
 
-    if compare_stocks:
-        compare_ids = [s.split(' ')[0] for s in compare_stocks]
+    if sel2:
+        sid = sel2.split(' ')[0]
 
-        # 收集估值數據
-        valuation_data = []
+        gm_data = load_finlab('fundamental_features:營業毛利率')
+        om_data = load_finlab('fundamental_features:營業利益率')
+        nm_data = load_finlab('fundamental_features:稅後淨利率')
 
-        for stock_id in compare_ids:
-            info = stock_info[stock_info['stock_id'] == stock_id]
-            name = info['name'].values[0] if len(info) > 0 else ''
+        gm_s = _tail(gm_data, sid, 20)
+        om_s = _tail(om_data, sid, 20)
+        nm_s = _tail(nm_data, sid, 20)
 
-            row = {
-                '股票代碼': stock_id,
-                '股票名稱': name,
-            }
+        has_data = any(s is not None and len(s) > 0 for s in [gm_s, om_s, nm_s])
 
-            # 收盤價
-            if close is not None and stock_id in close.columns:
-                row['收盤價'] = close[stock_id].dropna().iloc[-1] if len(close[stock_id].dropna()) > 0 else None
+        if has_data:
+            # 利潤率趨勢圖
+            fig = go.Figure()
+            traces = [
+                (gm_s, '毛利率', CHART_PALETTE[0]),
+                (om_s, '營益率', CHART_PALETTE[1]),
+                (nm_s, '淨利率', CHART_PALETTE[2]),
+            ]
+            for series, name, color in traces:
+                if series is not None and len(series) > 0:
+                    fig.add_trace(go.Scatter(
+                        x=series.index, y=series.values,
+                        name=name, mode='lines+markers',
+                        line=dict(color=color, width=2)
+                    ))
+            apply_dark_theme(fig, height=400, title='利潤率趨勢')
+            fig.update_layout(yaxis_title='%')
+            st.plotly_chart(fig, use_container_width=True)
 
-            # 本益比
-            if pe_ratio is not None and stock_id in pe_ratio.columns:
-                row['本益比'] = pe_ratio[stock_id].dropna().iloc[-1] if len(pe_ratio[stock_id].dropna()) > 0 else None
+            # 統計摘要
+            st.markdown('##### 利潤率統計')
+            summary_data = []
+            for series, name in [(gm_s, '毛利率'), (om_s, '營益率'), (nm_s, '淨利率')]:
+                if series is not None and len(series) > 0:
+                    summary_data.append({
+                        '指標': name,
+                        '最新': f'{series.iloc[-1]:.2f}%',
+                        '平均': f'{series.mean():.2f}%',
+                        '最高': f'{series.max():.2f}%',
+                        '最低': f'{series.min():.2f}%',
+                        '趨勢': '上升' if len(series) >= 2 and series.iloc[-1] > series.iloc[-2] else '下降',
+                    })
+            if summary_data:
+                st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
 
-            # 股價淨值比
-            if pb_ratio is not None and stock_id in pb_ratio.columns:
-                row['股價淨值比'] = pb_ratio[stock_id].dropna().iloc[-1] if len(pb_ratio[stock_id].dropna()) > 0 else None
+            # ROE 拆解 (杜邦分析)
+            st.markdown('##### ROE 與 ROA')
+            roe_s = _tail(load_finlab('fundamental_features:ROE稅後'), sid, 20)
+            roa_s = _tail(load_finlab('fundamental_features:ROA稅後息前'), sid, 20)
 
-            # 殖利率
-            if dividend_yield is not None and stock_id in dividend_yield.columns:
-                row['殖利率(%)'] = dividend_yield[stock_id].dropna().iloc[-1] if len(dividend_yield[stock_id].dropna()) > 0 else None
+            if roe_s is not None and len(roe_s) > 0:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Bar(
+                    x=roe_s.index, y=roe_s.values,
+                    name='ROE', marker_color=CHART_PALETTE[0], opacity=0.8
+                ))
+                if roa_s is not None and len(roa_s) > 0:
+                    fig2.add_trace(go.Scatter(
+                        x=roa_s.index, y=roa_s.values,
+                        name='ROA', mode='lines+markers',
+                        line=dict(color=CHART_PALETTE[1], width=2)
+                    ))
+                apply_dark_theme(fig2, height=350, title='ROE / ROA 趨勢')
+                fig2.update_layout(yaxis_title='%')
+                st.plotly_chart(fig2, use_container_width=True)
+        else:
+            show_empty_state('此功能需要 FinLab 進階財務數據', icon='💰',
+                             suggestion='請確認 FinLab API 可用且已登入')
 
-            # 營收年增率
-            if revenue_yoy is not None and stock_id in revenue_yoy.columns:
-                row['營收YoY(%)'] = revenue_yoy[stock_id].dropna().iloc[-1] if len(revenue_yoy[stock_id].dropna()) > 0 else None
 
-            valuation_data.append(row)
+# ==================== Tab 3: 估值分析 ====================
+with tab3:
+    st.markdown('### 估值分析')
 
-        df = pd.DataFrame(valuation_data)
+    sel3 = st.selectbox(
+        '選擇股票', stock_options,
+        index=0 if stock_options else None,
+        key='fin_valuation_stock'
+    )
 
-        st.dataframe(
-            df.style.format({
-                '收盤價': '{:.2f}',
-                '本益比': '{:.2f}',
-                '股價淨值比': '{:.2f}',
-                '殖利率(%)': '{:.2f}',
-                '營收YoY(%)': '{:+.2f}',
-            }, na_rep='N/A'),
-            use_container_width=True,
-            hide_index=True
-        )
+    if sel3:
+        sid = sel3.split(' ')[0]
+        sname = ' '.join(sel3.split(' ')[1:])
 
-        # 估值比較圖表
-        st.markdown('##### 估值比較圖表')
+        st.markdown(f'#### {sid} {sname}')
+
+        # 估值 KPI
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            _metric_display('本益比', _latest(pe_ratio, sid))
+        with c2:
+            _metric_display('股價淨值比', _latest(pb_ratio, sid))
+        with c3:
+            _metric_display('殖利率', _latest(dividend_yield, sid), suffix='%')
+        with c4:
+            _metric_display('收盤價', _latest(close, sid))
+
+        # PE / PB 歷史走勢 + 河流圖
+        period_years = st.selectbox('分析期間', ['1年', '2年', '3年', '5年'], index=1, key='val_period')
+        period_map = {'1年': 252, '2年': 504, '3年': 756, '5年': 1260}
+        n_days = period_map[period_years]
 
         col1, col2 = st.columns(2)
 
         with col1:
-            if '本益比' in df.columns:
-                pe_chart = df[['股票代碼', '本益比']].dropna()
-                if len(pe_chart) > 0:
-                    st.markdown('**本益比比較**')
-                    st.bar_chart(pe_chart.set_index('股票代碼'))
+            pe_s = _tail(pe_ratio, sid, n_days)
+            if pe_s is not None and len(pe_s) > 10:
+                pe_mean = pe_s.mean()
+                pe_std = pe_s.std()
+
+                fig = go.Figure()
+                # 河流圖帶
+                fig.add_trace(go.Scatter(
+                    x=pe_s.index, y=[pe_mean + 2 * pe_std] * len(pe_s),
+                    name='+2σ', line=dict(width=0), showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pe_s.index, y=[pe_mean - 2 * pe_std] * len(pe_s),
+                    name='-2σ', line=dict(width=0), fill='tonexty',
+                    fillcolor='rgba(59, 130, 246, 0.1)', showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pe_s.index, y=[pe_mean + pe_std] * len(pe_s),
+                    name='+1σ', line=dict(width=0), showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pe_s.index, y=[pe_mean - pe_std] * len(pe_s),
+                    name='-1σ', line=dict(width=0), fill='tonexty',
+                    fillcolor='rgba(59, 130, 246, 0.15)', showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pe_s.index, y=[pe_mean] * len(pe_s),
+                    name='平均', line=dict(color=COLORS['text_muted'], dash='dash', width=1)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pe_s.index, y=pe_s.values,
+                    name='本益比', line=dict(color=CHART_PALETTE[0], width=2)
+                ))
+                apply_dark_theme(fig, height=350, title='本益比河流圖')
+                st.plotly_chart(fig, use_container_width=True)
+
+                # 百分位
+                percentile = (pe_s < pe_s.iloc[-1]).sum() / len(pe_s) * 100
+                c_a, c_b, c_c = st.columns(3)
+                c_a.metric('目前位置', _valuation_position(pe_s.iloc[-1], pe_mean, pe_std))
+                c_b.metric('歷史百分位', f'{percentile:.0f}%')
+                c_c.metric('平均±σ', f'{pe_mean:.1f} ± {pe_std:.1f}')
 
         with col2:
-            if '股價淨值比' in df.columns:
-                pb_chart = df[['股票代碼', '股價淨值比']].dropna()
-                if len(pb_chart) > 0:
-                    st.markdown('**股價淨值比比較**')
-                    st.bar_chart(pb_chart.set_index('股票代碼'))
+            pb_s = _tail(pb_ratio, sid, n_days)
+            if pb_s is not None and len(pb_s) > 10:
+                pb_mean = pb_s.mean()
+                pb_std = pb_s.std()
 
-# ========== 營收分析 ==========
-with tab3:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=pb_s.index, y=[pb_mean + 2 * pb_std] * len(pb_s),
+                    name='+2σ', line=dict(width=0), showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pb_s.index, y=[pb_mean - 2 * pb_std] * len(pb_s),
+                    name='-2σ', line=dict(width=0), fill='tonexty',
+                    fillcolor='rgba(139, 92, 246, 0.1)', showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pb_s.index, y=[pb_mean + pb_std] * len(pb_s),
+                    name='+1σ', line=dict(width=0), showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pb_s.index, y=[pb_mean - pb_std] * len(pb_s),
+                    name='-1σ', line=dict(width=0), fill='tonexty',
+                    fillcolor='rgba(139, 92, 246, 0.15)', showlegend=False
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pb_s.index, y=[pb_mean] * len(pb_s),
+                    name='平均', line=dict(color=COLORS['text_muted'], dash='dash', width=1)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=pb_s.index, y=pb_s.values,
+                    name='股價淨值比', line=dict(color=CHART_PALETTE[2], width=2)
+                ))
+                apply_dark_theme(fig, height=350, title='股價淨值比河流圖')
+                st.plotly_chart(fig, use_container_width=True)
+
+                percentile = (pb_s < pb_s.iloc[-1]).sum() / len(pb_s) * 100
+                c_a, c_b, c_c = st.columns(3)
+                c_a.metric('目前位置', _valuation_position(pb_s.iloc[-1], pb_mean, pb_std))
+                c_b.metric('歷史百分位', f'{percentile:.0f}%')
+                c_c.metric('平均±σ', f'{pb_mean:.2f} ± {pb_std:.2f}')
+
+        # 多股估值比較
+        st.markdown('---')
+        st.markdown('##### 多股估值比較')
+        compare_stocks = st.multiselect(
+            '選擇比較股票 (最多 10 檔)', stock_options,
+            max_selections=10, key='val_compare'
+        )
+        if compare_stocks:
+            compare_ids = [s.split(' ')[0] for s in compare_stocks]
+            val_data = []
+            for cid in compare_ids:
+                info = stock_info[stock_info['stock_id'] == cid]
+                name = info['name'].values[0] if len(info) > 0 else ''
+                val_data.append({
+                    '代碼': cid, '名稱': name,
+                    '本益比': _latest(pe_ratio, cid),
+                    '股價淨值比': _latest(pb_ratio, cid),
+                    '殖利率(%)': _latest(dividend_yield, cid),
+                    '營收YoY(%)': _latest(revenue_yoy, cid),
+                })
+            df = pd.DataFrame(val_data)
+            st.dataframe(
+                df.style.format({
+                    '本益比': '{:.2f}', '股價淨值比': '{:.2f}',
+                    '殖利率(%)': '{:.2f}', '營收YoY(%)': '{:+.2f}',
+                }, na_rep='N/A'),
+                use_container_width=True, hide_index=True
+            )
+
+
+# ==================== Tab 4: 營收分析 ====================
+with tab4:
     st.markdown('### 營收分析')
 
-    analysis_stock = st.selectbox(
-        '選擇股票',
-        stock_options,
+    sel4 = st.selectbox(
+        '選擇股票', stock_options,
         index=0 if stock_options else None,
         key='revenue_stock_select'
     )
 
-    if analysis_stock:
-        stock_id = analysis_stock.split(' ')[0]
-        stock_name = analysis_stock.split(' ')[1] if len(analysis_stock.split(' ')) > 1 else ''
+    if sel4:
+        sid = sel4.split(' ')[0]
+        sname = ' '.join(sel4.split(' ')[1:])
 
-        st.markdown(f'#### {stock_id} {stock_name} 營收分析')
+        st.markdown(f'#### {sid} {sname} 營收分析')
 
-        # 營收數據
-        if monthly_revenue is not None and stock_id in monthly_revenue.columns:
-            rev_data = monthly_revenue[stock_id].dropna()
+        if monthly_revenue is not None and sid in monthly_revenue.columns:
+            rev_data = monthly_revenue[sid].dropna()
 
             if len(rev_data) > 0:
-                # 選擇時間範圍
                 period = st.selectbox(
                     '分析期間',
                     ['近12個月', '近24個月', '近36個月', '全部'],
-                    index=1
+                    index=1, key='rev_period'
                 )
+                period_map = {'近12個月': 12, '近24個月': 24, '近36個月': 36}
+                if period in period_map:
+                    rev_data = rev_data.tail(period_map[period])
 
-                if period == '近12個月':
-                    rev_data = rev_data.tail(12)
-                elif period == '近24個月':
-                    rev_data = rev_data.tail(24)
-                elif period == '近36個月':
-                    rev_data = rev_data.tail(36)
+                # 月營收走勢 (Plotly)
+                rev_billion = rev_data / 1e8
+                yoy_s = _tail(revenue_yoy, sid, len(rev_data))
 
-                # 營收走勢
-                st.markdown('##### 月營收走勢')
+                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                fig.add_trace(go.Bar(
+                    x=rev_data.index, y=rev_billion.values,
+                    name='月營收(億)', marker_color=CHART_PALETTE[0], opacity=0.8
+                ), secondary_y=False)
+                if yoy_s is not None and len(yoy_s) > 0:
+                    # align yoy to rev_data index
+                    yoy_aligned = yoy_s.reindex(rev_data.index)
+                    fig.add_trace(go.Scatter(
+                        x=rev_data.index, y=yoy_aligned.values,
+                        name='年增率(%)', mode='lines+markers',
+                        line=dict(color=COLORS['up'], width=2)
+                    ), secondary_y=True)
+                    fig.update_yaxes(title_text='年增率(%)', secondary_y=True)
 
-                rev_chart = pd.DataFrame({
-                    '營收(億)': rev_data / 100000000
-                })
-                st.bar_chart(rev_chart)
+                fig.update_yaxes(title_text='營收(億)', secondary_y=False)
+                apply_dark_theme(fig, height=400, title='月營收走勢')
+                st.plotly_chart(fig, use_container_width=True)
+
+                # KPI
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric('最新月營收', f'{rev_billion.iloc[-1]:.2f} 億')
+                with c2:
+                    yoy_val = _latest(revenue_yoy, sid)
+                    _metric_display('年增率 (YoY)', yoy_val, fmt='{:+.2f}', suffix='%')
+                with c3:
+                    mom_val = _latest(revenue_mom, sid)
+                    _metric_display('月增率 (MoM)', mom_val, fmt='{:+.2f}', suffix='%')
+                with c4:
+                    current_year = datetime.now().year
+                    ytd_rev = rev_data[rev_data.index.year == current_year].sum() / 1e8
+                    st.metric('本年累計營收', f'{ytd_rev:.2f} 億')
+
+                # 累積 YTD 比較
+                st.markdown('##### 累積 YTD 營收比較')
+                years = sorted(rev_data.index.year.unique())[-3:]
+                if len(years) >= 2:
+                    fig_ytd = go.Figure()
+                    for i, yr in enumerate(years):
+                        yr_data = rev_data[rev_data.index.year == yr]
+                        cumsum = yr_data.cumsum() / 1e8
+                        fig_ytd.add_trace(go.Scatter(
+                            x=list(range(1, len(cumsum) + 1)),
+                            y=cumsum.values,
+                            name=str(yr), mode='lines+markers',
+                            line=dict(color=CHART_PALETTE[i % len(CHART_PALETTE)], width=2)
+                        ))
+                    apply_dark_theme(fig_ytd, height=350, title='累積 YTD 營收比較 (億)')
+                    fig_ytd.update_layout(xaxis_title='月份')
+                    st.plotly_chart(fig_ytd, use_container_width=True)
 
                 # 年度比較
                 st.markdown('##### 年度營收比較')
-
-                yearly_rev = rev_data.groupby(rev_data.index.year).sum() / 100000000
-                yearly_df = pd.DataFrame({
-                    '年度': yearly_rev.index,
-                    '營收(億)': yearly_rev.values
-                }).set_index('年度')
+                yearly_rev = rev_data.groupby(rev_data.index.year).sum() / 1e8
+                yearly_growth = yearly_rev.pct_change() * 100
 
                 col1, col2 = st.columns(2)
-
                 with col1:
-                    st.bar_chart(yearly_df)
-
+                    fig_yr = go.Figure()
+                    fig_yr.add_trace(go.Bar(
+                        x=[str(y) for y in yearly_rev.index], y=yearly_rev.values,
+                        marker_color=CHART_PALETTE[0], opacity=0.8
+                    ))
+                    apply_dark_theme(fig_yr, height=300, title='年度營收(億)')
+                    st.plotly_chart(fig_yr, use_container_width=True)
                 with col2:
-                    # 計算年增率
-                    yearly_growth = yearly_rev.pct_change() * 100
                     growth_df = pd.DataFrame({
                         '年度': [str(y) for y in yearly_growth.index],
-                        '年增率(%)': yearly_growth.values
+                        '營收(億)': yearly_rev.values,
+                        '年增率(%)': yearly_growth.values,
                     })
-                    st.dataframe(growth_df, hide_index=True, use_container_width=True)
+                    st.dataframe(growth_df.style.format({
+                        '營收(億)': '{:.2f}', '年增率(%)': '{:+.2f}'
+                    }, na_rep='-'), hide_index=True, use_container_width=True)
 
                 # 季節性分析
                 st.markdown('##### 季節性分析')
+                monthly_avg = rev_data.groupby(rev_data.index.month).mean() / 1e8
+                months = ['1月', '2月', '3月', '4月', '5月', '6月',
+                          '7月', '8月', '9月', '10月', '11月', '12月']
+                fig_season = go.Figure()
+                fig_season.add_trace(go.Bar(
+                    x=months, y=[monthly_avg.get(i, 0) for i in range(1, 13)],
+                    marker_color=CHART_PALETTE[1], opacity=0.8
+                ))
+                apply_dark_theme(fig_season, height=300, title='平均月營收分布(億)')
+                st.plotly_chart(fig_season, use_container_width=True)
+        else:
+            show_empty_state('無月營收資料', icon='📈')
 
-                monthly_avg = rev_data.groupby(rev_data.index.month).mean() / 100000000
-                monthly_df = pd.DataFrame({
-                    '月份': ['1月', '2月', '3月', '4月', '5月', '6月',
-                            '7月', '8月', '9月', '10月', '11月', '12月'],
-                    '平均營收(億)': [monthly_avg.get(i, 0) for i in range(1, 13)]
-                }).set_index('月份')
 
-                st.bar_chart(monthly_df)
+# ==================== Tab 5: 現金流分析 ====================
+with tab5:
+    st.markdown('### 現金流分析')
 
-                # 營收統計
-                st.markdown('##### 營收統計')
+    sel5 = st.selectbox(
+        '選擇股票', stock_options,
+        index=0 if stock_options else None,
+        key='fin_cashflow_stock'
+    )
 
-                col1, col2, col3, col4 = st.columns(4)
+    if sel5:
+        sid = sel5.split(' ')[0]
 
-                with col1:
-                    avg_rev = rev_data.mean() / 100000000
-                    st.metric('平均月營收', f'{avg_rev:.2f} 億')
+        operating_cf = load_finlab('fundamental_features:營運現金流')
+        fcf_data = load_finlab('fundamental_features:自由現金流量')
+        cf_ratio = load_finlab('fundamental_features:現金流量比率')
+        per_share_cf = load_finlab('fundamental_features:每股現金流量')
 
-                with col2:
-                    max_rev = rev_data.max() / 100000000
-                    st.metric('最高月營收', f'{max_rev:.2f} 億')
+        ocf_s = _tail(operating_cf, sid, 20)
+        fcf_s = _tail(fcf_data, sid, 20)
 
-                with col3:
-                    min_rev = rev_data.min() / 100000000
-                    st.metric('最低月營收', f'{min_rev:.2f} 億')
+        has_cf = any(s is not None and len(s) > 0 for s in [ocf_s, fcf_s])
 
-                with col4:
-                    std_rev = rev_data.std() / 100000000
-                    cv = std_rev / avg_rev * 100 if avg_rev > 0 else 0
-                    st.metric('變異係數', f'{cv:.1f}%')
+        if has_cf:
+            # KPI
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                _metric_display('營運現金流', _latest(operating_cf, sid), fmt='{:.0f}')
+            with c2:
+                _metric_display('自由現金流', _latest(fcf_data, sid), fmt='{:.0f}')
+            with c3:
+                _metric_display('現金流量比率', _latest(cf_ratio, sid), suffix='%')
+            with c4:
+                _metric_display('每股現金流量', _latest(per_share_cf, sid))
 
-# ========== 價值選股 ==========
-with tab4:
-    st.markdown('### 價值選股')
+            # 現金流趨勢圖
+            fig = go.Figure()
+            if ocf_s is not None and len(ocf_s) > 0:
+                fig.add_trace(go.Bar(
+                    x=ocf_s.index, y=ocf_s.values,
+                    name='營運現金流', marker_color=CHART_PALETTE[0], opacity=0.8
+                ))
+            if fcf_s is not None and len(fcf_s) > 0:
+                fig.add_trace(go.Scatter(
+                    x=fcf_s.index, y=fcf_s.values,
+                    name='自由現金流', mode='lines+markers',
+                    line=dict(color=CHART_PALETTE[2], width=2)
+                ))
+            apply_dark_theme(fig, height=400, title='現金流趨勢')
+            st.plotly_chart(fig, use_container_width=True)
 
+            # FCF 殖利率
+            if fcf_s is not None and len(fcf_s) > 0:
+                mv_data = load_finlab('etl:market_value')
+                mv_s = _tail(mv_data, sid, len(fcf_s))
+                if mv_s is not None and len(mv_s) > 0:
+                    # Align by common index
+                    common_idx = fcf_s.index.intersection(mv_s.index)
+                    if len(common_idx) > 0:
+                        fcf_yield = (fcf_s.loc[common_idx] / mv_s.loc[common_idx] * 100).dropna()
+                        if len(fcf_yield) > 0:
+                            st.markdown('##### 自由現金流殖利率')
+                            fig_fy = go.Figure()
+                            fig_fy.add_trace(go.Scatter(
+                                x=fcf_yield.index, y=fcf_yield.values,
+                                name='FCF 殖利率(%)', mode='lines+markers',
+                                line=dict(color=CHART_PALETTE[3], width=2),
+                                fill='tozeroy', fillcolor='rgba(6, 182, 212, 0.1)'
+                            ))
+                            apply_dark_theme(fig_fy, height=300, title='自由現金流殖利率 (%)')
+                            st.plotly_chart(fig_fy, use_container_width=True)
+
+            # 現金流品質
+            st.markdown('##### 現金流品質指標')
+            eps_d = load_finlab('financial_statement:每股盈餘')
+            eps_s = _tail(eps_d, sid, 20)
+            pcf_s = _tail(per_share_cf, sid, 20)
+
+            if eps_s is not None and pcf_s is not None and len(eps_s) > 0 and len(pcf_s) > 0:
+                fig_q = go.Figure()
+                fig_q.add_trace(go.Bar(
+                    x=eps_s.index, y=eps_s.values,
+                    name='EPS', marker_color=CHART_PALETTE[0], opacity=0.7
+                ))
+                fig_q.add_trace(go.Bar(
+                    x=pcf_s.index, y=pcf_s.values,
+                    name='每股現金流', marker_color=CHART_PALETTE[2], opacity=0.7
+                ))
+                apply_dark_theme(fig_q, height=350, title='EPS vs 每股現金流')
+                fig_q.update_layout(barmode='group')
+                st.plotly_chart(fig_q, use_container_width=True)
+        else:
+            show_empty_state('此功能需要 FinLab 進階財務數據', icon='💵',
+                             suggestion='請確認 FinLab API 可用且已登入')
+
+
+# ==================== Tab 6: 價值篩選 ====================
+with tab6:
+    st.markdown('### 價值篩選')
     st.markdown('根據基本面指標篩選價值股')
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        max_pe = st.number_input('本益比上限', 1.0, 100.0, 15.0)
-        max_pb = st.number_input('股價淨值比上限', 0.1, 10.0, 1.5)
+        max_pe = st.number_input('本益比上限', 1.0, 100.0, 15.0, key='vs_pe')
+        max_pb = st.number_input('股價淨值比上限', 0.1, 10.0, 1.5, key='vs_pb')
 
     with col2:
-        min_yield = st.number_input('殖利率下限 (%)', 0.0, 20.0, 4.0)
-        min_yoy = st.number_input('營收年增率下限 (%)', -50.0, 100.0, 0.0)
+        min_yield = st.number_input('殖利率下限 (%)', 0.0, 20.0, 4.0, key='vs_dy')
+        min_yoy = st.number_input('營收年增率下限 (%)', -50.0, 100.0, 0.0, key='vs_yoy')
+
+    with col3:
+        min_roe = st.number_input('ROE 下限 (%)', -50.0, 100.0, 0.0, key='vs_roe')
+        min_gm = st.number_input('毛利率下限 (%)', -50.0, 100.0, 0.0, key='vs_gm')
 
     if st.button('執行選股', type='primary', key='value_screening'):
         with st.spinner('選股中...'):
             try:
+                roe_all = load_finlab('fundamental_features:ROE稅後')
+                gm_all = load_finlab('fundamental_features:營業毛利率')
+
                 selected_stocks = []
-
                 for stock_id in active_stocks:
-                    # 檢查本益比
-                    if pe_ratio is not None and stock_id in pe_ratio.columns:
-                        pe = pe_ratio[stock_id].dropna().iloc[-1] if len(pe_ratio[stock_id].dropna()) > 0 else None
-                        if pe is None or pe > max_pe or pe <= 0:
-                            continue
-                    else:
+                    # PE
+                    pe = _latest(pe_ratio, stock_id)
+                    if pe is None or pe > max_pe or pe <= 0:
+                        continue
+                    # PB
+                    pb = _latest(pb_ratio, stock_id)
+                    if pb is None or pb > max_pb or pb <= 0:
+                        continue
+                    # Dividend yield
+                    dy = _latest(dividend_yield, stock_id)
+                    if dy is None or dy < min_yield:
+                        continue
+                    # YoY
+                    yoy = _latest(revenue_yoy, stock_id)
+                    if yoy is not None and yoy < min_yoy:
+                        continue
+                    # ROE
+                    roe = _latest(roe_all, stock_id)
+                    if roe is not None and roe < min_roe:
+                        continue
+                    # Gross margin
+                    gm = _latest(gm_all, stock_id)
+                    if gm is not None and gm < min_gm:
                         continue
 
-                    # 檢查股價淨值比
-                    if pb_ratio is not None and stock_id in pb_ratio.columns:
-                        pb = pb_ratio[stock_id].dropna().iloc[-1] if len(pb_ratio[stock_id].dropna()) > 0 else None
-                        if pb is None or pb > max_pb or pb <= 0:
-                            continue
-                    else:
-                        continue
-
-                    # 檢查殖利率
-                    if dividend_yield is not None and stock_id in dividend_yield.columns:
-                        dy = dividend_yield[stock_id].dropna().iloc[-1] if len(dividend_yield[stock_id].dropna()) > 0 else None
-                        if dy is None or dy < min_yield:
-                            continue
-                    else:
-                        continue
-
-                    # 檢查營收年增率
-                    if revenue_yoy is not None and stock_id in revenue_yoy.columns:
-                        yoy = revenue_yoy[stock_id].dropna().iloc[-1] if len(revenue_yoy[stock_id].dropna()) > 0 else None
-                        if yoy is None or yoy < min_yoy:
-                            continue
-                    else:
-                        yoy = None
-
-                    # 收盤價
-                    price = None
-                    if close is not None and stock_id in close.columns:
-                        price = close[stock_id].dropna().iloc[-1] if len(close[stock_id].dropna()) > 0 else None
-
-                    # 股票名稱
+                    price = _latest(close, stock_id)
                     info = stock_info[stock_info['stock_id'] == stock_id]
                     name = info['name'].values[0] if len(info) > 0 else ''
 
                     selected_stocks.append({
-                        '股票代碼': stock_id,
-                        '股票名稱': name,
-                        '收盤價': price,
-                        '本益比': pe,
-                        '股價淨值比': pb,
-                        '殖利率(%)': dy,
-                        '營收YoY(%)': yoy,
+                        '代碼': stock_id, '名稱': name,
+                        '收盤價': price, '本益比': pe, '股價淨值比': pb,
+                        '殖利率(%)': dy, '營收YoY(%)': yoy,
+                        'ROE(%)': roe, '毛利率(%)': gm,
                     })
             except Exception as e:
-                show_error(e, title='價值選股失敗', suggestion='請檢查篩選條件或資料是否完整')
+                show_error(e, title='價值選股失敗')
                 selected_stocks = []
 
             if selected_stocks:
                 df = pd.DataFrame(selected_stocks)
-
-                # 計算價值評分
                 df['價值評分'] = (
-                    (1 - df['本益比'] / max_pe) * 30 +
-                    (1 - df['股價淨值比'] / max_pb) * 30 +
-                    (df['殖利率(%)'] / 10) * 40
+                    (1 - df['本益比'] / max_pe) * 25 +
+                    (1 - df['股價淨值比'] / max_pb) * 25 +
+                    (df['殖利率(%)'] / 10) * 25 +
+                    (df['ROE(%)'].fillna(0) / 30) * 25
                 ).clip(0, 100)
-
                 df = df.sort_values('價值評分', ascending=False)
 
                 st.success(f'找到 {len(df)} 檔價值股')
-
                 st.dataframe(
                     df.style.format({
-                        '收盤價': '{:.2f}',
-                        '本益比': '{:.2f}',
-                        '股價淨值比': '{:.2f}',
-                        '殖利率(%)': '{:.2f}',
-                        '營收YoY(%)': '{:+.2f}',
+                        '收盤價': '{:.2f}', '本益比': '{:.2f}', '股價淨值比': '{:.2f}',
+                        '殖利率(%)': '{:.2f}', '營收YoY(%)': '{:+.2f}',
+                        'ROE(%)': '{:.2f}', '毛利率(%)': '{:.2f}',
                         '價值評分': '{:.1f}',
                     }, na_rep='N/A'),
-                    use_container_width=True,
-                    hide_index=True
+                    use_container_width=True, hide_index=True
                 )
 
-                # 匯出按鈕
                 csv = df.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
-                    '📥 下載選股結果',
-                    csv,
+                    '📥 下載選股結果', csv,
                     f'value_stocks_{datetime.now().strftime("%Y%m%d")}.csv',
                     'text/csv',
                 )
             else:
-                st.info('沒有符合條件的股票')
+                show_empty_state('沒有符合條件的股票', icon='🔍',
+                                 suggestion='請嘗試放寬篩選條件')
+
 
 # ========== 說明 ==========
 with st.expander('📖 財報分析說明'):
@@ -529,28 +776,24 @@ with st.expander('📖 財報分析說明'):
 
     #### 本益比 (P/E Ratio)
     - 公式: 股價 / 每股盈餘
-    - 意義: 投資人願意為每元盈餘支付的價格
     - 一般標準: 10-20 倍為合理區間
 
     #### 股價淨值比 (P/B Ratio)
     - 公式: 股價 / 每股淨值
-    - 意義: 股價相對於公司帳面價值的倍數
     - 一般標準: < 1 可能被低估
 
-    #### 殖利率
-    - 公式: 每股股利 / 股價
-    - 意義: 投資報酬率的參考
-    - 一般標準: > 4% 為高殖利率
+    #### ROE (股東權益報酬率)
+    - 公式: 淨利 / 股東權益
+    - 衡量公司為股東創造利潤的效率
 
-    ### 營收分析重點
+    #### 利潤率 (毛利率/營益率/淨利率)
+    - 毛利率 = 毛利 / 營收
+    - 營益率 = 營業利益 / 營收
+    - 淨利率 = 淨利 / 營收
 
-    1. **年增率 (YoY)**: 與去年同期比較，反映成長動能
-    2. **月增率 (MoM)**: 與上月比較，反映短期變化
-    3. **季節性**: 某些產業有明顯淡旺季
-
-    ### 價值投資注意事項
-
-    - 低本益比不代表一定被低估
-    - 需考慮產業特性和成長性
-    - 建議結合多項指標綜合判斷
+    ### 現金流分析重點
+    - **營運現金流 > 0**: 本業能產生現金
+    - **自由現金流 > 0**: 公司有餘裕的現金
+    - **每股現金流 > EPS**: 獲利品質佳
+    - **FCF 殖利率**: 自由現金流 / 市值，越高越有價值
     ''')

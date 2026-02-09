@@ -18,12 +18,14 @@ import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import STREAMLIT_CONFIG
+from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader, get_data_summary
 from core.cache_warmer import warmup_on_startup, is_cache_warm
 from app.components.sidebar import render_sidebar
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
 from app.components.session_manager import init_session_state
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 
 st.set_page_config(
     page_title=f"{STREAMLIT_CONFIG['page_title']} - 投資組合",
@@ -43,7 +45,7 @@ render_sidebar(current_page='dashboard')
 
 
 # 資料載入函數
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL['intraday'])
 def load_dashboard_data():
     loader = get_loader()
     return {
@@ -80,16 +82,7 @@ def load_alerts():
 
 
 # ========== 頁面標題 ==========
-title_col1, title_col2 = st.columns([4, 1])
-
-with title_col1:
-    st.title('💼 投資組合儀表板')
-    st.caption('個人持股績效追蹤與分析')
-
-with title_col2:
-    if st.button('🔄 重新整理', use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+render_page_header("儀表板", icon="📊")
 
 # 載入資料
 try:
@@ -98,7 +91,7 @@ try:
     benchmark = data['benchmark']
     stock_info = data['stock_info']
 except Exception as e:
-    st.error(f'載入數據失敗: {e}')
+    show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常，或嘗試重新整理頁面')
     st.stop()
 
 portfolios = load_portfolios()
@@ -231,7 +224,7 @@ if all_holdings:
             st.markdown(f"- {row['portfolio']}: {row['stock_id']}檔 ({pct:.1f}%)")
 
 else:
-    st.info('尚無持股資料。請至「投資組合」頁面建立投資組合。')
+    show_empty_state('尚無持股資料', icon='📭', suggestion='請至「投資組合」頁面建立投資組合')
 
     # 顯示快速操作
     col1, col2 = st.columns(2)
@@ -285,7 +278,7 @@ if latest_screening and latest_screening.get('stocks'):
                 unsafe_allow_html=True
             )
 else:
-    st.info('尚未執行選股。')
+    show_empty_state('尚未執行選股', icon='🔍', suggestion='前往選股篩選頁面執行選股')
     if st.button('🔍 前往選股', use_container_width=True):
         st.switch_page('pages/1_選股篩選.py')
 
@@ -324,6 +317,6 @@ with st.expander('📊 系統資訊'):
             latest_date = date_range.split(' ~ ')[1] if '~' in date_range else '-'
             st.metric('最新資料', latest_date)
     except Exception:
-        st.info('無法取得系統資訊')
+        show_empty_state('無法取得系統資訊', icon='ℹ️')
 
 st.caption('資料來源: FinLab API')

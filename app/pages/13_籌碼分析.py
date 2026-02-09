@@ -10,21 +10,22 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 
 st.set_page_config(page_title='籌碼分析', page_icon='💰', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='margin')
 
-st.title('💰 籌碼分析')
-st.markdown('融資融券、法人買賣超分析')
-st.markdown('---')
+render_page_header('籌碼分析', icon='🏦')
 
 # 載入數據
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_data():
     loader = get_loader()
     return {
@@ -430,7 +431,7 @@ with tab4:
                     hide_index=True
                 )
             else:
-                st.info('沒有符合條件的股票')
+                show_empty_state('沒有符合條件的股票', icon='🔍', suggestion='請嘗試調整篩選條件')
 
 # ========== 說明 ==========
 with st.expander('📖 籌碼分析說明'):

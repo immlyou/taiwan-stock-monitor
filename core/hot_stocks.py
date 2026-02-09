@@ -491,15 +491,22 @@ def get_hot_stocks_integrated(
     news_hot_stocks = None
     if news_scanner is not None:
         try:
-            news_hot_list = news_scanner.get_hot_stocks(hours=hours, top_n=50)
-            news_hot_stocks = {
-                item['stock_id']: {
-                    'count': item['mention_count'],
-                    'sentiment': item['avg_sentiment'],
-                    'score': min(100, item['mention_count'] * 15 + abs(item['avg_sentiment']) * 30),
+            # get_hot_stocks() 回傳 Dict[str, float] (stock_id -> score)
+            news_scores = news_scanner.get_hot_stocks(hours=hours)
+
+            # 取得每支股票的新聞詳情以建構 hot_stocks 所需的格式
+            news_hot_stocks = {}
+            for stock_id, score in list(news_scores.items())[:50]:
+                stock_news = news_scanner.get_stock_news(stock_id, hours=hours)
+                sentiment_scores = [n.sentiment_score for n in stock_news]
+                avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.0
+                mention_count = len(stock_news)
+
+                news_hot_stocks[stock_id] = {
+                    'count': mention_count,
+                    'sentiment': avg_sentiment,
+                    'score': min(100, mention_count * 15 + abs(avg_sentiment) * 30),
                 }
-                for item in news_hot_list
-            }
         except Exception:
             pass
 

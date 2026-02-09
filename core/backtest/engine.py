@@ -68,10 +68,10 @@ class BacktestEngine:
         commission_discount : float
             手續費折扣
         """
-        self.initial_capital = initial_capital or BACKTEST_DEFAULTS['initial_capital']
-        self.commission_rate = commission_rate or TRADING_COSTS['commission_rate']
-        self.tax_rate = tax_rate or TRADING_COSTS['tax_rate']
-        self.commission_discount = commission_discount or TRADING_COSTS['discount']
+        self.initial_capital = initial_capital if initial_capital is not None else BACKTEST_DEFAULTS['initial_capital']
+        self.commission_rate = commission_rate if commission_rate is not None else TRADING_COSTS['commission_rate']
+        self.tax_rate = tax_rate if tax_rate is not None else TRADING_COSTS['tax_rate']
+        self.commission_discount = commission_discount if commission_discount is not None else TRADING_COSTS['discount']
 
         # 漲跌幅限制設定
         self.price_limit_enabled = PRICE_LIMITS.get('enabled', True)
@@ -207,7 +207,8 @@ class BacktestEngine:
     def _rebalance(self, date: pd.Timestamp,
                    target_stocks: List[str],
                    prices: pd.Series,
-                   weights: Dict[str, float]):
+                   weights: Dict[str, float],
+                   prev_prices: Optional[pd.Series] = None):
         """
         執行換股
 
@@ -221,6 +222,8 @@ class BacktestEngine:
             當日股價
         weights : dict
             目標權重
+        prev_prices : pd.Series, optional
+            前一日收盤價，用於漲跌停判斷
         """
         # 計算當前投資組合總價值
         portfolio_value = self.cash
@@ -232,7 +235,12 @@ class BacktestEngine:
         stocks_to_sell = [s for s in self.positions.keys() if s not in target_stocks]
         for stock_id in stocks_to_sell:
             if stock_id in prices.index and not pd.isna(prices[stock_id]):
-                self._sell(stock_id, date, prices[stock_id])
+                # 漲跌停檢查：跌停時無法賣出
+                can_buy, can_sell, adjusted_price = self._check_price_limit(
+                    stock_id, prices[stock_id], prev_prices if prev_prices is not None else pd.Series(dtype=float)
+                )
+                if can_sell:
+                    self._sell(stock_id, date, adjusted_price)
 
         # 計算目標金額
         target_amounts = {s: portfolio_value * weights.get(s, 0) for s in target_stocks}
@@ -243,22 +251,28 @@ class BacktestEngine:
                 continue
 
             price = prices[stock_id]
+
+            # 漲跌停檢查：漲停時無法買入
+            can_buy, can_sell, adjusted_price = self._check_price_limit(
+                stock_id, price, prev_prices if prev_prices is not None else pd.Series(dtype=float)
+            )
+
             target_amount = target_amounts[stock_id]
             current_amount = 0
 
             if stock_id in self.positions:
-                current_amount = self.positions[stock_id]['shares'] * price
+                current_amount = self.positions[stock_id]['shares'] * adjusted_price
 
             diff = target_amount - current_amount
 
-            if diff > 0:
+            if diff > 0 and can_buy:
                 # 需要買入
-                self._buy(stock_id, date, price, diff)
-            elif diff < -price:  # 只有差額大於一股才賣
+                self._buy(stock_id, date, adjusted_price, diff)
+            elif diff < -adjusted_price and can_sell:  # 只有差額大於一股才賣
                 # 需要賣出
-                shares_to_sell = int(abs(diff) / price)
+                shares_to_sell = int(abs(diff) / adjusted_price)
                 if shares_to_sell > 0:
-                    self._partial_sell(stock_id, date, price, shares_to_sell)
+                    self._partial_sell(stock_id, date, adjusted_price, shares_to_sell)
 
     def _buy(self, stock_id: str, date: pd.Timestamp, price: float, amount: float):
         """買入股票"""
@@ -437,6 +451,7 @@ class BacktestEngine:
 
         # 執行回測
         next_rebalance_idx = 0
+        prev_prices = None
 
         for date in trading_dates:
             prices = close.loc[date]
@@ -456,15 +471,19 @@ class BacktestEngine:
                 mv = market_values.loc[date] if market_values is not None and date in market_values.index else None
                 weights = self._allocate_weights(target_stocks, mv, weight_method)
 
-                # 執行換股
-                self._rebalance(date, target_stocks, prices, weights)
+                # 執行換股 (傳入前一日價格做漲跌停判斷)
+                self._rebalance(date, target_stocks, prices, weights, prev_prices)
 
                 next_rebalance_idx += 1
 
             # 記錄當日投資組合價值
             self._record_portfolio_value(date, prices)
+            prev_prices = prices
 
         # 整理結果
+        if not self.portfolio_history:
+            raise ValueError("回測期間無交易日資料，請確認日期範圍")
+
         portfolio_df = pd.DataFrame(self.portfolio_history)
         portfolio_values = portfolio_df.set_index('date')['value']
 

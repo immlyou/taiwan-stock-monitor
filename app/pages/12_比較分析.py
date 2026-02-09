@@ -11,23 +11,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
 from core.risk import RiskAnalyzer
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 
 st.set_page_config(page_title='比較分析', page_icon='📊', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='compare')
 
-st.title('📊 比較分析')
-st.markdown('多策略績效比較與多股票分析')
-st.markdown('---')
+render_page_header('比較分析', icon='📊')
 
 # 載入數據
-@st.cache_data(ttl=3600, show_spinner='載入數據中...')
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')
 def load_data():
     loader = get_loader()
     return {
@@ -390,9 +391,9 @@ with tab2:
                 st.plotly_chart(fig_radar, use_container_width=True)
 
     elif stocks_to_compare and len(stocks_to_compare) < 2:
-        st.info('請選擇至少 2 檔股票進行比較')
+        show_empty_state('請選擇至少 2 檔股票進行比較', icon='📊', suggestion='從上方選單中再選擇一檔股票')
     else:
-        st.info('請從上方選擇要比較的股票')
+        show_empty_state('尚未選擇比較股票', icon='📊', suggestion='請從上方選擇要比較的股票')
 
 # ========== 說明 ==========
 with st.expander('📖 使用說明'):

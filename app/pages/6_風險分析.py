@@ -9,22 +9,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.risk import RiskAnalyzer, calculate_portfolio_var, stress_test, monte_carlo_simulation
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.session_manager import get_state, set_state, StateKeys
 
 st.set_page_config(page_title='風險分析', page_icon='⚠️', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='risk')
 
-st.title('⚠️ 風險分析')
-st.markdown('分析投資組合的潛在風險與下行保護')
+render_page_header("風險分析", icon="🛡️")
 st.markdown('---')
 
 # 載入數據
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_data():
     loader = get_loader()
     return {
@@ -72,8 +75,8 @@ else:  # 投資組合
     st.markdown('**建立投資組合**')
 
     # 使用 session state 管理投資組合
-    if 'portfolio' not in st.session_state:
-        st.session_state.portfolio = {}
+    if get_state(StateKeys.PORTFOLIO) is None or not isinstance(get_state(StateKeys.PORTFOLIO), dict):
+        set_state(StateKeys.PORTFOLIO, {})
 
     col1, col2, col3 = st.columns([3, 1, 1])
 
@@ -87,15 +90,18 @@ else:  # 投資組合
         st.markdown('<br>', unsafe_allow_html=True)
         if st.button('➕ 加入'):
             stock_id = stock_options[add_stock]
-            st.session_state.portfolio[stock_id] = add_weight / 100
+            portfolio = get_state(StateKeys.PORTFOLIO, {})
+            portfolio[stock_id] = add_weight / 100
+            set_state(StateKeys.PORTFOLIO, portfolio)
             st.rerun()
 
     # 顯示目前投資組合
-    if st.session_state.portfolio:
+    portfolio = get_state(StateKeys.PORTFOLIO, {})
+    if portfolio:
         st.markdown('**目前投資組合：**')
 
         portfolio_data = []
-        for stock_id, weight in st.session_state.portfolio.items():
+        for stock_id, weight in portfolio.items():
             info = stock_info[stock_info['stock_id'] == stock_id]
             name = info['name'].values[0] if len(info) > 0 else ''
             portfolio_data.append({
@@ -107,18 +113,18 @@ else:  # 投資組合
         portfolio_df = pd.DataFrame(portfolio_data)
         st.dataframe(portfolio_df, use_container_width=True, hide_index=True)
 
-        total_weight = sum(st.session_state.portfolio.values())
+        total_weight = sum(portfolio.values())
         if abs(total_weight - 1.0) > 0.01:
             st.warning(f'⚠️ 權重總和為 {total_weight * 100:.1f}%，建議調整為 100%')
 
         if st.button('🗑️ 清空投資組合'):
-            st.session_state.portfolio = {}
+            set_state(StateKeys.PORTFOLIO, {})
             st.rerun()
 
-        selected_stocks = list(st.session_state.portfolio.keys())
-        weights = st.session_state.portfolio
+        selected_stocks = list(portfolio.keys())
+        weights = portfolio
     else:
-        st.info('請加入股票到投資組合')
+        show_empty_state('請加入股票到投資組合', icon='📭', suggestion='使用上方的選擇框加入股票')
         selected_stocks = []
         weights = {}
 
@@ -373,10 +379,10 @@ if selected_stocks and weights:
                     st.plotly_chart(fig_mc, use_container_width=True)
 
     else:
-        st.warning('所選股票無可用數據')
+        show_empty_state('所選股票無可用數據', icon='⚠️', suggestion='請嘗試選擇其他股票')
 
 else:
-    st.info('請選擇要分析的股票或建立投資組合')
+    show_empty_state('請選擇要分析的股票或建立投資組合', icon='🛡️', suggestion='在上方選擇分析模式與標的')
 
 # ========== 說明 ==========
 with st.expander('📖 風險指標說明'):

@@ -16,9 +16,12 @@ from datetime import datetime
 # 設定路徑
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import STREAMLIT_CONFIG
+from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from app.components.sidebar import render_sidebar
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 # 頁面設定
 st.set_page_config(
@@ -31,7 +34,7 @@ st.set_page_config(
 render_sidebar(current_page='heatmap')
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL['intraday'])
 def load_market_data(top_n=200):
     """載入市場資料"""
     loader = get_loader()
@@ -176,16 +179,7 @@ def create_sector_bar(df):
 
 
 # ========== 頁面標題 ==========
-title_col1, title_col2 = st.columns([4, 1])
-
-with title_col1:
-    st.title('🗺️ 市場熱力圖')
-    st.caption('方塊大小 = 市值 | 顏色 = 漲跌幅 | 紅漲綠跌')
-
-with title_col2:
-    if st.button('🔄 重新整理', use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+render_page_header('市場熱力圖', icon='🗺️')
 
 # ========== 控制列與統計 (整合) ==========
 ctrl_col1, ctrl_col2, stat_col1, stat_col2, stat_col3, stat_col4 = st.columns([1.5, 1.5, 1, 1, 1, 1])
@@ -211,7 +205,7 @@ with ctrl_col2:
 result = load_market_data(top_n[1] if isinstance(top_n, tuple) else 200)
 
 if result is None:
-    st.error('無法載入市場資料')
+    show_error(Exception('無法載入市場資料'), title='載入市場資料失敗', suggestion='請確認 FinLab API 設定及網路連線')
     st.stop()
 
 df, data_date = result

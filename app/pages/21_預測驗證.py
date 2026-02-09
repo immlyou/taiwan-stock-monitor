@@ -10,21 +10,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.prediction_tracker import (
     get_tracker, PredictionType, PredictionStatus
 )
 from app.components.sidebar import render_sidebar
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 st.set_page_config(page_title='預測驗證', page_icon='🎯', layout='wide')
 render_sidebar(current_page='prediction')
 
 # ==================== 標題 ====================
-st.title('🎯 預測驗證系統')
-st.markdown('追蹤投資預測的準確度，用數據驗證策略效果')
+render_page_header('預測驗證', icon='🎯')
 
 # ==================== 資料載入 ====================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def load_data():
     loader = get_loader()
     return {
@@ -37,7 +40,7 @@ try:
     close = data['close']
     stock_info = data['stock_info']
 except Exception as e:
-    st.error(f'載入資料失敗: {e}')
+    show_error(e, title='載入資料失敗', suggestion='請確認 FinLab API 設定是否正確')
     st.stop()
 
 tracker = get_tracker()
@@ -271,7 +274,7 @@ with tab3:
         records = [r for r in records if r.type == type_map[filter_type]]
 
     if not records:
-        st.info('沒有符合條件的記錄')
+        show_empty_state('沒有符合條件的記錄', icon='📋', suggestion='嘗試調整篩選條件，或新增您的第一筆預測')
     else:
         # 轉換為 DataFrame 顯示
         display_data = []
@@ -380,7 +383,7 @@ with tab4:
                         ret = f"{d['return']:+.2f}%" if d['return'] else 'N/A'
                         st.write(f"{icon} {d['stock']} - 報酬: {ret}")
             else:
-                st.info('沒有需要驗證的預測（可能尚未到驗證日期）')
+                show_empty_state('沒有需要驗證的預測', icon='🔍', suggestion='可能尚未到驗證日期，請稍後再試')
 
     with col2:
         st.markdown('''

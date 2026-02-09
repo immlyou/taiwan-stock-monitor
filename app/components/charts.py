@@ -1,12 +1,33 @@
 """
 圖表元件模組 - 使用 Plotly 建立各種視覺化圖表
 """
+import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 from typing import Optional, List, Dict, Any
+
+from app.components.theme import DEFAULT_PLOTLY_LAYOUT, COLORS, CHART_PALETTE
+
+
+def apply_dark_theme(fig, height=400, **kwargs):
+    """套用統一深色主題到任何 Plotly 圖表"""
+    layout_args = {**DEFAULT_PLOTLY_LAYOUT, 'height': height, **kwargs}
+    fig.update_layout(**layout_args)
+    return fig
+
+
+def render_chart(fig, title: Optional[str] = None, use_container_width: bool = True):
+    """在深色容器中渲染 Plotly 圖表"""
+    apply_dark_theme(fig)
+    html_parts = []
+    if title:
+        html_parts.append(f'<div class="chart-title">{title}</div>')
+    if html_parts:
+        st.markdown(f'<div class="chart-container">{"".join(html_parts)}</div>', unsafe_allow_html=True)
+    st.plotly_chart(fig, use_container_width=use_container_width)
 
 
 def create_price_chart(df: pd.DataFrame,
@@ -47,15 +68,14 @@ def create_price_chart(df: pd.DataFrame,
             low=df['low'] if 'low' in df.columns else df['close'],
             close=df['close'],
             name='K線',
-            increasing_line_color='red',
-            decreasing_line_color='green',
+            increasing_line_color=COLORS['up'],
+            decreasing_line_color=COLORS['down'],
         ),
         row=1 if show_volume else None,
         col=1 if show_volume else None
     )
 
     # 移動平均線
-    colors = ['#FFA500', '#1E90FF', '#9370DB', '#32CD32']
     for i, period in enumerate(show_ma):
         ma = df['close'].rolling(window=period).mean()
         fig.add_trace(
@@ -63,7 +83,7 @@ def create_price_chart(df: pd.DataFrame,
                 x=df.index,
                 y=ma,
                 name=f'MA{period}',
-                line=dict(color=colors[i % len(colors)], width=1),
+                line=dict(color=CHART_PALETTE[i % len(CHART_PALETTE)], width=1),
             ),
             row=1 if show_volume else None,
             col=1 if show_volume else None
@@ -118,9 +138,9 @@ def create_price_chart(df: pd.DataFrame,
 
     # 成交量
     if show_volume and 'volume' in df.columns:
-        colors_vol = ['green' if df['close'].iloc[i] < df['close'].iloc[i-1]
-                      else 'red' for i in range(1, len(df))]
-        colors_vol.insert(0, 'red')
+        colors_vol = [COLORS['down'] if df['close'].iloc[i] < df['close'].iloc[i-1]
+                      else COLORS['up'] for i in range(1, len(df))]
+        colors_vol.insert(0, COLORS['up'])
 
         fig.add_trace(
             go.Bar(
@@ -134,11 +154,10 @@ def create_price_chart(df: pd.DataFrame,
         )
 
     # 設定
-    fig.update_layout(
+    apply_dark_theme(fig,
+        height=600 if show_volume else 400,
         title=title or f'{stock_id} 股價走勢',
         xaxis_rangeslider_visible=False,
-        height=600 if show_volume else 400,
-        template='plotly_white',
         legend=dict(orientation='h', yanchor='bottom', y=1.02),
     )
 
@@ -178,9 +197,9 @@ def create_portfolio_chart(portfolio_values: pd.Series,
             x=portfolio_values.index,
             y=portfolio_normalized,
             name='投資組合',
-            line=dict(color='#1E90FF', width=2),
+            line=dict(color=CHART_PALETTE[0], width=2),
             fill='tozeroy',
-            fillcolor='rgba(30, 144, 255, 0.1)',
+            fillcolor='rgba(59, 130, 246, 0.1)',
         )
     )
 
@@ -196,16 +215,15 @@ def create_portfolio_chart(portfolio_values: pd.Series,
                 x=benchmark_normalized.index,
                 y=benchmark_normalized,
                 name='大盤指數',
-                line=dict(color='#FF6B6B', width=2, dash='dash'),
+                line=dict(color=COLORS['up'], width=2, dash='dash'),
             )
         )
 
-    fig.update_layout(
+    apply_dark_theme(fig,
+        height=400,
         title=title,
         xaxis_title='日期',
         yaxis_title='淨值 (基期=100)',
-        height=400,
-        template='plotly_white',
         legend=dict(orientation='h', yanchor='bottom', y=1.02),
         hovermode='x unified',
     )
@@ -227,8 +245,8 @@ def create_drawdown_chart(portfolio_values: pd.Series,
             y=drawdown,
             name='回撤',
             fill='tozeroy',
-            fillcolor='rgba(255, 0, 0, 0.3)',
-            line=dict(color='red', width=1),
+            fillcolor='rgba(239, 68, 68, 0.3)',
+            line=dict(color=COLORS['up'], width=1),
         )
     )
 
@@ -242,14 +260,15 @@ def create_drawdown_chart(portfolio_values: pd.Series,
         text=f'最大回撤: {max_dd_value:.2f}%',
         showarrow=True,
         arrowhead=2,
+        font=dict(color=COLORS['text_primary']),
+        arrowcolor=COLORS['text_secondary'],
     )
 
-    fig.update_layout(
+    apply_dark_theme(fig,
+        height=300,
         title=title,
         xaxis_title='日期',
         yaxis_title='回撤 (%)',
-        height=300,
-        template='plotly_white',
     )
 
     return fig
@@ -272,7 +291,7 @@ def create_metrics_gauge(value: float,
         title={'text': title},
         gauge={
             'axis': {'range': [min_val, max_val]},
-            'bar': {'color': '#1E90FF'},
+            'bar': {'color': CHART_PALETTE[0]},
             'steps': [
                 {'range': [min_val, thresholds['poor']], 'color': '#FF6B6B'},
                 {'range': [thresholds['poor'], thresholds['fair']], 'color': '#FFD93D'},
@@ -282,7 +301,7 @@ def create_metrics_gauge(value: float,
         }
     ))
 
-    fig.update_layout(height=250)
+    apply_dark_theme(fig, height=250)
 
     return fig
 
@@ -298,11 +317,7 @@ def create_pie_chart(labels: List[str],
         textinfo='label+percent',
     )])
 
-    fig.update_layout(
-        title=title,
-        height=400,
-        template='plotly_white',
-    )
+    apply_dark_theme(fig, height=400, title=title)
 
     return fig
 
@@ -323,10 +338,7 @@ def create_bar_chart(df: pd.DataFrame,
         orientation=orientation,
     )
 
-    fig.update_layout(
-        height=400,
-        template='plotly_white',
-    )
+    apply_dark_theme(fig, height=400)
 
     return fig
 
@@ -342,11 +354,7 @@ def create_heatmap(df: pd.DataFrame,
         zmid=0,
     ))
 
-    fig.update_layout(
-        title=title,
-        height=500,
-        template='plotly_white',
-    )
+    apply_dark_theme(fig, height=500, title=title)
 
     return fig
 
@@ -379,11 +387,7 @@ def create_monthly_returns_heatmap(returns: pd.Series,
         textfont={'size': 10},
     ))
 
-    fig.update_layout(
-        title=title,
-        height=400,
-        template='plotly_white',
-    )
+    apply_dark_theme(fig, height=400, title=title)
 
     return fig
 
@@ -406,10 +410,7 @@ def create_scatter_plot(df: pd.DataFrame,
         title=title,
     )
 
-    fig.update_layout(
-        height=500,
-        template='plotly_white',
-    )
+    apply_dark_theme(fig, height=500)
 
     return fig
 
@@ -454,10 +455,9 @@ def create_technical_chart(close: pd.Series,
         )
         fig.update_yaxes(title_text=name, row=i, col=1)
 
-    fig.update_layout(
-        title=title,
+    apply_dark_theme(fig,
         height=200 + 150 * n_indicators,
-        template='plotly_white',
+        title=title,
         legend=dict(orientation='h', yanchor='bottom', y=1.02),
     )
 

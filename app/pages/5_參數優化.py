@@ -13,14 +13,17 @@ from core.data_loader import get_loader, get_active_stocks
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy
 from core.optimizer import GridSearchOptimizer, OptimizationResult
 from app.components.sidebar import render_sidebar_mini
+from app.components.error_handler import show_error
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.session_manager import set_state, StateKeys
 
 st.set_page_config(page_title='參數優化', page_icon='🎯', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='optimizer')
 
-st.title('🎯 策略參數優化')
-st.markdown('使用 Grid Search 自動找出最佳策略參數組合')
+render_page_header("參數優化", icon="⚙️")
 st.markdown('---')
 
 # ========== 策略選擇 ==========
@@ -347,13 +350,13 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
                     st.plotly_chart(fig, use_container_width=True)
 
             # 儲存結果
-            st.session_state['optimization_result'] = {
+            set_state(StateKeys.OPTIMIZATION_RESULT, {
                 'best_params': best_params,
                 'best_score': best_score,
                 'all_results': results_df,
                 'strategy_type': strategy_type,
                 'metric': metric,
-            }
+            })
 
             # 一鍵套用按鈕
             st.markdown('### 🎯 套用最佳參數')
@@ -363,12 +366,12 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
             with apply_col1:
                 if st.button('🚀 套用到選股篩選', type='primary', use_container_width=True):
                     strategy_type_map = {'價值投資': 'value', '成長投資': 'growth', '動能投資': 'momentum'}
-                    st.session_state['apply_optimized_params'] = {
+                    set_state(StateKeys.APPLY_OPTIMIZED_PARAMS, {
                         'strategy_type': strategy_type_map.get(strategy_type, 'value'),
                         'params': best_params,
                         'score': best_score,
                         'metric': metric,
-                    }
+                    })
                     st.switch_page('pages/1_選股篩選.py')
 
             with apply_col2:
@@ -383,7 +386,7 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
                 )
 
         except Exception as e:
-            st.error(f'優化過程發生錯誤: {e}')
+            show_error(e, title='優化過程發生錯誤')
             import traceback
             st.code(traceback.format_exc())
 

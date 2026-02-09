@@ -11,18 +11,20 @@ from datetime import datetime, date
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.risk import RiskAnalyzer
 from app.components.sidebar import render_sidebar_mini
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.error_handler import show_error
 
 st.set_page_config(page_title='投資組合', page_icon='💼', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='portfolio')
 
-st.title('💼 投資組合追蹤')
-st.markdown('建立並追蹤您的投資組合績效')
-st.markdown('---')
+render_page_header('投資組合', icon='💼')
 
 # 儲存投資組合的檔案路徑
 PORTFOLIO_FILE = Path(__file__).parent.parent.parent / 'data' / 'portfolios.json'
@@ -40,7 +42,7 @@ def save_portfolios(portfolios):
         json.dump(portfolios, f, ensure_ascii=False, indent=2, default=str)
 
 # 載入數據
-@st.cache_data(ttl=3600, show_spinner='載入數據中...')
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')
 def load_data():
     loader = get_loader()
     return {
@@ -52,7 +54,7 @@ def load_data():
 try:
     data = load_data()
 except Exception as e:
-    st.error(f'載入數據失敗: {e}')
+    show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常，或嘗試重新整理頁面')
     st.stop()
 
 close = data['close']
@@ -390,10 +392,10 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
                 st.metric('Sharpe Ratio', f'{sharpe:.2f}')
 
     else:
-        st.info('此投資組合尚無持股，請在上方新增持股。')
+        show_empty_state('此投資組合尚無持股', icon='📭', suggestion='請在上方新增持股')
 
 else:
-    st.info('請在側邊欄選擇或建立投資組合')
+    show_empty_state('尚未選擇投資組合', icon='💼', suggestion='請在側邊欄選擇或建立投資組合')
 
 # ========== 說明 ==========
 with st.expander('📖 使用說明'):

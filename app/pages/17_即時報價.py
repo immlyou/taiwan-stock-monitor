@@ -24,6 +24,8 @@ from core.realtime_quote import (
 from core.twse_api import get_taiex, fetch_taiex_realtime
 from core.data_loader import get_loader
 from app.components.sidebar import render_sidebar
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 
 # 頁面設定
 st.set_page_config(
@@ -92,16 +94,7 @@ def load_watchlist():
 
 
 # ========== 頁面標題 ==========
-title_col1, title_col2 = st.columns([4, 1])
-
-with title_col1:
-    st.title('💹 即時報價')
-    st.caption('資料來源：台灣證券交易所 | 約 10 秒更新')
-
-with title_col2:
-    if st.button('🔄 重新整理', use_container_width=True, key='refresh_main'):
-        clear_quote_cache()
-        st.rerun()
+render_page_header('即時報價', icon='💹')
 
 # ========== 第一行：大盤指數 + 個股查詢 ==========
 st.markdown('---')
@@ -211,11 +204,11 @@ with row2_col1:
                             with q_cols[i % 3]:
                                 st.markdown(format_compact_quote(quotes[stock_id]), unsafe_allow_html=True)
                 else:
-                    st.info('無法取得報價')
+                    show_empty_state('無法取得報價', icon='📊', suggestion='請確認目前是否為交易時段')
             else:
-                st.info('此清單沒有股票')
+                show_empty_state('此清單沒有股票', icon='📋', suggestion='請至自選股頁面新增股票')
     else:
-        st.info('尚未建立自選股清單')
+        show_empty_state('尚未建立自選股清單', icon='⭐', suggestion='請至自選股頁面建立您的第一個清單')
 
         # 顯示預設熱門股
         st.markdown('**預設顯示熱門股票：**')
@@ -243,7 +236,7 @@ with row2_col2:
                 with q_cols[i % 3]:
                     st.markdown(format_compact_quote(quotes[stock_id]), unsafe_allow_html=True)
     else:
-        st.info('非交易時段')
+        show_empty_state('非交易時段', icon='🕐', suggestion='交易時段為 09:00 - 13:30，非交易時段顯示收盤資料')
 
 # ========== 第三行：批次查詢 ==========
 st.markdown('---')

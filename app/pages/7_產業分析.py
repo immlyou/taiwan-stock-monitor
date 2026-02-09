@@ -9,21 +9,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
+from app.components.session_manager import get_state, set_state, StateKeys
 
 st.set_page_config(page_title='產業分析', page_icon='🏭', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='industry')
 
-st.title('🏭 產業分析')
-st.markdown('分析各產業的強弱勢表現與輪動趨勢')
+render_page_header("產業分析", icon="🏭")
 st.markdown('---')
 
 # 載入數據
-@st.cache_data(ttl=3600, show_spinner='載入數據中...')
+@st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')
 def load_data():
     loader = get_loader()
     return {
@@ -48,7 +51,7 @@ benchmark = data['benchmark']
 active_stocks = get_active_stocks()
 
 # 計算各產業報酬
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL['daily'])
 def calculate_industry_returns(_close, _stock_info, _active_stocks, period_days):
     """計算各產業報酬"""
     close_period = _close.tail(period_days)
@@ -115,7 +118,7 @@ industry_returns = calculate_industry_returns(
 )
 
 if not industry_returns:
-    st.warning('無法計算產業報酬')
+    show_empty_state('無法計算產業報酬', icon='⚠️', suggestion='請確認資料是否已正常載入')
     st.stop()
 
 # ========== 產業排行 ==========
@@ -310,7 +313,7 @@ with col1:
         display_up['短期動能'] = display_up['短期動能'].apply(lambda x: f'{x * 100:+.2f}%' if pd.notna(x) else '-')
         st.dataframe(display_up, use_container_width=True, hide_index=True)
     else:
-        st.info('目前無明顯動能轉強的產業')
+        show_empty_state('目前無明顯動能轉強的產業', icon='📈')
 
 with col2:
     st.markdown('**📉 動能轉弱產業**')
@@ -322,7 +325,7 @@ with col2:
         display_down['短期動能'] = display_down['短期動能'].apply(lambda x: f'{x * 100:+.2f}%' if pd.notna(x) else '-')
         st.dataframe(display_down, use_container_width=True, hide_index=True)
     else:
-        st.info('目前無明顯動能轉弱的產業')
+        show_empty_state('目前無明顯動能轉弱的產業', icon='📉')
 
 st.markdown('---')
 
@@ -397,11 +400,11 @@ if selected_industry:
 
             # 展開詳情按鈕
             if cols[4].button('📊 詳情', key=f'detail_{row["代號"]}'):
-                st.session_state.selected_stock_detail = row['代號']
+                set_state(StateKeys.SELECTED_STOCK_DETAIL, row['代號'])
 
         # 顯示選中股票的詳細分析
-        if 'selected_stock_detail' in st.session_state and st.session_state.selected_stock_detail:
-            detail_stock_id = st.session_state.selected_stock_detail
+        if get_state(StateKeys.SELECTED_STOCK_DETAIL):
+            detail_stock_id = get_state(StateKeys.SELECTED_STOCK_DETAIL)
 
             # 確認是該產業的股票
             if detail_stock_id in [r['代號'] for r in stock_returns]:
@@ -411,7 +414,7 @@ if selected_industry:
                 close_col1, close_col2 = st.columns([4, 1])
                 with close_col2:
                     if st.button('❌ 關閉', key='close_detail'):
-                        del st.session_state.selected_stock_detail
+                        set_state(StateKeys.SELECTED_STOCK_DETAIL, None)
                         st.rerun()
 
                 # 取得股票資訊
@@ -526,7 +529,7 @@ if selected_industry:
 
                             st.plotly_chart(fig_vol, use_container_width=True)
                         else:
-                            st.info('無成交量數據')
+                            show_empty_state('無成交量數據', icon='📊')
 
                     # 技術指標分析
                     st.markdown('**🔍 技術指標**')

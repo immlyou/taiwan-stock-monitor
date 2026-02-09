@@ -9,11 +9,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.data_loader import get_loader, get_active_stocks
-from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
+from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy, CustomStrategy
+from core.strategies.custom import (
+    AVAILABLE_FIELDS, OPERATORS, FilterCondition,
+    save_custom_strategy, load_all_custom_strategies, delete_custom_strategy,
+)
 from config import STRATEGY_PRESETS
 from app.components.sidebar import render_sidebar_mini
 from app.components.portfolio_utils import load_portfolios, get_portfolio_names, add_holdings_batch
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.page_header import render_page_header
+from app.components.empty_state import show_empty_state
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys
 )
@@ -28,7 +34,7 @@ init_session_state()
 # 渲染側邊欄
 render_sidebar_mini(current_page='screening')
 
-st.title('🔍 選股篩選')
+render_page_header("選股篩選", icon="🔍")
 
 # 顯示資料日期
 def get_latest_date():
@@ -48,13 +54,14 @@ st.markdown('---')
 # ========== 策略選擇區 ==========
 st.subheader('1️⃣ 選擇策略')
 
-strategy_cols = st.columns(4)
+strategy_cols = st.columns(5)
 
 strategy_options = {
     '價值投資': {'icon': '💎', 'desc': '尋找被低估的好公司', 'color': 'blue'},
     '成長投資': {'icon': '🚀', 'desc': '尋找高速成長的公司', 'color': 'green'},
     '動能投資': {'icon': '📈', 'desc': '追蹤價量動能強勁股', 'color': 'orange'},
     '綜合策略': {'icon': '🎯', 'desc': '多因子綜合評分選股', 'color': 'purple'},
+    '自訂篩選': {'icon': '🔧', 'desc': '自訂條件組合篩選', 'color': 'red'},
 }
 
 # 檢查是否有從參數優化頁面傳來的參數
@@ -222,6 +229,115 @@ with custom_col:
             params['use_growth'] = st.checkbox('使用成長因子', value=True)
             params['use_momentum'] = st.checkbox('使用動能因子', value=True)
 
+    elif strategy_type == '自訂篩選':
+        st.markdown('**動態條件組合**')
+
+        # 條件組合模式
+        combine_mode = st.radio(
+            '條件組合方式', ['AND (全部符合)', 'OR (任一符合)'],
+            horizontal=True, key='custom_combine_mode'
+        )
+        params['combine_mode'] = 'AND' if 'AND' in combine_mode else 'OR'
+
+        # 載入/管理已儲存策略
+        saved = load_all_custom_strategies()
+        saved_col1, saved_col2 = st.columns([2, 1])
+        with saved_col1:
+            load_name = st.selectbox(
+                '載入已儲存策略', ['(新策略)'] + list(saved.keys()),
+                key='custom_load_select'
+            )
+        with saved_col2:
+            if load_name != '(新策略)' and st.button('🗑️ 刪除', key='custom_del_btn'):
+                delete_custom_strategy(load_name)
+                st.rerun()
+
+        # 初始化條件列表
+        if 'custom_conditions' not in st.session_state:
+            st.session_state.custom_conditions = []
+
+        # 載入已儲存策略的條件
+        if load_name != '(新策略)' and load_name in saved:
+            saved_strategy = saved[load_name]
+            st.session_state.custom_conditions = saved_strategy.get('conditions', [])
+            params['combine_mode'] = saved_strategy.get('combine_mode', 'AND')
+
+        # 新增條件按鈕
+        if st.button('➕ 新增條件', key='custom_add_condition'):
+            st.session_state.custom_conditions.append({
+                'field_name': list(AVAILABLE_FIELDS.keys())[0],
+                'operator': '>=',
+                'value': 10.0,
+                'enabled': True,
+            })
+            st.rerun()
+
+        # 顯示條件列表
+        conditions_to_keep = []
+        for i, cond in enumerate(st.session_state.custom_conditions):
+            c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 1, 1])
+            with c1:
+                field_name = st.selectbox(
+                    '欄位', list(AVAILABLE_FIELDS.keys()),
+                    index=list(AVAILABLE_FIELDS.keys()).index(cond['field_name'])
+                        if cond['field_name'] in AVAILABLE_FIELDS else 0,
+                    key=f'cond_field_{i}'
+                )
+            with c2:
+                operator = st.selectbox(
+                    '運算子', list(OPERATORS.keys()),
+                    index=list(OPERATORS.keys()).index(cond['operator'])
+                        if cond['operator'] in OPERATORS else 0,
+                    key=f'cond_op_{i}'
+                )
+            with c3:
+                field_info = AVAILABLE_FIELDS.get(field_name, {})
+                default_val = cond.get('value', field_info.get('default_val', 10.0))
+                value = st.number_input(
+                    f'值 ({field_info.get("unit", "")})',
+                    value=float(default_val),
+                    key=f'cond_val_{i}'
+                )
+            with c4:
+                enabled = st.checkbox('啟用', value=cond.get('enabled', True), key=f'cond_en_{i}')
+            with c5:
+                remove = st.button('❌', key=f'cond_rm_{i}')
+
+            if not remove:
+                conditions_to_keep.append({
+                    'field_name': field_name,
+                    'operator': operator,
+                    'value': value,
+                    'enabled': enabled,
+                })
+
+        if len(conditions_to_keep) != len(st.session_state.custom_conditions):
+            st.session_state.custom_conditions = conditions_to_keep
+            st.rerun()
+
+        # 將條件寫入 params
+        params['conditions'] = conditions_to_keep
+
+        # 儲存策略
+        st.markdown('---')
+        save_col1, save_col2 = st.columns([2, 1])
+        with save_col1:
+            save_name = st.text_input('策略名稱', value='', key='custom_save_name')
+        with save_col2:
+            st.markdown('<br>', unsafe_allow_html=True)
+            if st.button('💾 儲存策略', key='custom_save_btn'):
+                if save_name and conditions_to_keep:
+                    save_custom_strategy(
+                        save_name,
+                        [FilterCondition.from_dict(c) for c in conditions_to_keep],
+                        params['combine_mode']
+                    )
+                    st.success(f'已儲存策略「{save_name}」')
+                elif not save_name:
+                    st.warning('請輸入策略名稱')
+                else:
+                    st.warning('請至少新增一個條件')
+
 st.markdown('---')
 
 # ========== 執行選股 ==========
@@ -258,6 +374,7 @@ if run_button:
                 '成長投資': GrowthStrategy(params),
                 '動能投資': MomentumStrategy(params),
                 '綜合策略': CompositeStrategy(params),
+                '自訂篩選': CustomStrategy(params),
             }
 
             strategy = strategy_map[strategy_type]
@@ -270,9 +387,9 @@ if run_button:
             filtered_count = original_count - len(result.stocks)
 
             # 儲存結果到 session state
-            st.session_state['selection_result'] = result
-            st.session_state['result_strategy_type'] = strategy_type
-            st.session_state['result_params'] = params.copy()
+            set_state(StateKeys.SELECTION_RESULT, result)
+            set_state(StateKeys.RESULT_STRATEGY_TYPE, strategy_type)
+            set_state(StateKeys.RESULT_PARAMS, params.copy())
 
             if filtered_count > 0:
                 st.success(f'✅ 篩選完成！找到 {len(result.stocks)} 檔股票 (已排除 {filtered_count} 檔下市股票)')
@@ -280,14 +397,14 @@ if run_button:
                 st.success(f'✅ 篩選完成！找到 {len(result.stocks)} 檔股票')
 
         except Exception as e:
-            st.error(f'選股時發生錯誤: {e}')
+            show_error(e, title='選股時發生錯誤')
             import traceback
             st.code(traceback.format_exc())
 
 # ========== 顯示結果 ==========
-if 'selection_result' in st.session_state:
-    result = st.session_state['selection_result']
-    result_strategy = st.session_state.get('result_strategy_type', '')
+if get_state(StateKeys.SELECTION_RESULT) is not None:
+    result = get_state(StateKeys.SELECTION_RESULT)
+    result_strategy = get_state(StateKeys.RESULT_STRATEGY_TYPE, '')
 
     st.markdown('---')
     st.subheader(f'4️⃣ {result_strategy} 選股結果')
@@ -344,24 +461,24 @@ if 'selection_result' in st.session_state:
             items_per_page = 10
             total_pages = (len(df) - 1) // items_per_page + 1
 
-            if 'stock_list_page' not in st.session_state:
-                st.session_state.stock_list_page = 0
+            if get_state(StateKeys.STOCK_LIST_PAGE) is None:
+                set_state(StateKeys.STOCK_LIST_PAGE, 0)
 
             # 分頁控制
             page_col1, page_col2, page_col3 = st.columns([1, 2, 1])
             with page_col1:
-                if st.button('⬅️ 上一頁', disabled=st.session_state.stock_list_page == 0):
-                    st.session_state.stock_list_page -= 1
+                if st.button('⬅️ 上一頁', disabled=get_state(StateKeys.STOCK_LIST_PAGE) == 0):
+                    set_state(StateKeys.STOCK_LIST_PAGE, get_state(StateKeys.STOCK_LIST_PAGE) - 1)
                     st.rerun()
             with page_col2:
-                st.markdown(f"<center>第 {st.session_state.stock_list_page + 1} / {total_pages} 頁</center>", unsafe_allow_html=True)
+                st.markdown(f"<center>第 {get_state(StateKeys.STOCK_LIST_PAGE) + 1} / {total_pages} 頁</center>", unsafe_allow_html=True)
             with page_col3:
-                if st.button('下一頁 ➡️', disabled=st.session_state.stock_list_page >= total_pages - 1):
-                    st.session_state.stock_list_page += 1
+                if st.button('下一頁 ➡️', disabled=get_state(StateKeys.STOCK_LIST_PAGE) >= total_pages - 1):
+                    set_state(StateKeys.STOCK_LIST_PAGE, get_state(StateKeys.STOCK_LIST_PAGE) + 1)
                     st.rerun()
 
             # 顯示當前頁的股票
-            start_idx = st.session_state.stock_list_page * items_per_page
+            start_idx = get_state(StateKeys.STOCK_LIST_PAGE) * items_per_page
             end_idx = min(start_idx + items_per_page, len(df))
             page_df = df.iloc[start_idx:end_idx]
 
@@ -387,20 +504,20 @@ if 'selection_result' in st.session_state:
 
                 # 分析按鈕
                 if cols[5].button('📊 分析', key=f"analyze_{row['代號']}"):
-                    st.session_state.analyze_stock = row['代號']
-                    st.session_state.analyze_stock_name = row['名稱']
+                    set_state(StateKeys.ANALYZE_STOCK, row['代號'])
+                    set_state(StateKeys.ANALYZE_STOCK_NAME, row['名稱'])
 
             # 顯示選中股票的詳細分析
-            if 'analyze_stock' in st.session_state and st.session_state.analyze_stock:
-                detail_stock_id = st.session_state.analyze_stock
-                detail_stock_name = st.session_state.get('analyze_stock_name', '')
+            if get_state(StateKeys.ANALYZE_STOCK):
+                detail_stock_id = get_state(StateKeys.ANALYZE_STOCK)
+                detail_stock_name = get_state(StateKeys.ANALYZE_STOCK_NAME, '')
 
                 st.markdown('---')
                 st.markdown(f'### 📋 {detail_stock_id} {detail_stock_name} 詳細分析')
 
                 # 關閉按鈕
                 if st.button('❌ 關閉分析'):
-                    del st.session_state.analyze_stock
+                    set_state(StateKeys.ANALYZE_STOCK, None)
                     st.rerun()
 
                 # 取得該股票資料
@@ -517,7 +634,7 @@ if 'selection_result' in st.session_state:
                 generator = ReportGenerator()
                 html_report = generator.generate_screening_html(
                     strategy_name=result_strategy,
-                    params=st.session_state.get('result_params', {}),
+                    params=get_state(StateKeys.RESULT_PARAMS, {}),
                     stocks=result.stocks,
                     scores=result.scores,
                     stock_info=stock_info,
@@ -583,11 +700,11 @@ if 'selection_result' in st.session_state:
                     if added_count > 0:
                         st.success(f'✅ 已將 {added_count} 檔股票加入「{target_portfolio}」投資組合')
                     else:
-                        st.info('所選股票已在投資組合中')
+                        show_empty_state('所選股票已在投資組合中', icon='ℹ️')
                 else:
                     st.warning('請選擇要加入的股票')
         else:
-            st.info('尚未建立投資組合，請先到「💼 投資組合」頁面建立。')
+            show_empty_state('尚未建立投資組合', icon='💼', suggestion='請先到「投資組合」頁面建立')
             if st.button('前往建立投資組合'):
                 st.switch_page('pages/8_投資組合.py')
 
@@ -597,7 +714,7 @@ if 'selection_result' in st.session_state:
         screening_result = {
             'date': datetime.now().isoformat(),
             'strategy': result_strategy,
-            'params': st.session_state.get('result_params', {}),
+            'params': get_state(StateKeys.RESULT_PARAMS, {}),
             'stocks': result.stocks,
             'count': len(result.stocks),
         }
