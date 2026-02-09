@@ -24,6 +24,12 @@ from app.components.error_handler import show_error
 
 st.set_page_config(page_title='自選股', page_icon='⭐', layout='wide')
 
+# 檢查登入狀態
+if not st.session_state.get("authenticated", False):
+    st.warning("⚠️ 請先登入")
+    st.markdown("[👉 點此前往登入頁面](../)")
+    st.stop()
+
 # 初始化 Session State
 init_session_state()
 
@@ -91,9 +97,9 @@ with st.sidebar:
 
     # 新建清單
     if selected_watchlist == '-- 新建清單 --':
-        new_name = st.text_input('清單名稱', placeholder='例如：觀察中')
+        new_name = st.text_input('清單名稱', placeholder='例如：觀察中', key='new_watchlist_name')
 
-        if st.button('➕ 建立清單', use_container_width=True):
+        if st.button('➕ 建立清單', use_container_width=True, key='create_watchlist_btn'):
             if new_name and new_name not in watchlists:
                 watchlists[new_name] = {
                     'created_at': datetime.now().isoformat(),
@@ -113,8 +119,8 @@ with st.sidebar:
         st.markdown('---')
 
         # 重新命名
-        new_list_name = st.text_input('重新命名', value=selected_watchlist)
-        if new_list_name != selected_watchlist and st.button('✏️ 確認重新命名'):
+        new_list_name = st.text_input('重新命名', value=selected_watchlist, key='rename_watchlist')
+        if new_list_name != selected_watchlist and st.button('✏️ 確認重新命名', key='rename_btn'):
             if new_list_name and new_list_name not in watchlists:
                 watchlists[new_list_name] = watchlists.pop(selected_watchlist)
                 save_watchlists(watchlists)

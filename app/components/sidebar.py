@@ -543,6 +543,28 @@ def render_sidebar(current_page: str = None):
         </div>
         ''', unsafe_allow_html=True)
 
+        # 用戶資訊與登出
+        current_user = st.session_state.get("current_user", "")
+        if current_user:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(f'''
+                <div style="background:{SIDEBAR_COLORS['bg_secondary']};border-radius:8px;padding:8px 12px;margin-bottom:1rem">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font-size:1.2rem">👤</span>
+                        <div>
+                            <div style="color:{SIDEBAR_COLORS['text_primary']};font-size:0.85rem;font-weight:600">{current_user}</div>
+                            <div style="color:{SIDEBAR_COLORS['text_muted']};font-size:0.7rem">管理員</div>
+                        </div>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+            with col2:
+                if st.button('🚪', key='logout_btn', help='登出'):
+                    st.session_state["authenticated"] = False
+                    st.session_state["current_user"] = None
+                    st.rerun()
+
         # 系統狀態
         summary = get_data_summary()
         if 'error' not in summary:
@@ -667,6 +689,25 @@ def render_sidebar_mini(current_page: str = None):
             <p class="sidebar-logo-subtitle">TAIWAN STOCK ANALYTICS</p>
         </div>
         ''', unsafe_allow_html=True)
+
+        # 用戶資訊與登出
+        current_user = st.session_state.get("current_user", "")
+        if current_user:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(f'''
+                <div style="background:{SIDEBAR_COLORS['bg_secondary']};border-radius:8px;padding:6px 10px;margin-bottom:0.5rem">
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <span>👤</span>
+                        <span style="color:{SIDEBAR_COLORS['text_primary']};font-size:0.8rem">{current_user}</span>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+            with col2:
+                if st.button('🚪', key='mini_logout_btn', help='登出'):
+                    st.session_state["authenticated"] = False
+                    st.session_state["current_user"] = None
+                    st.rerun()
 
         # 當前頁面標籤
         if current_page:

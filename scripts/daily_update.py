@@ -307,6 +307,17 @@ def main():
         except Exception as e:
             logger.warning(f'發送通知失敗: {e}')
 
+    # 發送 Telegram 通知
+    try:
+        from telegram_notify import send_update_notification
+        send_update_notification(
+            success=True if not args.screen_only else (results is not None),
+            updated_count=updated if not args.screen_only else 0,
+            error_count=errors if not args.screen_only else 0
+        )
+    except Exception as e:
+        logger.warning(f'Telegram 通知失敗: {e}')
+
     logger.info('=' * 50)
     logger.info('每日更新任務完成')
     logger.info('=' * 50)

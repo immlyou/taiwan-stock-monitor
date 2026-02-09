@@ -2,6 +2,9 @@
 .env
 .streamlit/secrets.toml
 
+# Streamlit Secrets
+.streamlit/secrets.toml
+
 # Python
 __pycache__/
 *.py[cod]

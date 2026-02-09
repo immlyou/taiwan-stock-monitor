@@ -40,6 +40,119 @@ st.set_page_config(
     layout='wide',
 )
 
+
+# ========== 帳號登入系統 ==========
+def check_login():
+    """驗證使用者帳號密碼"""
+
+    def login_submitted():
+        """處理登入表單提交"""
+        username = st.session_state.get("login_username", "")
+        password = st.session_state.get("login_password", "")
+
+        # 驗證帳號密碼
+        correct_username = st.secrets["credentials"]["username"]
+        correct_password = st.secrets["credentials"]["password"]
+
+        if username == correct_username and password == correct_password:
+            st.session_state["authenticated"] = True
+            st.session_state["current_user"] = username
+            # 清除登入表單資料
+            if "login_username" in st.session_state:
+                del st.session_state["login_username"]
+            if "login_password" in st.session_state:
+                del st.session_state["login_password"]
+        else:
+            st.session_state["login_error"] = True
+
+    # 檢查是否已登入
+    if st.session_state.get("authenticated", False):
+        return True
+
+    # 顯示登入頁面
+    st.markdown("""
+    <style>
+        .login-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 70vh;
+        }
+        .login-box {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .login-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        .login-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #f8fafc;
+            margin: 0;
+        }
+        .login-subtitle {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        st.markdown("""
+        <div class="login-container">
+            <div class="login-header">
+                <div class="login-icon">📊</div>
+                <h1 class="login-title">台股戰情中心</h1>
+                <p class="login-subtitle">Taiwan Stock Command Center</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 登入表單
+        with st.form("login_form"):
+            st.text_input("👤 帳號", key="login_username", placeholder="請輸入帳號")
+            st.text_input("🔐 密碼", type="password", key="login_password", placeholder="請輸入密碼")
+
+            submitted = st.form_submit_button("登入", use_container_width=True, type="primary")
+
+            if submitted:
+                login_submitted()
+                if st.session_state.get("authenticated", False):
+                    st.rerun()
+
+        # 顯示錯誤訊息
+        if st.session_state.get("login_error", False):
+            st.error("❌ 帳號或密碼錯誤，請重試")
+            st.session_state["login_error"] = False
+
+        st.markdown("""
+        <div style="text-align:center;margin-top:2rem;color:#64748b;font-size:0.8rem">
+            🔒 此系統需要登入才能使用
+        </div>
+        """, unsafe_allow_html=True)
+
+    return False
+
+
+if not check_login():
+    st.stop()
+
+
 # 初始化 Session State
 init_session_state()
 
