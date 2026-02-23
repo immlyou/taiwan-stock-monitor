@@ -155,15 +155,15 @@ with tab_ptt:
         # KPI
         kpi_cols = st.columns(4)
         with kpi_cols[0]:
-            st.markdown(create_kpi_card('📝', '文章總數', str(total_articles), f'最近 {ptt_pages} 頁'), unsafe_allow_html=True)
+            st.markdown(create_kpi_card('📝 文章總數', str(total_articles)), unsafe_allow_html=True)
         with kpi_cols[1]:
-            st.markdown(create_kpi_card('📊', '被提及個股', str(unique_stocks), '不重複股票代碼'), unsafe_allow_html=True)
+            st.markdown(create_kpi_card('📊 被提及個股', str(unique_stocks)), unsafe_allow_html=True)
         with kpi_cols[2]:
             top_tag = tag_counter.most_common(1)[0] if tag_counter else ('—', 0)
-            st.markdown(create_kpi_card('🏷️', '最熱分類', f'[{top_tag[0]}]', f'{top_tag[1]} 篇'), unsafe_allow_html=True)
+            st.markdown(create_kpi_card('🏷️ 最熱分類', f'[{top_tag[0]}]'), unsafe_allow_html=True)
         with kpi_cols[3]:
             pct_has_stock = sum(1 for t in titles if STOCK_RE.search(t)) / total_articles * 100
-            st.markdown(create_kpi_card('🎯', '含股票代碼', f'{pct_has_stock:.0f}%', '提及個股比例'), unsafe_allow_html=True)
+            st.markdown(create_kpi_card('🎯 含股票代碼', f'{pct_has_stock:.0f}%'), unsafe_allow_html=True)
 
         col_left, col_right = st.columns([3, 2])
 
