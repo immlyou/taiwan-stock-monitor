@@ -217,7 +217,7 @@ with tab_x:
     if not bearer_token:
         st.info('💡 需要設定 `X_BEARER_TOKEN` 環境變數才能使用 X (Twitter) 輿情分析。')
         st.markdown(f'''
-        <div style="background:{COLORS["card_bg"]};border:1px solid {COLORS["border"]};border-radius:10px;padding:1rem 1.25rem">
+        <div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:10px;padding:1rem 1.25rem">
             <h5 style="color:{COLORS["text_primary"]};margin-bottom:0.5rem">如何設定？</h5>
             <ol style="color:{COLORS["text_secondary"]};font-size:0.85rem">
                 <li>前往 <a href="https://developer.twitter.com/" target="_blank" style="color:{COLORS["accent"]}">X Developer Portal</a> 申請 API 存取權限</li>
@@ -258,7 +258,7 @@ with tab_x:
                         retweets = metrics.get('retweet_count', 0)
 
                         st.markdown(f'''
-                        <div style="background:{COLORS["card_bg"]};border:1px solid {COLORS["border"]};
+                        <div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};
                                     border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.5rem">
                             <p style="color:{COLORS["text_primary"]};font-size:0.85rem;margin:0 0 0.5rem 0">{text}</p>
                             <div style="display:flex;gap:1rem;color:{COLORS["text_muted"]};font-size:0.75rem">
@@ -271,7 +271,7 @@ with tab_x:
 
 # ─── 免責聲明 ──────────────────────────────────────────
 st.markdown(f'''
-<div style="background:{COLORS["card_bg"]};border:1px solid {COLORS["border"]};border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
+<div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
     <p style="color:{COLORS["text_muted"]};font-size:0.75rem;margin:0">
         ⚠️ <b>免責聲明</b>：社群輿情資料僅供參考，不代表投資建議。
         文章來源為公開論壇與社群平台，內容不代表本系統立場。

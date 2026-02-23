@@ -54,7 +54,7 @@ active_stocks = active if active else close.columns.tolist()
 
 # ─── 多因子計算 ────────────────────────────────────────
 st.markdown(f'''
-<div style="background:{COLORS["card_bg"]};border:1px solid {COLORS["border"]};border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem">
+<div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem">
     <h4 style="color:{COLORS["text_primary"]};margin:0 0 0.5rem 0">🧠 AI 多因子評分模型</h4>
     <p style="color:{COLORS["text_muted"]};font-size:0.85rem;margin:0">
         綜合動能、價值、品質、規模四大面向，為每檔股票計算 0-100 分的綜合評分。
@@ -211,7 +211,7 @@ with st.expander('📊 因子分佈圖', expanded=False):
 
 # ─── 免責聲明 ──────────────────────────────────────────
 st.markdown(f'''
-<div style="background:{COLORS["card_bg"]};border:1px solid {COLORS["border"]};border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
+<div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
     <p style="color:{COLORS["text_muted"]};font-size:0.75rem;margin:0">
         ⚠️ <b>免責聲明</b>：本頁面所有資訊僅供參考，不構成投資建議。
         AI 評分模型基於歷史數據計算，過去績效不代表未來表現。
