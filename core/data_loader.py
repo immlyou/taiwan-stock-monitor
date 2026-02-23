@@ -128,9 +128,23 @@ class DataCache:
         self._cache[key] = value
         self._load_times[key] = time.time()
 
-    def has(self, key: str) -> bool:
-        """檢查是否有快取"""
-        return key in self._cache
+    def has(self, key: str, max_age: int = 3600) -> bool:
+        """檢查是否有快取且未過期
+
+        Parameters
+        ----------
+        key : str
+            快取鍵名
+        max_age : int
+            最大存活秒數，預設 3600（1 小時）。設為 0 表示不檢查過期。
+        """
+        if key not in self._cache:
+            return False
+        if max_age <= 0:
+            return True
+        import time as _time
+        load_time = self._load_times.get(key, 0)
+        return (_time.time() - load_time) < max_age
 
     def clear(self):
         """清除所有快取"""
@@ -238,9 +252,10 @@ class DataLoader:
         pd.DataFrame
             數據 DataFrame，index 為日期，columns 為股票代號
         """
-        # 優先檢查快取
+        # 優先檢查快取（雲端模式 1 小時過期，本地模式不過期）
+        cache_max_age = 3600 if self._use_finlab_api else 0
         if use_cache:
-            if self._use_global_cache and self._global_cache.has(data_key):
+            if self._use_global_cache and self._global_cache.has(data_key, max_age=cache_max_age):
                 return self._global_cache.get(data_key)
             elif not self._use_global_cache and data_key in self._cache:
                 return self._cache[data_key]

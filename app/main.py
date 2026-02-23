@@ -381,12 +381,24 @@ with header_col2:
     # 載入資料
     data = load_market_overview()
     latest_date = data.get('latest_date', '-')
+
+    # 檢查資料是否過期（超過 2 天未更新）
+    _data_stale = False
+    if latest_date != '-':
+        try:
+            _last_dt = datetime.strptime(latest_date, '%Y-%m-%d')
+            _data_stale = (datetime.now() - _last_dt).days > 2
+        except Exception:
+            pass
+
     st.markdown(f'''
     <div style="text-align:right;padding-top:12px">
         <span style="color:{COLORS['text_muted']};font-size:0.8rem">📅 資料日期</span><br>
-        <span style="color:{COLORS['text_primary']};font-size:1rem;font-weight:600">{latest_date}</span>
+        <span style="color:{'#fbbf24' if _data_stale else COLORS['text_primary']};font-size:1rem;font-weight:600">{latest_date}</span>
     </div>
     ''', unsafe_allow_html=True)
+    if _data_stale:
+        st.warning(f'⚠️ 資料已過期（{latest_date}），請點擊「重新整理」更新')
 
 with header_col3:
     st.markdown('<div style="padding-top:8px">', unsafe_allow_html=True)
