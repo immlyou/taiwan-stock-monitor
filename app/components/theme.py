@@ -366,6 +366,13 @@ def inject_professional_theme():
         background: {COLORS['border_light']};
     }}
 
+    /* ===== 隱藏右上角 Running Man 載入動畫 ===== */
+    div[data-testid="stStatusWidget"] {{
+        visibility: hidden;
+        height: 0;
+        position: fixed;
+    }}
+
     </style>
     """, unsafe_allow_html=True)
 
