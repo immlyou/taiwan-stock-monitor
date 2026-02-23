@@ -96,9 +96,14 @@ def inject_professional_theme():
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }}
 
+    /* ===== 全域排版 ===== */
+    .stApp, .stApp p, .stApp li {{
+        line-height: 1.6;
+    }}
+
     /* ===== 按鈕樣式 ===== */
     .stButton > button {{
-        background: linear-gradient(135deg, {COLORS['accent']} 0%, #2563eb 100%);
+        background: linear-gradient(135deg, {COLORS['accent']} 0%, {COLORS['accent']}dd 100%);
         color: white !important;
         border: none;
         border-radius: 8px;
@@ -262,6 +267,105 @@ def inject_professional_theme():
         margin-bottom: 8px;
     }}
 
+    /* ===== KPI 卡片 hover ===== */
+    .kpi-card {{
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+    .kpi-card:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.4) !important;
+    }}
+
+    /* ===== 股票報價卡片 hover ===== */
+    .stock-card {{
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }}
+    .stock-card:hover {{
+        transform: translateX(4px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        border-color: {COLORS['accent']} !important;
+    }}
+
+    /* ===== 排行榜表格 ===== */
+    .ranking-table {{
+        width: 100%;
+        border-collapse: collapse;
+    }}
+    .ranking-table tr {{
+        transition: background 0.15s ease;
+    }}
+    .ranking-table tr:nth-child(even) td {{
+        background: rgba(37, 43, 61, 0.6);
+    }}
+    .ranking-table tr:hover td {{
+        background: rgba(59, 130, 246, 0.1) !important;
+    }}
+    .ranking-table thead th {{
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }}
+
+    /* ===== Slider 滑桿 ===== */
+    .stSlider [data-baseweb="slider"] [role="slider"] {{
+        background: {COLORS['accent']} !important;
+        border-color: {COLORS['accent']} !important;
+    }}
+    .stSlider [data-baseweb="slider"] div[data-testid="stTickBar"] > div {{
+        background: {COLORS['border']} !important;
+    }}
+
+    /* ===== Checkbox / Radio ===== */
+    .stCheckbox label span[data-testid="stCheckbox"] {{
+        color: {COLORS['text_primary']};
+    }}
+    input[type="checkbox"]:checked {{
+        accent-color: {COLORS['accent']};
+    }}
+    input[type="radio"]:checked {{
+        accent-color: {COLORS['accent']};
+    }}
+
+    /* ===== Number Input ===== */
+    .stNumberInput > div > div > input {{
+        background: {COLORS['secondary']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        color: {COLORS['text_primary']} !important;
+        border-radius: 8px;
+    }}
+
+    /* ===== TextArea ===== */
+    .stTextArea > div > div > textarea {{
+        background: {COLORS['secondary']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        color: {COLORS['text_primary']} !important;
+        border-radius: 8px;
+    }}
+
+    /* ===== Date Input ===== */
+    .stDateInput > div > div > input {{
+        background: {COLORS['secondary']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        color: {COLORS['text_primary']} !important;
+        border-radius: 8px;
+    }}
+
+    /* ===== 深色捲軸 ===== */
+    ::-webkit-scrollbar {{
+        width: 8px;
+        height: 8px;
+    }}
+    ::-webkit-scrollbar-track {{
+        background: {COLORS['primary']};
+    }}
+    ::-webkit-scrollbar-thumb {{
+        background: {COLORS['border']};
+        border-radius: 4px;
+    }}
+    ::-webkit-scrollbar-thumb:hover {{
+        background: {COLORS['border_light']};
+    }}
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -298,7 +402,7 @@ def create_kpi_card(label: str, value: str, delta: str = None, delta_color: str 
     delta_html = f'<div style="color:{color};font-size:0.85rem;font-weight:600;margin-top:4px">{arrow} {delta}</div>' if delta else ''
 
     html = f'''
-    <div style="
+    <div class="kpi-card" style="
         background:{COLORS['secondary']};
         border:1px solid {COLORS['border']};
         border-radius:12px;
@@ -384,14 +488,13 @@ def create_stock_card(
     extra_html = f'<div style="color:{COLORS["text_muted"]};font-size:0.7rem;margin-top:6px">{extra_info}</div>' if extra_info else ''
 
     html = f'''
-    <div style="
+    <div class="stock-card" style="
         background:{COLORS['secondary']};
         border:1px solid {COLORS['border']};
         border-left:4px solid {color};
         border-radius:8px;
         padding:1rem;
         margin-bottom:8px;
-        transition:all 0.2s ease;
     ">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
             <div>

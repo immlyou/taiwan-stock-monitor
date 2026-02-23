@@ -264,10 +264,10 @@ if latest_screening and latest_screening.get('stocks'):
 
         with cols[i % 4]:
             st.markdown(
-                f"<div style='background:#252b3d;border:1px solid #374151;padding:8px;border-radius:6px;margin-bottom:8px'>"
-                f"<div style='font-size:12px;color:#94a3b8'>{stock_id} {name[:4]}</div>"
-                f"<div style='font-size:16px;font-weight:bold;color:{color}'>{current:,.2f}</div>"
-                f"<div style='font-size:11px;color:{color}'>{change_pct:+.2f}%</div>"
+                f"<div class='kpi-card' style='background:#252b3d;border:1px solid #374151;padding:10px 12px;border-radius:8px;margin-bottom:8px'>"
+                f"<div style='font-size:0.75rem;color:#94a3b8'>{stock_id} {name[:4]}</div>"
+                f"<div style='font-size:1.1rem;font-weight:700;color:{color};margin-top:4px'>{current:,.2f}</div>"
+                f"<div style='font-size:0.7rem;color:{color}'>{change_pct:+.2f}%</div>"
                 f"</div>",
                 unsafe_allow_html=True
             )

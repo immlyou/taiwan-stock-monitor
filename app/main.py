@@ -618,15 +618,15 @@ def create_ranking_table(title: str, data_rows: list, icon: str = '📊'):
             val_color = COLORS['up'] if value > 0 else COLORS['down'] if value < 0 else COLORS['text_primary']
 
         rows_html += f'''
-        <tr style="border-bottom:1px solid {COLORS['border']}">
-            <td style="padding:10px 8px;width:40px">
+        <tr>
+            <td style="padding:10px 8px;width:40px;border-bottom:1px solid {COLORS['border']}">
                 <span style="background:{rank_bg};color:{rank_color};padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">{i}</span>
             </td>
-            <td style="padding:10px 8px">
+            <td style="padding:10px 8px;border-bottom:1px solid {COLORS['border']}">
                 <span style="color:{COLORS['text_primary']};font-weight:600">{row.get('code', '')}</span>
                 <span style="color:{COLORS['text_secondary']};font-size:0.8rem;margin-left:6px">{row.get('name', '')}</span>
             </td>
-            <td style="padding:10px 8px;text-align:right">
+            <td style="padding:10px 8px;text-align:right;border-bottom:1px solid {COLORS['border']}">
                 <span style="color:{val_color};font-weight:600">{row.get('display', '')}</span>
             </td>
         </tr>
@@ -637,7 +637,7 @@ def create_ranking_table(title: str, data_rows: list, icon: str = '📊'):
         <div style="background:{COLORS['primary']};padding:12px 16px;border-bottom:1px solid {COLORS['border']}">
             <span style="color:{COLORS['text_primary']};font-weight:600">{icon} {title}</span>
         </div>
-        <table style="width:100%;border-collapse:collapse">
+        <table class="ranking-table">
             {rows_html}
         </table>
     </div>
