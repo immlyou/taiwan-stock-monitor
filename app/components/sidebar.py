@@ -364,52 +364,44 @@ def apply_sidebar_style():
     """, unsafe_allow_html=True)
 
 
-# 頁面分組定義
+# 頁面分組定義 — 5 組投資工作流程
 PAGE_GROUPS = {
-    'dashboard': {
-        'title': '總覽',
-        'icon': '🏠',
+    'market': {
+        'title': '市場動態',
+        'icon': '📡',
         'pages': [
             {'id': 'dashboard', 'icon': '📊', 'title': '儀表板', 'page': 'pages/0_儀表板.py'},
             {'id': 'realtime_quote', 'icon': '💹', 'title': '即時報價', 'page': 'pages/17_即時報價.py'},
             {'id': 'morning_report', 'icon': '📰', 'title': '每日晨報', 'page': 'pages/16_每日晨報.py'},
-        ]
-    },
-    'market_overview': {
-        'title': '市場總覽',
-        'icon': '🌍',
-        'pages': [
             {'id': 'heatmap', 'icon': '🗺️', 'title': '市場熱力圖', 'page': 'pages/18_市場熱力圖.py'},
             {'id': 'money_flow', 'icon': '💸', 'title': '資金流向', 'page': 'pages/19_資金流向.py'},
             {'id': 'after_hours', 'icon': '📋', 'title': '盤後總覽', 'page': 'pages/20_盤後總覽.py'},
-        ]
-    },
-    'analysis': {
-        'title': '分析工具',
-        'icon': '🔍',
-        'pages': [
-            {'id': 'screening', 'icon': '🔍', 'title': '選股篩選', 'page': 'pages/1_選股篩選.py'},
-            {'id': 'backtest', 'icon': '📊', 'title': '回測分析', 'page': 'pages/2_回測分析.py'},
-            {'id': 'stock', 'icon': '📈', 'title': '個股分析', 'page': 'pages/3_個股分析.py'},
-            {'id': 'compare', 'icon': '⚖️', 'title': '比較分析', 'page': 'pages/12_比較分析.py'},
-        ]
-    },
-    'strategy': {
-        'title': '策略管理',
-        'icon': '🎯',
-        'pages': [
-            {'id': 'strategy', 'icon': '📋', 'title': '策略管理', 'page': 'pages/4_策略管理.py'},
-            {'id': 'optimizer', 'icon': '🎯', 'title': '參數優化', 'page': 'pages/5_參數優化.py'},
+            {'id': 'sentiment', 'icon': '🗣️', 'title': '社群輿情', 'page': 'pages/24_社群輿情.py'},
         ]
     },
     'research': {
         'title': '研究分析',
-        'icon': '📑',
+        'icon': '🔬',
         'pages': [
-            {'id': 'risk', 'icon': '⚠️', 'title': '風險分析', 'page': 'pages/6_風險分析.py'},
+            {'id': 'stock', 'icon': '📈', 'title': '個股分析', 'page': 'pages/3_個股分析.py'},
+            {'id': 'technical', 'icon': '📉', 'title': '技術分析', 'page': 'pages/22_技術分析.py'},
+            {'id': 'compare', 'icon': '⚖️', 'title': '比較分析', 'page': 'pages/12_比較分析.py'},
             {'id': 'industry', 'icon': '🏭', 'title': '產業分析', 'page': 'pages/7_產業分析.py'},
             {'id': 'margin', 'icon': '💰', 'title': '籌碼分析', 'page': 'pages/13_籌碼分析.py'},
             {'id': 'financial', 'icon': '📑', 'title': '財報分析', 'page': 'pages/14_財報分析.py'},
+            {'id': 'risk', 'icon': '⚠️', 'title': '風險分析', 'page': 'pages/6_風險分析.py'},
+        ]
+    },
+    'strategy': {
+        'title': '選股策略',
+        'icon': '🎯',
+        'pages': [
+            {'id': 'screening', 'icon': '🔍', 'title': '選股篩選', 'page': 'pages/1_選股篩選.py'},
+            {'id': 'ai_stock', 'icon': '🤖', 'title': 'AI 智慧選股', 'page': 'pages/23_AI智慧選股.py'},
+            {'id': 'backtest', 'icon': '📊', 'title': '回測分析', 'page': 'pages/2_回測分析.py'},
+            {'id': 'strategy', 'icon': '📋', 'title': '策略管理', 'page': 'pages/4_策略管理.py'},
+            {'id': 'optimizer', 'icon': '🎯', 'title': '參數優化', 'page': 'pages/5_參數優化.py'},
+            {'id': 'prediction', 'icon': '🔮', 'title': '預測驗證', 'page': 'pages/21_預測驗證.py'},
         ]
     },
     'portfolio': {
@@ -419,14 +411,13 @@ PAGE_GROUPS = {
             {'id': 'portfolio', 'icon': '💼', 'title': '投資組合', 'page': 'pages/8_投資組合.py'},
             {'id': 'watchlist', 'icon': '⭐', 'title': '自選股', 'page': 'pages/10_自選股.py'},
             {'id': 'journal', 'icon': '📝', 'title': '交易日誌', 'page': 'pages/15_交易日誌.py'},
+            {'id': 'alerts', 'icon': '🔔', 'title': '警報設定', 'page': 'pages/11_警報設定.py'},
         ]
     },
-    'tools': {
-        'title': '工具與設定',
-        'icon': '🔧',
+    'system': {
+        'title': '系統',
+        'icon': '⚙️',
         'pages': [
-            {'id': 'prediction', 'icon': '🎯', 'title': '預測驗證', 'page': 'pages/21_預測驗證.py'},
-            {'id': 'alerts', 'icon': '🔔', 'title': '警報設定', 'page': 'pages/11_警報設定.py'},
             {'id': 'settings', 'icon': '⚙️', 'title': '系統設定', 'page': 'pages/9_系統設定.py'},
         ]
     },
@@ -639,7 +630,7 @@ def render_sidebar(current_page: str = None):
         st.markdown('<div class="nav-group-title">功能導覽</div>', unsafe_allow_html=True)
 
         for group_key, group in PAGE_GROUPS.items():
-            with st.expander(f"{group['icon']} {group['title']}", expanded=(group_key in ['dashboard', 'analysis'])):
+            with st.expander(f"{group['icon']} {group['title']}", expanded=(group_key in ['market', 'research'])):
                 for page in group['pages']:
                     is_active = current_page == page['id']
                     btn_type = 'primary' if is_active else 'secondary'
@@ -677,7 +668,7 @@ def render_sidebar(current_page: str = None):
         # 版本資訊
         st.markdown(f'''
         <div class="version-info">
-            <div>v2.3.0 | 2026</div>
+            <div>v2.4.0 | 2026</div>
             <div>Powered by <a href="#">FinLab</a></div>
         </div>
         ''', unsafe_allow_html=True)
@@ -810,6 +801,6 @@ def render_sidebar_mini(current_page: str = None):
         # 版本資訊
         st.markdown(f'''
         <div class="version-info">
-            <div>v2.3.0</div>
+            <div>v2.4.0</div>
         </div>
         ''', unsafe_allow_html=True)
