@@ -35,12 +35,13 @@ def load_ai_data():
     dividend = loader.get('dividend_yield')
     revenue = loader.get('monthly_revenue')
     market_value = loader.get('market_value')
-    return close, volume, pe, pb, dividend, revenue, market_value
+    stock_info = loader.get_stock_info()
+    return close, volume, pe, pb, dividend, revenue, market_value, stock_info
 
 
 with st.spinner('正在載入資料與計算因子...'):
     try:
-        close, volume, pe, pb, dividend, revenue, market_value = load_ai_data()
+        close, volume, pe, pb, dividend, revenue, market_value, stock_info = load_ai_data()
     except Exception as e:
         show_error('資料載入失敗', str(e))
         st.stop()
@@ -48,6 +49,14 @@ with st.spinner('正在載入資料與計算因子...'):
 if close is None or close.empty:
     show_empty_state('無法取得價格資料', icon='📭')
     st.stop()
+
+# 建立股票代碼 → 名稱映射
+stock_name_map = {}
+if stock_info is not None and not stock_info.empty:
+    try:
+        stock_name_map = dict(zip(stock_info['stock_id'], stock_info['name']))
+    except Exception:
+        pass
 
 active = get_active_stocks()
 active_stocks = active if active else close.columns.tolist()
@@ -196,9 +205,13 @@ with kpi_cols[3]:
 st.markdown(f'### 🏆 AI 推薦 Top {top_n}')
 
 top = result.head(top_n).copy()
-display_df = top[['close', 'total_score', 'score_momentum', 'score_value', 'score_quality', 'score_size',
+
+# 加入股票名稱欄位
+top.insert(0, 'name', top.index.map(lambda sid: stock_name_map.get(sid, '')))
+
+display_df = top[['name', 'close', 'total_score', 'score_momentum', 'score_value', 'score_quality', 'score_size',
                    'ret_20d', 'pe', 'dividend_yield', 'rev_growth']].copy()
-display_df.columns = ['收盤價', '綜合評分', '動能分', '價值分', '品質分', '規模分',
+display_df.columns = ['名稱', '收盤價', '綜合評分', '動能分', '價值分', '品質分', '規模分',
                        '20日報酬%', 'PE', '殖利率%', '營收成長%']
 
 # 格式化
