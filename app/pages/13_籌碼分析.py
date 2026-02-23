@@ -127,56 +127,86 @@ with tab1:
                 })
                 st.bar_chart(volume_df)
 
-            # 籌碼指標模擬 (實際需要融資融券數據)
-            st.markdown('##### 籌碼指標 (模擬)')
-            st.info('實際籌碼數據需要融資融券、法人買賣超等數據源支援')
+            # 籌碼指標（融資融券）
+            st.markdown('##### 籌碼指標')
 
-            # 模擬籌碼指標
-            np.random.seed(int(stock_id) if stock_id.isdigit() else 42)
+            # 嘗試載入真實融資融券數據
+            try:
+                loader = get_loader()
+                margin_buy = loader.get('margin_buy')
+                margin_sell = loader.get('margin_sell')
+                short_buy = loader.get('short_buy')
+                short_sell = loader.get('short_sell')
 
-            col1, col2, col3 = st.columns(3)
+                has_margin = (margin_buy is not None and stock_id in margin_buy.columns)
 
-            with col1:
-                margin_ratio = np.random.uniform(5, 25)
-                margin_change = np.random.uniform(-2, 2)
-                st.metric(
-                    '融資使用率',
-                    f'{margin_ratio:.1f}%',
-                    f'{margin_change:+.2f}%'
-                )
+                if has_margin:
+                    margin_balance = margin_buy[stock_id].dropna().tail(analysis_days)
+                    short_balance = short_sell[stock_id].dropna().tail(analysis_days) if (short_sell is not None and stock_id in short_sell.columns) else None
 
-            with col2:
-                short_ratio = np.random.uniform(1, 10)
-                short_change = np.random.uniform(-1, 1)
-                st.metric(
-                    '融券餘額率',
-                    f'{short_ratio:.1f}%',
-                    f'{short_change:+.2f}%'
-                )
+                    col1, col2, col3 = st.columns(3)
 
-            with col3:
-                margin_short_ratio = margin_ratio / short_ratio if short_ratio > 0 else 0
-                st.metric(
-                    '券資比',
-                    f'{margin_short_ratio:.2f}'
-                )
+                    with col1:
+                        if len(margin_balance) >= 2:
+                            latest_margin = margin_balance.iloc[-1]
+                            margin_change = margin_balance.iloc[-1] - margin_balance.iloc[-2]
+                            st.metric('融資餘額(張)', f'{latest_margin:,.0f}', f'{margin_change:+,.0f}')
+                        else:
+                            st.metric('融資餘額(張)', 'N/A')
 
-            # 法人買賣超模擬
-            st.markdown('##### 法人買賣超 (模擬)')
+                    with col2:
+                        if short_balance is not None and len(short_balance) >= 2:
+                            latest_short = short_balance.iloc[-1]
+                            short_change = short_balance.iloc[-1] - short_balance.iloc[-2]
+                            st.metric('融券餘額(張)', f'{latest_short:,.0f}', f'{short_change:+,.0f}')
+                        else:
+                            st.metric('融券餘額(張)', 'N/A')
 
-            institutional_data = pd.DataFrame({
-                '日期': pd.date_range(end=datetime.now(), periods=10, freq='B'),
-                '外資': np.random.randint(-5000, 5000, 10),
-                '投信': np.random.randint(-1000, 1000, 10),
-                '自營商': np.random.randint(-2000, 2000, 10),
-            })
-            institutional_data['合計'] = institutional_data['外資'] + institutional_data['投信'] + institutional_data['自營商']
-            institutional_data = institutional_data.set_index('日期')
+                    with col3:
+                        if short_balance is not None and len(short_balance) > 0 and len(margin_balance) > 0:
+                            latest_margin_val = margin_balance.iloc[-1]
+                            latest_short_val = short_balance.iloc[-1]
+                            ratio = (latest_short_val / latest_margin_val * 100) if latest_margin_val > 0 else 0
+                            st.metric('券資比', f'{ratio:.2f}%')
+                        else:
+                            st.metric('券資比', 'N/A')
+                else:
+                    st.info('💡 融資融券數據不可用，請確認 FinLab API 資料已載入')
+            except Exception:
+                st.info('💡 融資融券數據不可用，請確認 FinLab API 資料已載入')
 
-            st.dataframe(institutional_data, use_container_width=True)
+            # 法人買賣超（真實數據）
+            st.markdown('##### 法人買賣超')
 
-            # 法人買賣超走勢
-            st.bar_chart(institutional_data[['外資', '投信', '自營商']])
+            try:
+                loader = get_loader()
+                foreign_inv = loader.get('foreign_investors')
+                trust_inv = loader.get('investment_trust')
+                dealer_inv = loader.get('dealer')
+
+                has_institutional = (foreign_inv is not None and stock_id in foreign_inv.columns)
+
+                if has_institutional:
+                    inst_frames = {}
+                    if foreign_inv is not None and stock_id in foreign_inv.columns:
+                        inst_frames['外資'] = foreign_inv[stock_id].dropna().tail(analysis_days)
+                    if trust_inv is not None and stock_id in trust_inv.columns:
+                        inst_frames['投信'] = trust_inv[stock_id].dropna().tail(analysis_days)
+                    if dealer_inv is not None and stock_id in dealer_inv.columns:
+                        inst_frames['自營商'] = dealer_inv[stock_id].dropna().tail(analysis_days)
+
+                    if inst_frames:
+                        institutional_df = pd.DataFrame(inst_frames)
+                        institutional_df['合計'] = institutional_df.sum(axis=1)
+
+                        st.dataframe(institutional_df.tail(10), use_container_width=True)
+                        st.bar_chart(institutional_df[list(inst_frames.keys())])
+                    else:
+                        st.info('💡 法人買賣超數據不可用')
+                else:
+                    st.info('💡 法人買賣超數據不可用，請確認 FinLab API 資料已載入')
+            except Exception:
+                st.info('💡 法人買賣超數據不可用，請確認 FinLab API 資料已載入')
 
         else:
             st.warning(f'找不到股票 {stock_id} 的數據')

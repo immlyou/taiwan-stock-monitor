@@ -118,6 +118,24 @@ def _valuation_position(current, mean, std):
     return '合理'
 
 
+# ========== 全域股票選擇器（所有分頁共用） ==========
+st.markdown('### 選擇分析股票')
+selected_stock = st.selectbox(
+    '選擇股票', stock_options,
+    index=0 if stock_options else None,
+    key='fin_global_stock'
+)
+
+if selected_stock:
+    sid = selected_stock.split(' ')[0]
+    sname = ' '.join(selected_stock.split(' ')[1:])
+    st.markdown(f'#### {sid} {sname}')
+else:
+    sid = None
+    sname = ''
+
+st.markdown('---')
+
 # ========== 6 個分頁 ==========
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     '📋 財報總覽', '💰 獲利能力', '📊 估值分析',
@@ -129,18 +147,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     st.markdown('### 財報總覽')
 
-    selected_stock = st.selectbox(
-        '選擇股票', stock_options,
-        index=0 if stock_options else None,
-        key='fin_overview_stock'
-    )
-
     if selected_stock:
-        sid = selected_stock.split(' ')[0]
-        sname = ' '.join(selected_stock.split(' ')[1:])
-
-        st.markdown(f'#### {sid} {sname}')
-
         # KPI 卡片列
         c1, c2, c3, c4, c5, c6 = st.columns(6)
         with c1:
@@ -221,14 +228,7 @@ with tab1:
 with tab2:
     st.markdown('### 獲利能力分析')
 
-    sel2 = st.selectbox(
-        '選擇股票', stock_options,
-        index=0 if stock_options else None,
-        key='fin_profit_stock'
-    )
-
-    if sel2:
-        sid = sel2.split(' ')[0]
+    if selected_stock:
 
         gm_data = load_finlab('fundamental_features:營業毛利率')
         om_data = load_finlab('fundamental_features:營業利益率')
@@ -304,17 +304,7 @@ with tab2:
 with tab3:
     st.markdown('### 估值分析')
 
-    sel3 = st.selectbox(
-        '選擇股票', stock_options,
-        index=0 if stock_options else None,
-        key='fin_valuation_stock'
-    )
-
-    if sel3:
-        sid = sel3.split(' ')[0]
-        sname = ' '.join(sel3.split(' ')[1:])
-
-        st.markdown(f'#### {sid} {sname}')
+    if selected_stock:
 
         # 估值 KPI
         c1, c2, c3, c4 = st.columns(4)
@@ -454,16 +444,7 @@ with tab3:
 with tab4:
     st.markdown('### 營收分析')
 
-    sel4 = st.selectbox(
-        '選擇股票', stock_options,
-        index=0 if stock_options else None,
-        key='revenue_stock_select'
-    )
-
-    if sel4:
-        sid = sel4.split(' ')[0]
-        sname = ' '.join(sel4.split(' ')[1:])
-
+    if selected_stock:
         st.markdown(f'#### {sid} {sname} 營收分析')
 
         if monthly_revenue is not None and sid in monthly_revenue.columns:
@@ -579,14 +560,7 @@ with tab4:
 with tab5:
     st.markdown('### 現金流分析')
 
-    sel5 = st.selectbox(
-        '選擇股票', stock_options,
-        index=0 if stock_options else None,
-        key='fin_cashflow_stock'
-    )
-
-    if sel5:
-        sid = sel5.split(' ')[0]
+    if selected_stock:
 
         operating_cf = load_finlab('fundamental_features:營運現金流')
         fcf_data = load_finlab('fundamental_features:自由現金流量')

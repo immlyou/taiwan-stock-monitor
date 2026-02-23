@@ -15,6 +15,7 @@ from app.components.sidebar import render_sidebar
 from app.components.error_handler import show_error
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
+from app.components.session_manager import set_state, StateKeys
 
 st.set_page_config(page_title='策略管理', page_icon='⚙️', layout='wide')
 render_sidebar(current_page='strategy')
@@ -182,7 +183,8 @@ with tab2:
                 with col2:
                     if st.button('載入', key=f'load_{name}'):
                         set_state(StateKeys.LOADED_STRATEGY, strategy)
-                        st.info(f'已載入策略 "{name}"，請切換到「選股篩選」頁面使用')
+                        st.toast(f'已載入策略 "{name}"')
+                        st.switch_page('pages/1_選股篩選.py')
 
                     if st.button('刪除', key=f'delete_{name}'):
                         del saved_strategies[name]

@@ -6,6 +6,19 @@ from core.data_loader import get_loader, get_data_summary
 from core.cache_warmer import get_cache_warmer, is_cache_warm, get_warmup_status_summary
 
 
+def check_authentication():
+    """
+    全域認證檢查 - 確保使用者已登入
+
+    在所有頁面中透過 sidebar render 自動呼叫，
+    未登入時會停止頁面渲染並提示使用者登入。
+    """
+    if not st.session_state.get("authenticated", False):
+        st.warning("⚠️ 請先登入")
+        st.markdown("[👉 點此前往登入頁面](../)")
+        st.stop()
+
+
 # 專業配色 (與 theme.py 一致)
 SIDEBAR_COLORS = {
     'bg_primary': '#0f172a',
@@ -531,6 +544,7 @@ def render_sidebar(current_page: str = None):
     current_page : str
         當前頁面名稱，用於高亮導航
     """
+    check_authentication()
     apply_sidebar_style()
 
     with st.sidebar:
@@ -678,6 +692,7 @@ def render_sidebar_mini(current_page: str = None):
     current_page : str
         當前頁面名稱
     """
+    check_authentication()
     apply_sidebar_style()
 
     with st.sidebar:

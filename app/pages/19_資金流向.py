@@ -30,6 +30,7 @@ from app.components.sidebar import render_sidebar
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.charts import apply_dark_theme
 
 # 頁面設定
 st.set_page_config(
@@ -106,7 +107,7 @@ def create_flow_bar_chart(flows, flow_type='foreign', title='外資買賣超排�
         y=df['stock'],
         x=df['value'],
         orientation='h',
-        marker_color=['#ef5350' if v > 0 else '#26a69a' for v in df['value']],
+        marker_color=['#ef4444' if v > 0 else '#22c55e' for v in df['value']],
         text=[f"{v:+,.0f}" for v in df['value']],
         textposition='outside',
     ))
@@ -331,6 +332,7 @@ with tab1:
         top_buy = get_top_flows(flows, flow_type=flow_type, top_n=15, ascending=False)
         fig = create_flow_bar_chart(top_buy, flow_type, f'{rank_type}買超 Top 15')
         if fig:
+            apply_dark_theme(fig, height=500)
             st.plotly_chart(fig, use_container_width=True)
 
     with rank_col2:
@@ -338,6 +340,7 @@ with tab1:
         top_sell = get_top_flows(flows, flow_type=flow_type, top_n=15, ascending=True)
         fig = create_flow_bar_chart(top_sell, flow_type, f'{rank_type}賣超 Top 15')
         if fig:
+            apply_dark_theme(fig, height=500)
             st.plotly_chart(fig, use_container_width=True)
 
 # ===== Tab 2: 趨勢分析 =====
@@ -354,6 +357,7 @@ with tab2:
     if len(trend_df) > 0:
         fig = create_trend_chart(trend_df)
         if fig:
+            apply_dark_theme(fig, height=400)
             st.plotly_chart(fig, use_container_width=True)
 
         # 顯示數據表
@@ -375,6 +379,7 @@ with tab3:
     if len(sector_df) > 0:
         fig = create_sector_chart(sector_df)
         if fig:
+            apply_dark_theme(fig, height=400)
             st.plotly_chart(fig, use_container_width=True)
 
         # 顯示表格

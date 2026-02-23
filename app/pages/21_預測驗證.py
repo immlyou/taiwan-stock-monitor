@@ -100,13 +100,13 @@ with tab1:
         source_df = pd.DataFrame([
             {
                 '策略': source,
-                '預測數': data['total'],
-                '已驗證': data['verified'],
-                '成功': data['success'],
-                '勝率': f"{data['success_rate']:.1f}%",
-                '平均報酬': f"{data['avg_return']:+.2f}%"
+                '預測數': src_data['total'],
+                '已驗證': src_data['verified'],
+                '成功': src_data['success'],
+                '勝率': f"{src_data['success_rate']:.1f}%",
+                '平均報酬': f"{src_data['avg_return']:+.2f}%"
             }
-            for source, data in stats['by_source'].items()
+            for source, src_data in stats['by_source'].items()
         ])
         st.dataframe(source_df, use_container_width=True, hide_index=True)
 

@@ -18,6 +18,7 @@ from app.components.charts import (
     create_monthly_returns_heatmap,
 )
 from config import STRATEGY_PRESETS
+from app.components.strategy_params import render_strategy_params, render_preset_selector
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error
 from app.components.page_header import render_page_header
@@ -185,74 +186,15 @@ st.markdown('---')
 # ========== 4. 策略參數 ==========
 with st.expander('📋 策略參數設定', expanded=False):
 
-    preset_type = st.radio(
-        '快速選擇',
-        ['保守型', '標準型', '積極型'],
-        index=1,
-        horizontal=True
+    preset_key = render_preset_selector(key_prefix='bt_', horizontal=True)
+
+    params = render_strategy_params(
+        strategy_type=strategy_type,
+        strategy_presets=STRATEGY_PRESETS,
+        preset_key=preset_key,
+        key_prefix='bt_',
+        show_help=False,
     )
-    preset_map = {'保守型': 'conservative', '標準型': 'standard', '積極型': 'aggressive'}
-
-    params = {}
-
-    if strategy_type == '價值投資':
-        preset_key = preset_map[preset_type]
-        defaults = STRATEGY_PRESETS.get('value', {}).get(preset_key, {}).get('params', {})
-
-        p_col1, p_col2, p_col3 = st.columns(3)
-        with p_col1:
-            params['pe_max'] = st.slider('本益比上限', 1.0, 50.0, defaults.get('pe_max', 15.0), 0.5, key='bt_pe')
-            params['use_pe'] = st.checkbox('使用本益比', value=True, key='bt_use_pe')
-        with p_col2:
-            params['pb_max'] = st.slider('股價淨值比上限', 0.1, 5.0, defaults.get('pb_max', 1.5), 0.1, key='bt_pb')
-            params['use_pb'] = st.checkbox('使用股價淨值比', value=True, key='bt_use_pb')
-        with p_col3:
-            params['dividend_yield_min'] = st.slider('殖利率下限 (%)', 0.0, 15.0, defaults.get('dividend_yield_min', 4.0), 0.5, key='bt_dy')
-            params['use_dividend'] = st.checkbox('使用殖利率', value=True, key='bt_use_dy')
-
-    elif strategy_type == '成長投資':
-        preset_key = preset_map[preset_type]
-        defaults = STRATEGY_PRESETS.get('growth', {}).get(preset_key, {}).get('params', {})
-
-        p_col1, p_col2, p_col3 = st.columns(3)
-        with p_col1:
-            params['revenue_yoy_min'] = st.slider('營收年增率下限 (%)', -50.0, 200.0, defaults.get('revenue_yoy_min', 20.0), 5.0, key='bt_yoy')
-            params['use_yoy'] = st.checkbox('使用年增率', value=True, key='bt_use_yoy')
-        with p_col2:
-            params['revenue_mom_min'] = st.slider('營收月增率下限 (%)', -50.0, 100.0, defaults.get('revenue_mom_min', 10.0), 5.0, key='bt_mom')
-            params['use_mom'] = st.checkbox('使用月增率', value=True, key='bt_use_mom')
-        with p_col3:
-            params['consecutive_months'] = st.slider('連續成長月數', 1, 12, defaults.get('consecutive_months', 3), 1, key='bt_consec')
-            params['use_consecutive'] = st.checkbox('使用連續成長', value=True, key='bt_use_consec')
-
-    elif strategy_type == '動能投資':
-        preset_key = preset_map[preset_type]
-        defaults = STRATEGY_PRESETS.get('momentum', {}).get(preset_key, {}).get('params', {})
-
-        p_col1, p_col2, p_col3 = st.columns(3)
-        with p_col1:
-            params['breakout_days'] = st.slider('突破天數', 5, 120, defaults.get('breakout_days', 20), 5, key='bt_breakout')
-            params['use_breakout'] = st.checkbox('使用價格突破', value=True, key='bt_use_breakout')
-        with p_col2:
-            params['volume_ratio_min'] = st.slider('量比下限', 0.5, 5.0, defaults.get('volume_ratio', 1.5), 0.1, key='bt_vol')
-            params['use_volume'] = st.checkbox('使用成交量', value=True, key='bt_use_vol')
-        with p_col3:
-            params['rsi_min'] = st.slider('RSI 下限', 0, 100, defaults.get('rsi_min', 50), 5, key='bt_rsi_min')
-            params['rsi_max'] = st.slider('RSI 上限', 0, 100, defaults.get('rsi_max', 80), 5, key='bt_rsi_max')
-            params['use_rsi'] = st.checkbox('使用 RSI', value=True, key='bt_use_rsi')
-
-    elif strategy_type == '綜合策略':
-        p_col1, p_col2 = st.columns(2)
-        with p_col1:
-            params['value_weight'] = st.slider('價值因子權重', 0.0, 1.0, 0.4, 0.1, key='bt_val_w')
-            params['growth_weight'] = st.slider('成長因子權重', 0.0, 1.0, 0.3, 0.1, key='bt_grow_w')
-            params['momentum_weight'] = st.slider('動能因子權重', 0.0, 1.0, 0.3, 0.1, key='bt_mom_w')
-        with p_col2:
-            params['top_n'] = st.slider('選取前 N 名', 5, 50, 20, 5, key='bt_topn')
-            params['min_score'] = st.slider('最低分數門檻', 0, 100, 50, 5, key='bt_min_score')
-            params['use_value'] = st.checkbox('使用價值因子', value=True, key='bt_use_val')
-            params['use_growth'] = st.checkbox('使用成長因子', value=True, key='bt_use_grow')
-            params['use_momentum'] = st.checkbox('使用動能因子', value=True, key='bt_use_mom')
 
 st.markdown('---')
 

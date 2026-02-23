@@ -48,49 +48,40 @@ except Exception:
 def format_compact_quote(quote: StockQuote):
     """格式化緊湊報價卡片"""
     if quote.is_up:
-        color = '#ef5350'
+        color = '#ef4444'
         arrow = '▲'
         bg = 'rgba(239, 83, 80, 0.05)'
     elif quote.is_down:
-        color = '#26a69a'
+        color = '#22c55e'
         arrow = '▼'
         bg = 'rgba(38, 166, 154, 0.05)'
     else:
         color = '#888'
         arrow = '─'
-        bg = '#f8f9fa'
+        bg = '#252b3d;border:1px solid #374151'
 
     limit_tag = ''
     if quote.is_limit_up:
-        limit_tag = '<span style="color:#fff;background:#ef5350;padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">漲停</span>'
+        limit_tag = '<span style="color:#fff;background:#ef4444;padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">漲停</span>'
     elif quote.is_limit_down:
-        limit_tag = '<span style="color:#fff;background:#26a69a;padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">跌停</span>'
+        limit_tag = '<span style="color:#fff;background:#22c55e;padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">跌停</span>'
 
     # 使用單行 HTML 避免 Streamlit markdown 解析問題
     html = f'<div style="background:{bg};padding:12px;border-radius:8px;margin-bottom:8px;border-left:4px solid {color}">'
     html += f'<div style="display:flex;justify-content:space-between;align-items:center">'
     html += f'<div><span style="font-weight:bold;font-size:14px">{quote.stock_id}</span>'
-    html += f'<span style="color:#666;font-size:12px;margin-left:4px">{quote.name}</span>{limit_tag}</div>'
-    html += f'<span style="font-size:11px;color:#999">{quote.time}</span></div>'
+    html += f'<span style="color:#94a3b8;font-size:12px;margin-left:4px">{quote.name}</span>{limit_tag}</div>'
+    html += f'<span style="font-size:11px;color:#94a3b8">{quote.time}</span></div>'
     html += f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px">'
     html += f'<span style="font-size:22px;font-weight:bold;color:{color}">{quote.price:,.2f}</span>'
     html += f'<span style="font-size:14px;color:{color}">{arrow} {quote.change:+.2f} ({quote.change_pct:+.2f}%)</span></div>'
-    html += f'<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#888">'
+    html += f'<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#94a3b8">'
     html += f'<span>開:{quote.open:,.1f}</span><span>高:{quote.high:,.1f}</span>'
     html += f'<span>低:{quote.low:,.1f}</span><span>量:{quote.volume_lots:,}張</span></div></div>'
     return html
 
 
-def load_watchlist():
-    """載入自選股清單"""
-    watchlist_file = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
-    if watchlist_file.exists():
-        try:
-            with open(watchlist_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+from app.components.watchlist_utils import load_watchlists as load_watchlist
 
 
 # ========== 頁面標題 ==========

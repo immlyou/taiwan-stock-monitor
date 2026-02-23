@@ -55,16 +55,10 @@ def load_dashboard_data():
     }
 
 
-PORTFOLIO_FILE = Path(__file__).parent.parent.parent / 'data' / 'portfolios.json'
+from app.components.portfolio_utils import load_portfolios
+
 SCREENING_FILE = Path(__file__).parent.parent.parent / 'data' / 'latest_screening.json'
 ALERTS_FILE = Path(__file__).parent.parent.parent / 'data' / 'alerts.json'
-
-
-def load_portfolios():
-    if PORTFOLIO_FILE.exists():
-        with open(PORTFOLIO_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
 
 
 def load_latest_screening():
@@ -187,7 +181,7 @@ if all_holdings:
         st.markdown('##### 🔥 獲利 Top 5')
         sorted_holdings = sorted(all_holdings, key=lambda x: x['pnl'], reverse=True)
         for h in sorted_holdings[:5]:
-            color = '#ef5350' if h['pnl'] >= 0 else '#26a69a'
+            color = '#ef4444' if h['pnl'] >= 0 else '#22c55e'
             st.markdown(
                 f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
                 f"<span>{h['stock_id']} {h['name'][:4]}</span>"
@@ -201,7 +195,7 @@ if all_holdings:
         # 虧損排行
         st.markdown('##### 💧 虧損 Top 5')
         for h in sorted_holdings[-5:][::-1]:
-            color = '#ef5350' if h['pnl'] >= 0 else '#26a69a'
+            color = '#ef4444' if h['pnl'] >= 0 else '#22c55e'
             st.markdown(
                 f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
                 f"<span>{h['stock_id']} {h['name'][:4]}</span>"
@@ -258,20 +252,20 @@ if latest_screening and latest_screening.get('stocks'):
                 current = prices.iloc[-1]
                 prev = prices.iloc[-2]
                 change_pct = (current / prev - 1) * 100
-                color = '#ef5350' if change_pct >= 0 else '#26a69a'
+                color = '#ef4444' if change_pct >= 0 else '#22c55e'
             else:
                 current = prices.iloc[-1] if len(prices) > 0 else 0
                 change_pct = 0
-                color = '#888'
+                color = '#6b7280'
         else:
             current = 0
             change_pct = 0
-            color = '#888'
+            color = '#6b7280'
 
         with cols[i % 4]:
             st.markdown(
-                f"<div style='background:#f8f9fa;padding:8px;border-radius:6px;margin-bottom:8px'>"
-                f"<div style='font-size:12px;color:#666'>{stock_id} {name[:4]}</div>"
+                f"<div style='background:#252b3d;border:1px solid #374151;padding:8px;border-radius:6px;margin-bottom:8px'>"
+                f"<div style='font-size:12px;color:#94a3b8'>{stock_id} {name[:4]}</div>"
                 f"<div style='font-size:16px;font-weight:bold;color:{color}'>{current:,.2f}</div>"
                 f"<div style='font-size:11px;color:{color}'>{change_pct:+.2f}%</div>"
                 f"</div>",

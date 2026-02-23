@@ -91,23 +91,7 @@ def load_news_cache():
             pass
     return {'news': []}
 
-def load_watchlists():
-    """載入自選股清單"""
-    watchlist_file = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
-    if watchlist_file.exists():
-        try:
-            with open(watchlist_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_watchlists(watchlists):
-    """儲存自選股清單"""
-    watchlist_file = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
-    watchlist_file.parent.mkdir(exist_ok=True)
-    with open(watchlist_file, 'w', encoding='utf-8') as f:
-        json.dump(watchlists, f, ensure_ascii=False, indent=2)
+from app.components.watchlist_utils import load_watchlists, save_watchlists
 
 try:
     data = load_stock_data()
@@ -393,8 +377,8 @@ if selected_stock:
             fig.add_trace(go.Candlestick(
                 x=price_df.index, open=price_df['open'], high=price_df['high'],
                 low=price_df['low'], close=price_df['close'], name='K線',
-                increasing_line_color='#ef5350', decreasing_line_color='#26a69a',
-                increasing_fillcolor='#ef5350', decreasing_fillcolor='#26a69a'
+                increasing_line_color='#ef4444', decreasing_line_color='#22c55e',
+                increasing_fillcolor='#ef4444', decreasing_fillcolor='#22c55e'
             ), row=1, col=1)
 
             # 均線 (根據時間框架調整)
@@ -415,7 +399,7 @@ if selected_stock:
 
             # 成交量
             if 'volume' in price_df.columns:
-                colors = ['#ef5350' if c >= o else '#26a69a'
+                colors = ['#ef4444' if c >= o else '#22c55e'
                          for c, o in zip(price_df['close'], price_df['open'])]
                 fig.add_trace(go.Bar(x=price_df.index, y=price_df['volume']/1000,
                                     name='成交量(張)', marker_color=colors), row=2, col=1)
@@ -482,7 +466,7 @@ if selected_stock:
             fig_macd = make_subplots(rows=1, cols=1)
             fig_macd.add_trace(go.Scatter(x=macd_line.index, y=macd_line, name='MACD', line=dict(color='#2196F3')))
             fig_macd.add_trace(go.Scatter(x=signal_line.index, y=signal_line, name='Signal', line=dict(color='#FF9800')))
-            colors = ['#ef5350' if v >= 0 else '#26a69a' for v in histogram]
+            colors = ['#ef4444' if v >= 0 else '#22c55e' for v in histogram]
             fig_macd.add_trace(go.Bar(x=histogram.index, y=histogram, name='Histogram', marker_color=colors))
             fig_macd.update_layout(title=f'MACD 指標 ({tf_label})', **DEFAULT_PLOTLY_LAYOUT,height=250)
             st.plotly_chart(fig_macd, use_container_width=True)
@@ -651,10 +635,10 @@ if selected_stock:
                             # 融資融券走勢圖
                             fig = make_subplots(specs=[[{"secondary_y": True}]])
                             fig.add_trace(go.Bar(x=margin.tail(30).index, y=margin.tail(30),
-                                                name='融資餘額', marker_color='#ef5350'), secondary_y=False)
+                                                name='融資餘額', marker_color='#ef4444'), secondary_y=False)
                             if len(short) > 0:
                                 fig.add_trace(go.Scatter(x=short.tail(30).index, y=short.tail(30),
-                                                        name='融券餘額', line=dict(color='#26a69a', width=2)),
+                                                        name='融券餘額', line=dict(color='#22c55e', width=2)),
                                              secondary_y=True)
                             fig.update_layout(title='融資融券走勢 (近30日)', **DEFAULT_PLOTLY_LAYOUT,height=350)
                             fig.update_yaxes(title_text='融資(張)', secondary_y=False)

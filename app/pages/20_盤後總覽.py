@@ -79,16 +79,7 @@ def load_after_hours_data():
     return data
 
 
-def load_watchlist():
-    """載入自選股清單"""
-    watchlist_file = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
-    if watchlist_file.exists():
-        try:
-            with open(watchlist_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+from app.components.watchlist_utils import load_watchlists as load_watchlist
 
 
 def get_stock_name(stock_id, stock_info):

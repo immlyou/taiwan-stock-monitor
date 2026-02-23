@@ -16,6 +16,7 @@ from app.components.error_handler import show_error, safe_execute, create_error_
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.session_manager import get_state, set_state, StateKeys
+from app.components.charts import apply_dark_theme
 
 st.set_page_config(page_title='產業分析', page_icon='🏭', layout='wide')
 
@@ -180,6 +181,7 @@ with create_error_boundary('產業報酬分佈圖'):
         yaxis_tickformat='.1%',
     )
 
+    apply_dark_theme(fig_bar, height=400)
     st.plotly_chart(fig_bar, use_container_width=True)
 
 st.markdown('---')
@@ -219,6 +221,7 @@ with create_error_boundary('風險報酬散佈圖'):
     fig_scatter.add_annotation(x=avg_vol * 0.6, y=-avg_return, text='低風險低報酬', showarrow=False)
     fig_scatter.add_annotation(x=avg_vol * 1.5, y=-avg_return, text='高風險低報酬', showarrow=False)
 
+    apply_dark_theme(fig_scatter, height=500)
     st.plotly_chart(fig_scatter, use_container_width=True)
 
 st.markdown('---')
@@ -270,6 +273,7 @@ if selected_industries:
             height=400,
         )
 
+        apply_dark_theme(fig_line, height=400)
         st.plotly_chart(fig_line, use_container_width=True)
 
 st.markdown('---')
@@ -504,6 +508,7 @@ if selected_industry:
                             legend=dict(orientation='h', yanchor='bottom', y=1.02),
                         )
 
+                        apply_dark_theme(fig_price, height=300)
                         st.plotly_chart(fig_price, use_container_width=True)
 
                     with chart_col2:
@@ -527,6 +532,7 @@ if selected_industry:
                                 yaxis_title='成交量 (千股)',
                             )
 
+                            apply_dark_theme(fig_vol, height=300)
                             st.plotly_chart(fig_vol, use_container_width=True)
                         else:
                             show_empty_state('無成交量數據', icon='📊')
@@ -624,6 +630,8 @@ if selected_industry:
                     )
 
                     compare_col1, compare_col2 = st.columns([3, 1])
+
+                    apply_dark_theme(fig_compare, height=300)
 
                     with compare_col1:
                         st.plotly_chart(fig_compare, use_container_width=True)

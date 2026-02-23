@@ -17,6 +17,7 @@ from app.components.error_handler import show_error, safe_execute, create_error_
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.session_manager import get_state, set_state, StateKeys
+from app.components.charts import apply_dark_theme
 
 st.set_page_config(page_title='風險分析', page_icon='⚠️', layout='wide')
 
@@ -263,6 +264,7 @@ if selected_stocks and weights:
                 height=400,
             )
 
+            apply_dark_theme(fig, height=400)
             st.plotly_chart(fig, use_container_width=True)
 
         # 回撤分析
@@ -287,6 +289,7 @@ if selected_stocks and weights:
                 height=300,
             )
 
+            apply_dark_theme(fig_dd, height=300)
             st.plotly_chart(fig_dd, use_container_width=True)
 
             if peak_date and trough_date:
@@ -376,6 +379,7 @@ if selected_stocks and weights:
                         height=300,
                     )
 
+                    apply_dark_theme(fig_mc, height=300)
                     st.plotly_chart(fig_mc, use_container_width=True)
 
     else:

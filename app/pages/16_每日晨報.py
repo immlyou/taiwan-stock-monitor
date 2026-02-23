@@ -42,16 +42,7 @@ def load_stock_info():
     return loader.get_stock_info()
 
 
-def load_watchlist():
-    """載入自選股清單"""
-    watchlist_file = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
-    if watchlist_file.exists():
-        try:
-            with open(watchlist_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+from app.components.watchlist_utils import load_watchlists as load_watchlist
 
 
 try:
@@ -220,15 +211,15 @@ with main_col2:
             neg = stock.get('negative', 0)
 
             st.markdown(
-                f"<div style='display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #374151'>"
                 f"<div>"
                 f"<span style='font-weight:bold'>{stock_id}</span> "
-                f"<span style='color:#666;font-size:12px'>{name[:4]}</span>"
+                f"<span style='color:#94a3b8;font-size:12px'>{name[:4]}</span>"
                 f"</div>"
                 f"<div style='font-size:12px'>"
                 f"{trend_icon} "
-                f"<span style='color:#26a69a'>📈{pos}</span>/"
-                f"<span style='color:#ef5350'>📉{neg}</span>"
+                f"<span style='color:#22c55e'>📈{pos}</span>/"
+                f"<span style='color:#ef4444'>📉{neg}</span>"
                 f"</div>"
                 f"</div>",
                 unsafe_allow_html=True

@@ -16,6 +16,7 @@ from core.strategies.custom import (
 )
 from config import STRATEGY_PRESETS
 from app.components.sidebar import render_sidebar_mini
+from app.components.strategy_params import render_strategy_params, render_preset_selector
 from app.components.portfolio_utils import load_portfolios, get_portfolio_names, add_holdings_batch
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
 from app.components.page_header import render_page_header
@@ -97,139 +98,25 @@ preset_col, custom_col = st.columns([1, 3])
 
 with preset_col:
     st.markdown('**快速選擇**')
-    preset_type = st.radio(
-        '風險偏好',
-        ['保守型', '標準型', '積極型'],
-        index=1,
-        horizontal=False,
-        help='選擇預設參數組合'
-    )
-
-    preset_map = {'保守型': 'conservative', '標準型': 'standard', '積極型': 'aggressive'}
+    preset_key = render_preset_selector(key_prefix='screen_')
 
 with custom_col:
     st.markdown('**自訂參數**')
 
-    params = {}
-
-    if strategy_type == '價值投資':
-        # 載入預設值
-        preset_key = preset_map[preset_type]
-        defaults = STRATEGY_PRESETS.get('value', {}).get(preset_key, {}).get('params', {})
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            params['pe_max'] = st.slider(
-                '本益比上限',
-                1.0, 50.0,
-                defaults.get('pe_max', 15.0),
-                0.5,
-                help='PE 越低代表股價相對盈餘越便宜'
-            )
-            params['use_pe'] = st.checkbox('使用本益比', value=defaults.get('use_pe', True))
-
-        with col2:
-            params['pb_max'] = st.slider(
-                '股價淨值比上限',
-                0.1, 5.0,
-                defaults.get('pb_max', 1.5),
-                0.1,
-                help='PB < 1 表示股價低於帳面價值'
-            )
-            params['use_pb'] = st.checkbox('使用股價淨值比', value=defaults.get('use_pb', True))
-
-        with col3:
-            params['dividend_yield_min'] = st.slider(
-                '殖利率下限 (%)',
-                0.0, 15.0,
-                defaults.get('dividend_yield_min', 4.0),
-                0.5,
-                help='殖利率越高，股息回報越好'
-            )
-            params['use_dividend'] = st.checkbox('使用殖利率', value=defaults.get('use_dividend', True))
-
-    elif strategy_type == '成長投資':
-        preset_key = preset_map[preset_type]
-        defaults = STRATEGY_PRESETS.get('growth', {}).get(preset_key, {}).get('params', {})
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            params['revenue_yoy_min'] = st.slider(
-                '營收年增率下限 (%)',
-                -50.0, 200.0,
-                defaults.get('revenue_yoy_min', 20.0),
-                5.0,
-                help='與去年同期相比的成長率'
-            )
-            params['use_yoy'] = st.checkbox('使用年增率', value=defaults.get('use_yoy', True))
-
-        with col2:
-            params['revenue_mom_min'] = st.slider(
-                '營收月增率下限 (%)',
-                -50.0, 100.0,
-                defaults.get('revenue_mom_min', 10.0),
-                5.0,
-                help='與上個月相比的成長率'
-            )
-            params['use_mom'] = st.checkbox('使用月增率', value=defaults.get('use_mom', True))
-
-        with col3:
-            params['consecutive_months'] = st.slider(
-                '連續成長月數',
-                1, 12,
-                defaults.get('consecutive_months', 3),
-                1,
-                help='確認成長趨勢的持續性'
-            )
-            params['use_consecutive'] = st.checkbox('使用連續成長', value=True)
-
-    elif strategy_type == '動能投資':
-        preset_key = preset_map[preset_type]
-        defaults = STRATEGY_PRESETS.get('momentum', {}).get(preset_key, {}).get('params', {})
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            params['breakout_days'] = st.slider(
-                '突破天數',
-                5, 120,
-                defaults.get('breakout_days', 20),
-                5,
-                help='突破近N日高點'
-            )
-            params['use_breakout'] = st.checkbox('使用價格突破', value=defaults.get('use_breakout', True))
-
-        with col2:
-            params['volume_ratio_min'] = st.slider(
-                '量比下限',
-                0.5, 5.0,
-                defaults.get('volume_ratio', 1.5),
-                0.1,
-                help='成交量相對於均量的倍數'
-            )
-            params['use_volume'] = st.checkbox('使用成交量', value=defaults.get('use_volume', True))
-
-        with col3:
-            params['rsi_min'] = st.slider('RSI 下限', 0, 100, defaults.get('rsi_min', 50), 5)
-            params['rsi_max'] = st.slider('RSI 上限', 0, 100, defaults.get('rsi_max', 80), 5)
-            params['use_rsi'] = st.checkbox('使用 RSI', value=defaults.get('use_rsi', True))
-
-    elif strategy_type == '綜合策略':
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown('**因子權重**')
-            params['value_weight'] = st.slider('價值因子', 0.0, 1.0, 0.4, 0.1)
-            params['growth_weight'] = st.slider('成長因子', 0.0, 1.0, 0.3, 0.1)
-            params['momentum_weight'] = st.slider('動能因子', 0.0, 1.0, 0.3, 0.1)
-
-        with col2:
-            st.markdown('**篩選條件**')
-            params['top_n'] = st.slider('選取前 N 名', 5, 50, 20, 5)
-            params['min_score'] = st.slider('最低分數門檻', 0, 100, 50, 5)
-            params['use_value'] = st.checkbox('使用價值因子', value=True)
-            params['use_growth'] = st.checkbox('使用成長因子', value=True)
-            params['use_momentum'] = st.checkbox('使用動能因子', value=True)
-
+    if strategy_type in ('價值投資', '成長投資', '動能投資', '綜合策略'):
+        params = render_strategy_params(
+            strategy_type=strategy_type,
+            strategy_presets=STRATEGY_PRESETS,
+            preset_key=preset_key,
+            key_prefix='screen_',
+            show_help=True,
+        )
     elif strategy_type == '自訂篩選':
+        params = {}
+    else:
+        params = {}
+
+    if strategy_type == '自訂篩選':
         st.markdown('**動態條件組合**')
 
         # 條件組合模式

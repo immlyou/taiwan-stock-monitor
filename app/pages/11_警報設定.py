@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
-from core.indicators import rsi, macd
+from core.indicators import rsi as calc_rsi, macd
 from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
@@ -335,14 +335,42 @@ if st.button('檢查所有警報', use_container_width=True):
                 is_triggered = True
 
             elif alert_type == 'rsi_above':
-                rsi = rsi(stock_close, period=14)
-                if rsi.iloc[-1] > alert_value:
+                rsi_values = calc_rsi(stock_close, period=14)
+                if rsi_values.iloc[-1] > alert_value:
                     is_triggered = True
 
             elif alert_type == 'rsi_below':
-                rsi = rsi(stock_close, period=14)
-                if rsi.iloc[-1] < alert_value:
+                rsi_values = calc_rsi(stock_close, period=14)
+                if rsi_values.iloc[-1] < alert_value:
                     is_triggered = True
+
+            elif alert_type == 'ma_cross_up':
+                # 均線黃金交叉：短期均線向上穿越長期均線
+                ma_params = str(alert_value).split(',')
+                if len(ma_params) == 2:
+                    short_period = int(ma_params[0])
+                    long_period = int(ma_params[1])
+                    if len(stock_close) >= long_period + 1:
+                        short_ma = stock_close.rolling(short_period).mean()
+                        long_ma = stock_close.rolling(long_period).mean()
+                        # 今日短均線 > 長均線，且昨日短均線 <= 長均線
+                        if (short_ma.iloc[-1] > long_ma.iloc[-1] and
+                                short_ma.iloc[-2] <= long_ma.iloc[-2]):
+                            is_triggered = True
+
+            elif alert_type == 'ma_cross_down':
+                # 均線死亡交叉：短期均線向下穿越長期均線
+                ma_params = str(alert_value).split(',')
+                if len(ma_params) == 2:
+                    short_period = int(ma_params[0])
+                    long_period = int(ma_params[1])
+                    if len(stock_close) >= long_period + 1:
+                        short_ma = stock_close.rolling(short_period).mean()
+                        long_ma = stock_close.rolling(long_period).mean()
+                        # 今日短均線 < 長均線，且昨日短均線 >= 長均線
+                        if (short_ma.iloc[-1] < long_ma.iloc[-1] and
+                                short_ma.iloc[-2] >= long_ma.iloc[-2]):
+                            is_triggered = True
 
             elif alert_type == 'volume_spike':
                 if stock_id in volume.columns:

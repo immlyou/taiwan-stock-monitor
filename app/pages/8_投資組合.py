@@ -26,20 +26,7 @@ render_sidebar_mini(current_page='portfolio')
 
 render_page_header('投資組合', icon='💼')
 
-# 儲存投資組合的檔案路徑
-PORTFOLIO_FILE = Path(__file__).parent.parent.parent / 'data' / 'portfolios.json'
-PORTFOLIO_FILE.parent.mkdir(exist_ok=True)
-
-# 載入/儲存投資組合
-def load_portfolios():
-    if PORTFOLIO_FILE.exists():
-        with open(PORTFOLIO_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
-
-def save_portfolios(portfolios):
-    with open(PORTFOLIO_FILE, 'w', encoding='utf-8') as f:
-        json.dump(portfolios, f, ensure_ascii=False, indent=2, default=str)
+from app.components.portfolio_utils import load_portfolios, save_portfolios
 
 # 載入數據
 @st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')

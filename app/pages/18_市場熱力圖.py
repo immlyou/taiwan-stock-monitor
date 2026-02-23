@@ -22,6 +22,7 @@ from app.components.sidebar import render_sidebar
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.charts import apply_dark_theme
 
 # 頁面設定
 st.set_page_config(
@@ -155,7 +156,7 @@ def create_sector_bar(df):
 
     summary = summary.sort_values('market_value', ascending=False).head(12)
 
-    colors = ['#ef5350' if x > 0 else '#26a69a' for x in summary['change_pct']]
+    colors = ['#ef4444' if x > 0 else '#22c55e' for x in summary['change_pct']]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -242,6 +243,7 @@ with main_col1:
     fig = create_heatmap(df, color_scale, height=600)
 
     if fig:
+        apply_dark_theme(fig, height=600)
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning('無法建立熱力圖')
@@ -250,6 +252,7 @@ with main_col2:
     # 產業漲跌
     sector_fig = create_sector_bar(df)
     if sector_fig:
+        apply_dark_theme(sector_fig, height=280)
         st.plotly_chart(sector_fig, use_container_width=True)
 
     # 漲幅 Top 5
@@ -259,7 +262,7 @@ with main_col2:
         st.markdown(
             f"<div style='display:flex;justify-content:space-between;padding:2px 0;font-size:13px'>"
             f"<span>{row['stock_id']} {row['name'][:4]}</span>"
-            f"<span style='color:#ef5350;font-weight:bold'>{row['change_pct']:+.2f}%</span>"
+            f"<span style='color:#ef4444;font-weight:bold'>{row['change_pct']:+.2f}%</span>"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -273,7 +276,7 @@ with main_col2:
         st.markdown(
             f"<div style='display:flex;justify-content:space-between;padding:2px 0;font-size:13px'>"
             f"<span>{row['stock_id']} {row['name'][:4]}</span>"
-            f"<span style='color:#26a69a;font-weight:bold'>{row['change_pct']:+.2f}%</span>"
+            f"<span style='color:#22c55e;font-weight:bold'>{row['change_pct']:+.2f}%</span>"
             f"</div>",
             unsafe_allow_html=True
         )
