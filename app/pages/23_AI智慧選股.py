@@ -50,7 +50,7 @@ if close is None or close.empty:
     st.stop()
 
 active = get_active_stocks()
-active_stocks = active.index.tolist() if active is not None and not active.empty else close.columns.tolist()
+active_stocks = active if active else close.columns.tolist()
 
 # ─── 多因子計算 ────────────────────────────────────────
 st.markdown(f'''

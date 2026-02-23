@@ -106,7 +106,7 @@ def fetch_x_stock_posts(bearer_token: str, query: str = '台股 OR 加權指數'
 
 # ─── 資料分析 ─────────────────────────────────────────
 active = get_active_stocks()
-active_ids = set(active.index.tolist()) if active is not None and not active.empty else set()
+active_ids = set(active) if active else set()
 
 
 def extract_stock_mentions(texts, stock_ids):

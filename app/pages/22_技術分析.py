@@ -52,7 +52,7 @@ if close is None or close.empty:
 
 # ─── 股票選擇 ─────────────────────────────────────────
 active = get_active_stocks()
-stock_list = sorted(active.index.tolist()) if active is not None and not active.empty else sorted(close.columns.tolist())
+stock_list = sorted(active) if active else sorted(close.columns.tolist())
 
 # 若從個股分析跳過來，自動帶入
 default_stock = get_stock_to_analyze() or (stock_list[0] if stock_list else None)
