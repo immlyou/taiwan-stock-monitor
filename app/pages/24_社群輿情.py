@@ -41,18 +41,18 @@ STOCK_RE = re.compile(r'\b(\d{4})\b')
 def fetch_ptt_stock_titles(pages: int = 5):
     """
     爬取 PTT Stock 版最新文章標題
-    Returns list of dicts: [{'title': ..., 'date': ..., 'author': ...}, ...]
+    Returns (articles, error_msg)
     """
     articles = []
     url = PTT_STOCK_URL
+    error_msg = None
     try:
         for _ in range(pages):
             resp = requests.get(url, headers=HEADERS, timeout=10)
             resp.raise_for_status()
             html = resp.text
 
-            # 簡易解析
-            # 每篇文章在 <div class="r-ent">
+            # 簡易解析 — 每篇文章在 <div class="r-ent">
             blocks = html.split('<div class="r-ent">')
             for block in blocks[1:]:
                 title_match = re.search(r'<a href="[^"]*">(.+?)</a>', block)
@@ -71,10 +71,14 @@ def fetch_ptt_stock_titles(pages: int = 5):
                 url = 'https://www.ptt.cc' + prev_match.group(1)
             else:
                 break
-    except Exception:
-        pass
+    except requests.exceptions.Timeout:
+        error_msg = 'PTT 連線逾時，請稍後再試'
+    except requests.exceptions.ConnectionError:
+        error_msg = 'PTT 無法連線（Cloud 環境可能有地區限制）'
+    except Exception as e:
+        error_msg = f'PTT 爬取失敗：{type(e).__name__}'
 
-    return articles
+    return articles, error_msg
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -129,13 +133,16 @@ with tab_ptt:
     ptt_pages = st.slider('爬取頁數', 2, 15, 5, key='ptt_pages')
 
     with st.spinner('正在抓取 PTT Stock 版文章...'):
-        articles = fetch_ptt_stock_titles(pages=ptt_pages)
+        articles, ptt_error = fetch_ptt_stock_titles(pages=ptt_pages)
+
+    if ptt_error:
+        st.warning(f'⚠️ {ptt_error}')
 
     if not articles:
         show_empty_state(
             '無法取得 PTT 資料',
             icon='📭',
-            suggestion='可能是網路問題或 PTT 暫時無法連線，請稍後再試',
+            suggestion=ptt_error or '可能是網路問題或 PTT 暫時無法連線，請稍後再試',
         )
     else:
         titles = [a['title'] for a in articles]
@@ -177,8 +184,10 @@ with tab_ptt:
                 fig = px.bar(mention_df, x='被提及次數', y='股票代碼', orientation='h',
                              color='被提及次數', color_continuous_scale=['#1e40af', '#3b82f6', '#ef4444'],
                              text='被提及次數')
-                fig.update_layout(**DEFAULT_PLOTLY_LAYOUT, height=450, showlegend=False,
-                                  coloraxis_showscale=False, yaxis=dict(autorange='reversed'))
+                layout_args = {**DEFAULT_PLOTLY_LAYOUT, 'height': 450, 'showlegend': False,
+                               'coloraxis_showscale': False}
+                layout_args['yaxis'] = {**layout_args.get('yaxis', {}), 'autorange': 'reversed'}
+                fig.update_layout(**layout_args)
                 fig.update_traces(textposition='outside')
                 st.plotly_chart(fig, use_container_width=True)
             else:
@@ -193,8 +202,9 @@ with tab_ptt:
                                  color_discrete_sequence=['#3b82f6', '#8b5cf6', '#ef4444', '#f59e0b',
                                                           '#22c55e', '#06b6d4', '#ec4899', '#64748b',
                                                           '#f97316', '#14b8a6'])
-                fig_pie.update_layout(**DEFAULT_PLOTLY_LAYOUT, height=450, showlegend=True,
-                                      legend=dict(font=dict(size=11)))
+                pie_layout = {**DEFAULT_PLOTLY_LAYOUT, 'height': 450, 'showlegend': True}
+                pie_layout['legend'] = {**pie_layout.get('legend', {}), 'font': {'size': 11}}
+                fig_pie.update_layout(**pie_layout)
                 st.plotly_chart(fig_pie, use_container_width=True)
 
         # 最新文章列表
