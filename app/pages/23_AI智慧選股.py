@@ -35,7 +35,10 @@ def load_ai_data():
     dividend = loader.get('dividend_yield')
     revenue = loader.get('monthly_revenue')
     market_value = loader.get('market_value')
-    stock_info = loader.get_stock_info()
+    try:
+        stock_info = loader.get_stock_info()
+    except Exception:
+        stock_info = None
     return close, volume, pe, pb, dividend, revenue, market_value, stock_info
 
 
@@ -43,7 +46,7 @@ with st.spinner('正在載入資料與計算因子...'):
     try:
         close, volume, pe, pb, dividend, revenue, market_value, stock_info = load_ai_data()
     except Exception as e:
-        show_error('資料載入失敗', str(e))
+        show_error(e, title='資料載入失敗')
         st.stop()
 
 if close is None or close.empty:
@@ -52,9 +55,14 @@ if close is None or close.empty:
 
 # 建立股票代碼 → 名稱映射
 stock_name_map = {}
-if stock_info is not None and not stock_info.empty:
+if stock_info is not None:
     try:
-        stock_name_map = dict(zip(stock_info['stock_id'], stock_info['name']))
+        if hasattr(stock_info, 'empty') and not stock_info.empty:
+            if 'stock_id' in stock_info.columns and 'name' in stock_info.columns:
+                stock_name_map = dict(zip(stock_info['stock_id'], stock_info['name']))
+            elif hasattr(stock_info, 'index'):
+                # 有些格式 index 就是股票代碼
+                stock_name_map = stock_info.to_dict().get('name', {})
     except Exception:
         pass
 

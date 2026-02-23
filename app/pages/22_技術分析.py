@@ -43,7 +43,7 @@ def load_price_data():
 try:
     close, open_, high, low, volume = load_price_data()
 except Exception as e:
-    show_error('資料載入失敗', str(e))
+    show_error(e, title='資料載入失敗')
     st.stop()
 
 if close is None or close.empty:
@@ -181,10 +181,11 @@ if show_macd:
     current_row += 1
 
 if show_kd:
+    close_df_kd = c.to_frame(name=selected_stock)
     kd_result = kdj(
         high[selected_stock].to_frame(name=selected_stock).reindex(c.index),
         low[selected_stock].to_frame(name=selected_stock).reindex(c.index),
-        close_df,
+        close_df_kd,
     )
     k_val = kd_result[f'{selected_stock}_K'].reindex(c.index)
     d_val = kd_result[f'{selected_stock}_D'].reindex(c.index)
