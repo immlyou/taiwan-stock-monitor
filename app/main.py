@@ -62,11 +62,6 @@ def check_login():
         if username == correct_username and password == correct_password:
             st.session_state["authenticated"] = True
             st.session_state["current_user"] = username
-            # 清除登入表單資料
-            if "login_username" in st.session_state:
-                del st.session_state["login_username"]
-            if "login_password" in st.session_state:
-                del st.session_state["login_password"]
         else:
             st.session_state["login_error"] = True
 
@@ -135,10 +130,11 @@ def check_login():
 
             submitted = st.form_submit_button("登入", use_container_width=True, type="primary")
 
-            if submitted:
-                login_submitted()
-                if st.session_state.get("authenticated", False):
-                    st.rerun()
+        # 表單提交處理放在 form 區塊外面，避免 rerun 在 form context 內觸發
+        if submitted:
+            login_submitted()
+            if st.session_state.get("authenticated", False):
+                st.rerun()
 
         # 顯示錯誤訊息
         if st.session_state.get("login_error", False):
