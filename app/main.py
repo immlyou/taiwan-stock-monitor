@@ -51,8 +51,13 @@ def check_login():
         password = st.session_state.get("login_password", "")
 
         # 驗證帳號密碼
-        correct_username = st.secrets["credentials"]["username"]
-        correct_password = st.secrets["credentials"]["password"]
+        try:
+            correct_username = st.secrets["credentials"]["username"]
+            correct_password = st.secrets["credentials"]["password"]
+        except (KeyError, FileNotFoundError):
+            st.session_state["login_error"] = True
+            st.session_state["login_error_msg"] = "系統密鑰未配置，請聯絡管理員"
+            return
 
         if username == correct_username and password == correct_password:
             st.session_state["authenticated"] = True
@@ -137,7 +142,8 @@ def check_login():
 
         # 顯示錯誤訊息
         if st.session_state.get("login_error", False):
-            st.error("❌ 帳號或密碼錯誤，請重試")
+            error_msg = st.session_state.pop("login_error_msg", "帳號或密碼錯誤，請重試")
+            st.error(f"❌ {error_msg}")
             st.session_state["login_error"] = False
 
         st.markdown("""
@@ -164,7 +170,7 @@ if not is_cache_warm():
 inject_professional_theme()
 
 # 渲染側邊欄
-render_sidebar(current_page='home')
+render_sidebar(current_page='dashboard')
 
 
 @st.cache_data(ttl=CACHE_TTL['intraday'])
