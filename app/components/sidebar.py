@@ -8,15 +8,11 @@ from core.cache_warmer import get_cache_warmer, is_cache_warm, get_warmup_status
 
 def check_authentication():
     """
-    全域認證檢查 - 確保使用者已登入
-
-    在所有頁面中透過 sidebar render 自動呼叫，
-    未登入時會停止頁面渲染並提示使用者登入。
+    全域認證檢查（免登入模式 - 自動通過）
     """
     if not st.session_state.get("authenticated", False):
-        st.warning("⚠️ 請先登入")
-        st.markdown("[👉 點此前往登入頁面](../)")
-        st.stop()
+        st.session_state["authenticated"] = True
+        st.session_state["current_user"] = "user"
 
 
 # 專業配色 (與 theme.py 一致)
