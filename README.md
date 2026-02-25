@@ -4,7 +4,7 @@
 
 ## 功能特色
 
-- 22+ 功能頁面，涵蓋選股、回測、籌碼分析、財報分析等
+- 25 個功能頁面，涵蓋選股、回測、籌碼分析、財報分析、AI 選股、社群輿情等
 - 整合 FinLab API 提供完整台股數據
 - 支援多種選股策略（價值投資、成長投資、動能投資）
 - 即時報價與盤後總覽
@@ -20,10 +20,11 @@ pip install -r requirements.txt
 
 ### 2. 設定 FinLab API Token
 
-在 `.env` 檔案中設定：
+複製範本檔案並填入 Token：
 
-```
-FINLAB_API_TOKEN=your_token_here
+```bash
+cp .env.example .env
+# 編輯 .env 填入你的 FINLAB_API_TOKEN
 ```
 
 ### 3. 更新資料（首次使用或每日更新）
@@ -46,7 +47,7 @@ streamlit run app/main.py
 taiwan-stock-monitor/
 ├── app/                    # Streamlit 應用程式
 │   ├── main.py            # 主頁面
-│   ├── pages/             # 22 個功能頁面
+│   ├── pages/             # 25 個功能頁面
 │   └── components/        # UI 元件
 ├── core/                   # 核心邏輯
 │   ├── data_loader.py     # 資料載入
@@ -56,7 +57,7 @@ taiwan-stock-monitor/
 ├── scripts/               # 自動化腳本
 │   └── daily_update.py    # 每日更新
 ├── config.py              # 系統設定
-├── .env                   # API 金鑰
+├── .env                   # API 金鑰（從 .env.example 複製）
 ├── .streamlit/            # Streamlit 設定
 └── *.pickle               # 資料快取檔
 ```
@@ -87,6 +88,9 @@ taiwan-stock-monitor/
 | 資金流向 | 資金流動分析 |
 | 盤後總覽 | 收盤後市場總結 |
 | 預測驗證 | 策略預測追蹤 |
+| 技術分析 | K線圖與技術指標 |
+| AI 智慧選股 | 多因子 AI 評分選股 |
+| 社群輿情 | PTT / X 社群情緒分析 |
 
 ## 自動化
 

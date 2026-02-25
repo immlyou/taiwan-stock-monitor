@@ -181,7 +181,7 @@ class PTTScanner:
             if parsed > now:
                 parsed = datetime(now.year - 1, int(month), int(day))
             return parsed
-        except Exception:
+        except (ValueError, TypeError, IndexError):
             return datetime.now()
 
     def _analyze_post(self, post: PTTPost):

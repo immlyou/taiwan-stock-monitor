@@ -53,21 +53,35 @@ def update_data():
 
         # 數據對應表: FinLab API 名稱 -> 本地檔案名
         data_mapping = {
+            # 價格數據
             'price:收盤價': 'price#收盤價.pickle',
             'price:開盤價': 'price#開盤價.pickle',
             'price:最高價': 'price#最高價.pickle',
             'price:最低價': 'price#最低價.pickle',
             'price:成交股數': 'price#成交股數.pickle',
+            # ETL 處理後數據
             'etl:adj_close': 'etl#adj_close.pickle',
             'etl:market_value': 'etl#market_value.pickle',
             'etl:is_flagged_stock': 'etl#is_flagged_stock.pickle',
+            # 本益比相關
             'price_earning_ratio:本益比': 'price_earning_ratio#本益比.pickle',
             'price_earning_ratio:股價淨值比': 'price_earning_ratio#股價淨值比.pickle',
             'price_earning_ratio:殖利率(%)': 'price_earning_ratio#殖利率(%).pickle',
+            # 月營收
             'monthly_revenue:當月營收': 'monthly_revenue#當月營收.pickle',
             'monthly_revenue:去年同月增減(%)': 'monthly_revenue#去年同月增減(%).pickle',
             'monthly_revenue:上月比較增減(%)': 'monthly_revenue#上月比較增減(%).pickle',
+            # 大盤指數
             'benchmark_return:發行量加權股價報酬指數': 'benchmark_return#發行量加權股價報酬指數.pickle',
+            # 三大法人買賣超
+            'institutional_investors_trading_summary:外陸資買賣超股數(不含外資自營商)': 'institutional_investors_trading_summary#外陸資買賣超股數(不含外資自營商).pickle',
+            'institutional_investors_trading_summary:投信買賣超股數': 'institutional_investors_trading_summary#投信買賣超股數.pickle',
+            'institutional_investors_trading_summary:自營商買賣超股數(自行買賣)': 'institutional_investors_trading_summary#自營商買賣超股數(自行買賣).pickle',
+            # 外資持股
+            'foreign_investors_shareholding:全體外資及陸資持股比率': 'foreign_investors_shareholding#全體外資及陸資持股比率.pickle',
+            # 融資融券
+            'margin_transactions:融資今日餘額': 'margin_transactions#融資今日餘額.pickle',
+            'margin_transactions:融券今日餘額': 'margin_transactions#融券今日餘額.pickle',
         }
 
         updated_count = 0

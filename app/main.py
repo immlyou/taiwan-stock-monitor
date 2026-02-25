@@ -91,7 +91,7 @@ def load_market_overview():
     if market_value is not None and len(market_value) > 0:
         data['market_value'] = market_value.iloc[-1]
 
-    # 三大法人
+    # 三大法人（資料可能不存在，缺少時顯示為 N/A）
     try:
         foreign = loader.get('foreign_investors')
         if foreign is not None and len(foreign) > 0:
@@ -282,8 +282,8 @@ with header_col2:
         try:
             _last_dt = datetime.strptime(latest_date, '%Y-%m-%d')
             _data_stale = (datetime.now() - _last_dt).days > 2
-        except Exception:
-            pass
+        except (ValueError, TypeError):
+            pass  # 日期解析失敗時不顯示過時警告
 
     st.markdown(f'''
     <div style="text-align:right;padding-top:12px">

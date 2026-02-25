@@ -157,8 +157,8 @@ class XScanner:
                         created_at = datetime.fromisoformat(
                             tweet['created_at'].replace('Z', '+00:00')
                         ).replace(tzinfo=None)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError):
+                        pass  # 日期解析失敗時使用預設值 datetime.now()
 
                 # 取得作者
                 author = users.get(tweet.get('author_id', ''), '')

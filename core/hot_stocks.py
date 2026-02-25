@@ -130,7 +130,8 @@ class HotStockAnalyzer:
         """
         try:
             volume = self.loader.get('volume')
-        except Exception:
+        except Exception as e:
+            logger.warning(f'載入成交量資料失敗: {e}')
             return {}
 
         if stock_ids is None:
@@ -197,7 +198,8 @@ class HotStockAnalyzer:
         """
         try:
             close = self.loader.get('close')
-        except Exception:
+        except Exception as e:
+            logger.warning(f'載入收盤價資料失敗: {e}')
             return {}
 
         if stock_ids is None:
@@ -282,7 +284,8 @@ class HotStockAnalyzer:
                 }
                 for _, row in stock_info.iterrows()
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(f'載入股票資訊失敗: {e}')
             stock_info_dict = {}
 
         # 收集所有相關股票
@@ -402,7 +405,8 @@ class HotStockAnalyzer:
                 row['stock_id']: row.get('name', '')
                 for _, row in stock_info.iterrows()
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(f'載入股票名稱資訊失敗: {e}')
             stock_info_dict = {}
 
         # 篩選異常
@@ -507,8 +511,8 @@ def get_hot_stocks_integrated(
                     'sentiment': avg_sentiment,
                     'score': min(100, mention_count * 15 + abs(avg_sentiment) * 30),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'新聞熱度分析失敗: {e}')
 
     # 分析
     analyzer = HotStockAnalyzer()

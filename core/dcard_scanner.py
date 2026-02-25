@@ -86,7 +86,7 @@ class DcardScanner:
             from playwright.sync_api import sync_playwright
             self.playwright_available = True
         except ImportError:
-            pass
+            pass  # Playwright 未安裝，將使用其他方式抓取
 
     def fetch_posts(self, limit: int = 100) -> List[DcardPost]:
         """
@@ -133,8 +133,8 @@ class DcardScanner:
                                         created_at = datetime.fromisoformat(
                                             item['createdAt'].replace('Z', '+00:00')
                                         ).replace(tzinfo=None)
-                                    except Exception:
-                                        pass
+                                    except (ValueError, TypeError):
+                                        pass  # 日期解析失敗時使用預設值
 
                                 post = DcardPost(
                                     id=item.get('id', 0),
@@ -479,7 +479,8 @@ class DcardScanner:
                                         posts.append(post)
                                 except json.JSONDecodeError:
                                     continue
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f'解析 Dcard script 內容失敗: {e}')
                             continue
 
             if posts:
@@ -510,8 +511,8 @@ class DcardScanner:
                     )
                     self._analyze_post(post)
                     posts.append(post)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f'從 Next.js 資料解析文章失敗: {e}')
 
             # 遞迴搜尋
             for value in data.values():
@@ -532,7 +533,8 @@ class DcardScanner:
                 timeout=10
             )
             return response.status_code == 200
-        except Exception:
+        except Exception as e:
+            logger.debug(f'Dcard API 可用性檢查失敗: {e}')
             return False
 
     def _analyze_post(self, post: DcardPost):

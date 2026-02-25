@@ -38,7 +38,7 @@ def load_ai_data():
     try:
         stock_info = loader.get_stock_info()
     except Exception:
-        stock_info = None
+        stock_info = None  # 股票資訊非必要，缺少時仍可進行選股
     return close, volume, pe, pb, dividend, revenue, market_value, stock_info
 
 
@@ -64,7 +64,7 @@ if stock_info is not None:
                 # 有些格式 index 就是股票代碼
                 stock_name_map = stock_info.to_dict().get('name', {})
     except Exception:
-        pass
+        pass  # 名稱映射建立失敗時以空字典繼續
 
 active = get_active_stocks()
 active_stocks = active if active else close.columns.tolist()

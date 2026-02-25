@@ -84,7 +84,7 @@ def init_finlab():
             try:
                 token = st.secrets.get('FINLAB_API_TOKEN')
             except Exception:
-                pass
+                pass  # st.secrets 不可用時改用環境變數
 
         if not token:
             token = os.getenv('FINLAB_API_TOKEN')
@@ -503,7 +503,7 @@ def get_data_summary() -> Dict:
             from core.twse_api import get_taiex
             taiex_index, taiex_change, _ = get_taiex()
         except Exception:
-            pass
+            pass  # TWSE API 不可用時使用預設值 None
 
         return {
             'total_stocks': len(active_stocks),  # 只顯示活躍股票數量

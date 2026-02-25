@@ -458,8 +458,8 @@ class NewsScanner:
                     if hasattr(entry, 'published_parsed') and entry.published_parsed:
                         try:
                             published = datetime(*entry.published_parsed[:6])
-                        except Exception:
-                            pass
+                        except (ValueError, TypeError):
+                            pass  # 日期解析失敗時使用預設值 datetime.now()
 
                     summary = ''
                     if hasattr(entry, 'summary'):
@@ -495,8 +495,8 @@ class NewsScanner:
                 if item.get('publishAt'):
                     try:
                         published = datetime.fromtimestamp(item['publishAt'])
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError, OSError):
+                        pass  # 時間戳解析失敗時使用預設值 datetime.now()
 
                 news_item = NewsItem(
                     title=item.get('title', ''),

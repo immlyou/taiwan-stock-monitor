@@ -320,7 +320,7 @@ class PortfolioOptimizer:
                     sharpe_list.append(result.sharpe_ratio)
                     weights_list.append(result.weights)
             except Exception:
-                continue
+                continue  # 特定目標報酬率可能無可行解，跳過
 
         return EfficientFrontier(
             returns=np.array(returns_list),

@@ -97,7 +97,8 @@ class PredictionTracker:
             try:
                 with open(VERIFICATION_LOG_FILE, 'r', encoding='utf-8') as f:
                     self.verification_log = json.load(f)
-            except Exception:
+            except Exception as e:
+                print(f"載入驗證日誌失敗: {e}")
                 self.verification_log = []
 
     def _save_data(self):

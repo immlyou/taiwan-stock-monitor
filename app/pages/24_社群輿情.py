@@ -102,8 +102,8 @@ def fetch_x_stock_posts(bearer_token: str, query: str = '台股 OR 加權指數'
         if resp.status_code == 200:
             data = resp.json()
             return data.get('data', [])
-    except Exception:
-        pass
+    except Exception as e:
+        st.toast(f'Dcard API 請求失敗: {type(e).__name__}')
 
     return []
 
@@ -222,7 +222,7 @@ with tab_x:
         try:
             bearer_token = st.secrets.get('X_BEARER_TOKEN', '')
         except Exception:
-            pass
+            pass  # st.secrets 不可用時使用環境變數
 
     if not bearer_token:
         st.info('💡 需要設定 `X_BEARER_TOKEN` 環境變數才能使用 X (Twitter) 輿情分析。')
