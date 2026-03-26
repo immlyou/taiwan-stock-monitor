@@ -6,9 +6,18 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  formatVolumeValue,
   getChangeColorVar,
 } from '@/lib/utils/format'
+
+/** 將股數格式化為張數顯示（1張=1000股） */
+function formatShares(shares: number): string {
+  const lots = shares / 1000
+  const abs = Math.abs(lots)
+  const sign = lots >= 0 ? '+' : ''
+  if (abs >= 1e4) return `${sign}${(lots / 1e4).toFixed(1)} 萬張`
+  if (abs >= 1e3) return `${sign}${(lots / 1e3).toFixed(1)} 千張`
+  return `${sign}${lots.toFixed(0)} 張`
+}
 
 // 對應 GET /market/money-flow
 interface InstitutionDetail {
@@ -20,7 +29,7 @@ interface InstitutionDetail {
 interface MoneyFlowData {
   date: string
   foreign: InstitutionDetail
-  trust: InstitutionDetail
+  investment_trust: InstitutionDetail
   dealer: InstitutionDetail
 }
 
@@ -104,7 +113,7 @@ function InstitutionCard({
             className="text-sm font-bold tabular-nums"
             style={{ color: getChangeColorVar(net) }}
           >
-            {net > 0 ? '+' : ''}{formatVolumeValue(net)}
+            {formatShares(net)}
           </span>
         )}
       </div>
@@ -130,32 +139,32 @@ export default function MoneyFlowPage() {
   const { data, isLoading, isError } = useMoneyFlow()
 
   const foreignNet = data?.foreign?.total_net ?? 0
-  const trustNet = data?.trust?.total_net ?? 0
+  const trustNet = data?.investment_trust?.total_net ?? 0
   const dealerNet = data?.dealer?.total_net ?? 0
   const total = foreignNet + trustNet + dealerNet
 
   const kpiCards = [
     {
       title: '外資買賣超',
-      value: isLoading ? '-' : formatVolumeValue(foreignNet),
+      value: isLoading ? '-' : formatShares(foreignNet),
       change: foreignNet || undefined,
       accentColor: getChangeColorVar(foreignNet),
     },
     {
       title: '投信買賣超',
-      value: isLoading ? '-' : formatVolumeValue(trustNet),
+      value: isLoading ? '-' : formatShares(trustNet),
       change: trustNet || undefined,
       accentColor: getChangeColorVar(trustNet),
     },
     {
       title: '自營商買賣超',
-      value: isLoading ? '-' : formatVolumeValue(dealerNet),
+      value: isLoading ? '-' : formatShares(dealerNet),
       change: dealerNet || undefined,
       accentColor: getChangeColorVar(dealerNet),
     },
     {
       title: '三大法人合計',
-      value: isLoading ? '-' : formatVolumeValue(total),
+      value: isLoading ? '-' : formatShares(total),
       change: total || undefined,
       accentColor: getChangeColorVar(total),
     },
@@ -213,7 +222,7 @@ export default function MoneyFlowPage() {
             />
             <InstitutionCard
               label="投信"
-              detail={data?.trust}
+              detail={data?.investment_trust}
               isLoading={isLoading}
             />
             <InstitutionCard
