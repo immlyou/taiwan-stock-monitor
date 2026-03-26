@@ -13,30 +13,51 @@ import {
 import type { MarketSummary } from '@/lib/types'
 
 interface RealtimeQuote {
-  code: string
+  stock_id: string
   name: string
   price: number
   change: number
-  changePercent: number
-  open: number
-  high: number
-  low: number
-  volume: number
-  bid: number
-  ask: number
+  change_pct: number
+  open?: number
+  high?: number
+  low?: number
+  volume?: number
 }
 
 interface BatchQuoteResponse {
   quotes: RealtimeQuote[]
-  updatedAt: string
+  total: number
+  date: string
 }
 
 const POLL_INTERVAL = 5000
+const DEFAULT_STOCKS = ['2330', '2317', '2454', '2881', '0050', '2303', '2882', '1301', '2308', '3711']
+
+interface WatchlistResponse {
+  total: number
+  watchlists: { id: string; name: string; stock_ids: string[] }[]
+}
 
 function useRealtimeQuotes() {
+  // 先取自選股清單
+  const { data: wlData } = useSWR<WatchlistResponse>(
+    '/watchlists',
+    (path: string) => fetchAPI<WatchlistResponse>(path),
+  )
+
+  // 決定要查詢的股票：自選股或預設清單
+  const stockIds = wlData?.watchlists?.[0]?.stock_ids?.length
+    ? wlData.watchlists[0].stock_ids
+    : DEFAULT_STOCKS
+
   const { data, error, isLoading } = useSWR<BatchQuoteResponse>(
-    '/quote/realtime/batch',
-    (path: string) => fetchAPI<BatchQuoteResponse>(path),
+    stockIds.length ? ['quote-batch', stockIds.join(',')] : null,
+    () =>
+      fetchAPI<BatchQuoteResponse>('/quote/realtime/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock_ids: stockIds }),
+      }),
     {
       refreshInterval: POLL_INTERVAL,
       revalidateOnFocus: true,
@@ -124,9 +145,9 @@ export default function RealtimePage() {
               自選股即時報價，每 5 秒自動更新
             </p>
           </div>
-          {data?.updatedAt && (
+          {data?.date && (
             <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              更新時間：{new Date(data.updatedAt).toLocaleTimeString('zh-TW')}
+              資料日期：{data.date}
             </span>
           )}
         </div>
@@ -178,7 +199,7 @@ export default function RealtimePage() {
                   : data?.quotes?.length
                   ? data.quotes.map((q) => (
                       <tr
-                        key={q.code}
+                        key={q.stock_id}
                         className="border-b transition-colors hover:bg-white/5"
                         style={{ borderColor: 'var(--border)' }}
                       >
@@ -186,52 +207,52 @@ export default function RealtimePage() {
                           className="px-4 py-3 font-mono font-semibold"
                           style={{ color: 'var(--primary)' }}
                         >
-                          {q.code}
+                          {q.stock_id}
                         </td>
                         <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
                           {q.name}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums font-bold text-base"
-                          style={{ color: getChangeColorVar(q.change) }}
+                          style={{ color: getChangeColorVar(q.change_pct) }}
                         >
-                          {q.price.toFixed(2)}
+                          {q.price?.toFixed(2) ?? '-'}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums"
-                          style={{ color: getChangeColorVar(q.change) }}
+                          style={{ color: getChangeColorVar(q.change_pct) }}
                         >
-                          {formatChange(q.change)}
+                          {q.change != null ? formatChange(q.change) : '-'}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums"
-                          style={{ color: getChangeColorVar(q.changePercent) }}
+                          style={{ color: getChangeColorVar(q.change_pct) }}
                         >
-                          {formatPercent(q.changePercent)}
+                          {formatPercent(q.change_pct)}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums"
                           style={{ color: 'var(--foreground)' }}
                         >
-                          {q.open.toFixed(2)}
+                          {q.open?.toFixed(2) ?? '-'}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums"
                           style={{ color: 'var(--stock-up)' }}
                         >
-                          {q.high.toFixed(2)}
+                          {q.high?.toFixed(2) ?? '-'}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums"
                           style={{ color: 'var(--stock-down)' }}
                         >
-                          {q.low.toFixed(2)}
+                          {q.low?.toFixed(2) ?? '-'}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums"
                           style={{ color: 'var(--foreground)' }}
                         >
-                          {q.volume.toLocaleString()}
+                          {q.volume?.toLocaleString() ?? '-'}
                         </td>
                       </tr>
                     ))
