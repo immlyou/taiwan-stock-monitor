@@ -168,7 +168,13 @@ async def _startup_security_check():
 
 @app.on_event("startup")
 async def _preload_data():
-    """啟動時預先載入最常用的 pickle 資料，降低首次請求延遲。"""
+    """啟動時預先載入最常用的 pickle 資料，降低首次請求延遲。
+
+    雲端模式（Railway/Streamlit Cloud）：跳過 DataCache 已有且未過期的 key，
+    避免每次 deploy 重啟都重新消耗 FinLab API 配額。
+    """
+    from core.data_loader import DataCache, FINLAB_CACHE_TTL
+
     preload_keys = [
         'close', 'open', 'high', 'low', 'volume',
         'pe_ratio', 'pb_ratio', 'dividend_yield',
@@ -178,14 +184,27 @@ async def _preload_data():
     loop = asyncio.get_event_loop()
 
     def _load():
+        cache = DataCache()
+        skipped = 0
+        loaded = 0
+        failed = 0
         for key in preload_keys:
+            # 若快取已存在且未超過 TTL，直接跳過不重新下載
+            if cache.has(key, max_age=FINLAB_CACHE_TTL if FINLAB_CACHE_TTL > 0 else 0):
+                skipped += 1
+                continue
             try:
                 loader.get(key)
-            except Exception:
-                pass
+                loaded += 1
+            except Exception as e:
+                logger.warning("預熱 %s 失敗: %s", key, e)
+                failed += 1
+        logger.info(
+            "資料預熱完成 — 新載入: %d，快取命中跳過: %d，失敗: %d",
+            loaded, skipped, failed,
+        )
 
     await loop.run_in_executor(None, _load)
-    logger.info("資料預熱完成，已載入 %d 個資料集", len(preload_keys))
 
 
 # ─── 工具函數 ───────────────────────────────────────────
@@ -368,8 +387,28 @@ async def health():
     """
     系統健康檢查。
 
-    回傳 API 服務狀態、資料載入狀態及最新資料日期。
+    回傳 API 服務狀態、資料載入狀態、最新資料日期及 FinLab API 流量統計。
     """
+    from core.data_loader import _finlab_usage_mb, _finlab_quota_exceeded, DataCache, FINLAB_CACHE_TTL
+
+    cache = DataCache()
+    cache_stats = cache.get_stats()
+
+    finlab_info = {
+        "estimated_usage_mb": round(_finlab_usage_mb, 1),
+        "quota_exceeded": _finlab_quota_exceeded,
+        "cache_ttl_seconds": FINLAB_CACHE_TTL,
+        "cached_datasets": cache_stats.get("total_items", 0),
+    }
+
+    if _finlab_quota_exceeded:
+        return {
+            "status": "degraded",
+            "error": "FinLab API 額度超限，部分資料可能無法更新",
+            "finlab": finlab_info,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     try:
         close = loader.get("close")
         latest_date = close.index.max().strftime("%Y-%m-%d")
@@ -379,12 +418,14 @@ async def health():
             "version": "2.0.0",
             "latest_data_date": latest_date,
             "total_stocks": total_stocks,
+            "finlab": finlab_info,
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
         return {
             "status": "degraded",
             "error": str(e),
+            "finlab": finlab_info,
             "timestamp": datetime.now().isoformat(),
         }
 

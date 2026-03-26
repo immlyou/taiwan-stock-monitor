@@ -14,6 +14,17 @@ export class ApiError extends Error {
   }
 }
 
+export class QuotaExceededError extends Error {
+  constructor() {
+    super('API_QUOTA_EXCEEDED')
+    this.name = 'QuotaExceededError'
+  }
+}
+
+function isQuotaExceededText(text: string): boolean {
+  return text.includes('Usage exceed') || text.includes('5000 MB')
+}
+
 export async function fetchAPI<T>(
   path: string,
   options?: RequestInit,
@@ -34,12 +45,36 @@ export async function fetchAPI<T>(
       signal: options?.signal ?? controller.signal,
     })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new ApiError(response.status, errorText || `HTTP ${response.status}`)
+    const text = await response.text()
+
+    if (isQuotaExceededText(text)) {
+      throw new QuotaExceededError()
     }
 
-    return response.json() as Promise<T>
+    if (!response.ok) {
+      throw new ApiError(response.status, text || `HTTP ${response.status}`)
+    }
+
+    // 解析 JSON 並檢查 degraded status（如 /health 端點）
+    let data: T
+    try {
+      data = JSON.parse(text) as T
+    } catch {
+      return text as unknown as T
+    }
+
+    // 檢查回傳 200 但包含 quota 錯誤的情況（例如 health degraded）
+    const anyData = data as Record<string, unknown>
+    if (
+      anyData &&
+      typeof anyData === 'object' &&
+      typeof anyData.error === 'string' &&
+      isQuotaExceededText(anyData.error)
+    ) {
+      throw new QuotaExceededError()
+    }
+
+    return data
   } finally {
     clearTimeout(timeoutId)
   }

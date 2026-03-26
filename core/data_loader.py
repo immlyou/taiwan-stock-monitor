@@ -41,6 +41,14 @@ def is_streamlit_cloud() -> bool:
 # FinLab API 數據名稱對應 - 從 DATA_REGISTRY 衍生，不再重複定義
 FINLAB_DATA_MAPPING = {key: entry['finlab_key'] for key, entry in DATA_REGISTRY.items()}
 
+# FinLab 流量追蹤（用於 /health 端點回報）
+_finlab_usage_mb: float = 0.0
+_finlab_quota_exceeded: bool = False
+
+# FinLab 快取 TTL（秒）：從環境變數讀取，預設 24 小時
+# 設為 0 表示不使用記憶體快取（每次都重新下載）
+FINLAB_CACHE_TTL: int = int(os.getenv("FINLAB_CACHE_TTL", "86400"))
+
 # 初始化 FinLab API（如果在雲端環境）
 _finlab_initialized = False
 
@@ -173,17 +181,41 @@ class DataLoader:
             self._cache: Dict[str, pd.DataFrame] = {}
 
     def _load_from_finlab(self, data_key: str) -> pd.DataFrame:
-        """從 FinLab API 載入數據"""
+        """從 FinLab API 載入數據，並累計流量計數器"""
+        global _finlab_usage_mb, _finlab_quota_exceeded
+
         if not init_finlab():
             raise RuntimeError("FinLab API 未初始化，請設定 FINLAB_API_TOKEN")
 
         from finlab import data
+        import logging
+        _log = logging.getLogger(__name__)
 
         api_name = FINLAB_DATA_MAPPING.get(data_key)
         if not api_name:
             raise KeyError(f"未知的數據鍵: {data_key}")
 
-        df = data.get(api_name)
+        _log.info("FinLab API 下載: %s (%s)", data_key, api_name)
+        try:
+            df = data.get(api_name)
+            _finlab_quota_exceeded = False
+        except Exception as e:
+            err_str = str(e).lower()
+            if "quota" in err_str or "limit" in err_str or "exceed" in err_str:
+                _finlab_quota_exceeded = True
+                _log.error("FinLab 額度超限: %s", e)
+            raise
+
+        # 估算流量（DataFrame 記憶體大小近似 pickle 大小）
+        try:
+            if isinstance(df, pd.DataFrame):
+                estimated_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
+            else:
+                estimated_mb = 0.1
+            _finlab_usage_mb += estimated_mb
+            _log.info("FinLab 累計流量: %.1f MB（本次 +%.1f MB）", _finlab_usage_mb, estimated_mb)
+        except Exception:
+            pass
 
         # 確保是 DataFrame
         if isinstance(df, pd.DataFrame):
@@ -234,8 +266,8 @@ class DataLoader:
         pd.DataFrame
             數據 DataFrame，index 為日期，columns 為股票代號
         """
-        # 優先檢查快取（雲端模式 1 小時過期，本地模式不過期）
-        cache_max_age = 3600 if self._use_finlab_api else 0
+        # 優先檢查快取（雲端模式使用 FINLAB_CACHE_TTL，本地模式不過期）
+        cache_max_age = FINLAB_CACHE_TTL if self._use_finlab_api else 0
         if use_cache:
             if self._use_global_cache and self._global_cache.has(data_key, max_age=cache_max_age):
                 return self._global_cache.get(data_key)
