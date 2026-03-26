@@ -146,6 +146,10 @@ def cached_response(ttl_seconds: int = 300):
 # 全域 DataLoader
 loader = DataLoader()
 
+# 多源資料 Fallback
+from core.data_sources import MultiSourceDataProvider
+multi_source = MultiSourceDataProvider(loader)
+
 # 資料目錄
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -404,7 +408,9 @@ async def health():
     if _finlab_quota_exceeded:
         return {
             "status": "degraded",
-            "error": "FinLab API 額度超限，部分資料可能無法更新",
+            "error": "FinLab API 額度超限，已啟用多源 fallback (yfinance/TWSE/FinMind)",
+            "fallback_active": True,
+            "fallback_sources": ["yfinance", "twse", "finmind"],
             "finlab": finlab_info,
             "timestamp": datetime.now().isoformat(),
         }
@@ -537,6 +543,27 @@ async def market_summary():
     市場總覽 - 取得大盤指數、上漲/下跌家數等摘要資訊。
     OpenClaw 可用此端點取得每日市場概況。
     """
+    from core.data_loader import _finlab_quota_exceeded
+
+    # ── Fallback: FinLab 額度超限時改用 TWSE 大盤指數 ──
+    if _finlab_quota_exceeded:
+        logger.info("[market_summary] FinLab 額度超限，走 TWSE fallback")
+        from core.twse_api import fetch_taiex_realtime
+        taiex = fetch_taiex_realtime()
+        return {
+            "date": taiex.get("date") if taiex else datetime.now().strftime("%Y-%m-%d"),
+            "taiex_index": taiex.get("index") if taiex else None,
+            "taiex_change": taiex.get("change") if taiex else None,
+            "total_stocks": None,
+            "up_count": None,
+            "down_count": None,
+            "flat_count": None,
+            "top_gainers": [],
+            "top_losers": [],
+            "source": "twse",
+            "note": "FinLab 額度超限，僅提供大盤指數",
+        }
+
     summary = get_data_summary()
     if "error" in summary:
         raise HTTPException(status_code=500, detail=summary["error"])
@@ -844,6 +871,13 @@ async def stock_info(
     個股基本資訊與近期行情。
     範例: /stock/2330?days=10
     """
+    from core.data_loader import _finlab_quota_exceeded
+
+    # ── Fallback: FinLab 額度超限時改用替代來源 ──
+    if _finlab_quota_exceeded:
+        logger.info("[stock_info] FinLab 額度超限，走 fallback: %s", stock_id)
+        return await _stock_info_fallback(stock_id, days)
+
     close = loader.get("close")
     if stock_id not in close.columns:
         raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
@@ -902,6 +936,49 @@ async def stock_info(
             }
             for d, p in price_data.items()
         ],
+    }
+
+
+async def _stock_info_fallback(stock_id: str, days: int):
+    """stock_info 的 fallback 實作: yfinance + FinMind"""
+    # 價格來自 yfinance
+    ohlcv = multi_source.get_ohlcv(stock_id, days)
+    if not ohlcv or not ohlcv.get("data"):
+        raise HTTPException(status_code=503, detail="FinLab 額度超限且 fallback 來源無資料")
+
+    price_history = ohlcv["data"]
+    latest = price_history[-1]
+    prev = price_history[-2] if len(price_history) >= 2 else latest
+    latest_price = latest.get("close") or 0
+    prev_price = prev.get("close") or latest_price
+    change_pct = round((latest_price - prev_price) / prev_price * 100, 2) if prev_price else 0
+
+    # 基本面來自 FinMind
+    fund = multi_source.get_fundamentals(stock_id)
+    pe = fund.get("pe_ratio") if fund else None
+    pb = fund.get("pb_ratio") if fund else None
+    dy = fund.get("dividend_yield") if fund else None
+
+    # 即時報價取得股票名稱
+    quote = multi_source.get_realtime_quote(stock_id)
+    name = quote.get("name", "") if quote else ""
+
+    return {
+        "stock_id": stock_id,
+        "name": name,
+        "industry": "",
+        "latest_price": round(latest_price, 2),
+        "change_pct": change_pct,
+        "date": latest.get("date", ""),
+        "pe_ratio": pe,
+        "pb_ratio": pb,
+        "dividend_yield": dy,
+        "revenue_yoy": None,
+        "price_history": [
+            {"date": r["date"], "price": round(r.get("close") or 0, 2)}
+            for r in price_history
+        ],
+        "source": "fallback",
     }
 
 
@@ -966,6 +1043,19 @@ async def stock_chip(
     個股籌碼分析：三大法人買賣超、外資持股比率、融資融券。
     範例: /stock/2330/chip?days=10
     """
+    from core.data_loader import _finlab_quota_exceeded
+
+    # ── Fallback: FinLab 額度超限時改用 TWSE ──
+    if _finlab_quota_exceeded:
+        logger.info("[chip] FinLab 額度超限，走 TWSE fallback: %s", stock_id)
+        result = multi_source.get_institutional(stock_id, days) or {"stock_id": stock_id}
+        margin = multi_source.get_margin(stock_id, days)
+        if margin:
+            result["margin_buy"] = margin.get("margin_buy")
+            result["margin_sell"] = margin.get("margin_sell")
+        result["source"] = "fallback"
+        return result
+
     result = {"stock_id": stock_id}
 
     for key, label in [
@@ -1025,6 +1115,16 @@ async def stock_ohlcv(
     回傳開高低收量的每日時序，供前端繪製 K 線圖。
     範例: /stock/2330/ohlcv?days=120
     """
+    from core.data_loader import _finlab_quota_exceeded
+
+    # ── Fallback: FinLab 額度超限時改用 yfinance ──
+    if _finlab_quota_exceeded:
+        logger.info("[ohlcv] FinLab 額度超限，走 yfinance fallback: %s", stock_id)
+        fallback = multi_source.get_ohlcv(stock_id, days)
+        if fallback:
+            return fallback
+        raise HTTPException(status_code=503, detail="FinLab 額度超限且 fallback 來源無資料")
+
     try:
         close = loader.get("close")
         if stock_id not in close.columns:
@@ -2836,6 +2936,34 @@ async def quote_realtime(stock_id: str):
 
     範例: /quote/realtime/2330
     """
+    from core.data_loader import _finlab_quota_exceeded
+
+    # ── Fallback: FinLab 額度超限時改用 TWSE 即時報價 ──
+    if _finlab_quota_exceeded:
+        logger.info("[quote] FinLab 額度超限，走 TWSE fallback: %s", stock_id)
+        twse = multi_source.get_realtime_quote(stock_id)
+        if twse:
+            price = twse.get("price") or 0
+            prev = twse.get("yesterday_close") or price
+            change = price - prev
+            change_pct = (change / prev * 100) if prev > 0 else 0
+            return {
+                "stock_id": stock_id,
+                "name": twse.get("name", ""),
+                "price": round(price, 2),
+                "prev_close": round(prev, 2),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2),
+                "high": round(twse.get("high") or 0, 2) or None,
+                "low": round(twse.get("low") or 0, 2) or None,
+                "volume": twse.get("volume"),
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "is_realtime": True,
+                "note": "資料來自 TWSE 即時報價 (fallback)",
+                "source": "twse",
+            }
+        raise HTTPException(status_code=503, detail="FinLab 額度超限且 TWSE 即時報價無資料")
+
     try:
         close = loader.get("close")
         if stock_id not in close.columns:
@@ -2900,6 +3028,30 @@ async def quote_realtime_batch(req: BatchQuoteRequest):
 
     一次最多 50 支，使用向量化計算提升效能。
     """
+    from core.data_loader import _finlab_quota_exceeded
+
+    # ── Fallback: FinLab 額度超限時改用 TWSE 批次報價 ──
+    if _finlab_quota_exceeded:
+        logger.info("[batch_quote] FinLab 額度超限，走 TWSE fallback: %d 支", len(req.stock_ids))
+        twse_results = multi_source.get_realtime_batch(req.stock_ids)
+        quotes = []
+        for item in twse_results:
+            price = item.get("price") or 0
+            prev = item.get("yesterday_close") or price
+            change_pct = ((price - prev) / prev * 100) if prev > 0 else 0
+            quotes.append({
+                "stock_id": item.get("stock_id", ""),
+                "name": item.get("name", ""),
+                "price": round(price, 2),
+                "change_pct": round(change_pct, 2),
+            })
+        return {
+            "total": len(quotes),
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "quotes": quotes,
+            "source": "twse",
+        }
+
     try:
         close = loader.get("close")
         name_map = _get_stock_name_map()
