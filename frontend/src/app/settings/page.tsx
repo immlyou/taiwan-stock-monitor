@@ -361,7 +361,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.0.0
+              v3.2.0
             </span>
           </div>
 
@@ -424,6 +424,37 @@ export default function SettingsPage() {
 
 const CHANGELOG = [
   {
+    version: 'v3.2.0',
+    date: '2026-03-27',
+    tag: 'Feature' as const,
+    changes: [
+      'Claude AI 智慧分析上線（Anthropic API 整合）',
+      'LSTM 趨勢預測修正：支援中文方向值（上漲/下跌/盤整）',
+      '全站股票搜尋元件升級：50 筆結果 + 可滾動下拉 + 鍵盤導航',
+      '個股分析頁面新增搜尋框，可直接切換股票',
+      'Header 搜尋 bar 支援滾動選取',
+      '選股篩選結果新增中文名稱欄位',
+      '參數優化功能（Grid Search 均線交叉回測）',
+      '財報分析 + 籌碼分析頁面重寫對齊 API',
+      '版本記錄時間軸 UI',
+    ],
+  },
+  {
+    version: 'v3.1.0',
+    date: '2026-03-27',
+    tag: 'Feature' as const,
+    changes: [
+      '全部 24 頁面 API 欄位對齊修復',
+      '盤後總覽：收盤指數修正 + 三大法人單位改為張',
+      '資金流向：投信欄位修正（investment_trust）',
+      '市場熱力圖改為 Bloomberg 風格層級式下鑽（產業→個股）',
+      'AI 路由衝突修復（StrategyType Enum）',
+      'SafeJSONResponse 全域防 NaN/inf 崩潰',
+      '新聞 RSS 即時掃描 + 晨報整合新聞摘要',
+      'API 效能優化：個股端點快取 + 啟動預熱 14 個 pickle',
+    ],
+  },
+  {
     version: 'v3.0.0',
     date: '2026-03-27',
     tag: 'Major' as const,
@@ -431,10 +462,9 @@ const CHANGELOG = [
       '全新 Next.js + React + Tailwind CSS 前端（取代 Streamlit）',
       '部署至 Vercel（前端）+ Railway（API 後端）',
       '新增 3 個 AI 模型：XGBoost 因子選股、LSTM 趨勢預測、Claude 智慧分析',
-      '全站股票搜尋支援代號 + 中文名稱',
-      'Bloomberg 風格層級式市場熱力圖',
-      'API 擴充至 60+ 端點，含 SafeJSONResponse 防崩機制',
-      'SWR 即時資料 + API 快取 + Gzip 壓縮優化載入速度',
+      'Bloomberg 風格市場熱力圖',
+      'API 擴充至 60+ 端點',
+      'SWR 即時資料 + API 快取 + Gzip 壓縮',
     ],
   },
   {
