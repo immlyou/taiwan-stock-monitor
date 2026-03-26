@@ -161,17 +161,25 @@ const LEGEND_ITEMS = [
 export default function HeatmapPage() {
   const { data, isLoading, isError } = useHeatmap()
 
-  // 把 industries[].stocks[] 攤平為 treemap 所需的扁平陣列
-  // 每個 stock 節點的 size 設為 1（API 未提供市值），讓每格等大
-  const treeData: TreemapEntry[] = (data?.industries ?? []).flatMap((industry) =>
+  // 把 industries[].stocks[] 攤平，用 price 近似市值作為方塊大小
+  // 取前 200 大股票避免小型股過多導致 Treemap 擁擠
+  const allStocks = (data?.industries ?? []).flatMap((industry) =>
     (industry.stocks ?? []).map((stock) => ({
-      name: stock.name,
-      stock_id: stock.stock_id,
-      size: 1,
-      change_pct: stock.change_pct,
-      fill: changeToColor(stock.change_pct),
+      ...stock,
+      industry: industry.industry,
     }))
   )
+  // 按 price 降序取前 200
+  allStocks.sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
+  const topStocks = allStocks.slice(0, 200)
+
+  const treeData: TreemapEntry[] = topStocks.map((stock) => ({
+    name: stock.name,
+    stock_id: stock.stock_id,
+    size: Math.max(stock.price ?? 1, 1),
+    change_pct: stock.change_pct,
+    fill: changeToColor(stock.change_pct),
+  }))
 
   return (
     <div>
@@ -236,7 +244,7 @@ export default function HeatmapPage() {
         ) : treeData.length === 0 ? (
           <EmptyState title="暫無熱力圖資料" icon="+" />
         ) : (
-          <div style={{ height: 560 }}>
+          <div style={{ height: 'calc(100vh - 200px)', minHeight: 600 }}>
             <ResponsiveContainer width="100%" height="100%">
               <Treemap
                 data={treeData}
@@ -250,46 +258,11 @@ export default function HeatmapPage() {
         )}
       </div>
 
-      {/* 各產業明細 */}
-      {!isLoading && (data?.industries ?? []).length > 0 && (
-        <div className="mt-6 space-y-4">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-            各產業明細
-          </h2>
-          {data!.industries.map((industry) => (
-            <div
-              key={industry.industry}
-              className="rounded-lg overflow-hidden"
-              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-            >
-              <div className="px-4 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-                  {industry.industry}
-                </h3>
-              </div>
-              <div className="p-3 flex flex-wrap gap-2">
-                {industry.stocks.map((stock) => (
-                  <div
-                    key={stock.stock_id}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-xs"
-                    style={{ background: 'var(--secondary)' }}
-                  >
-                    <span className="font-mono font-semibold" style={{ color: 'var(--primary)' }}>
-                      {stock.stock_id}
-                    </span>
-                    <span style={{ color: 'var(--foreground)' }}>{stock.name}</span>
-                    <span
-                      className="font-semibold tabular-nums"
-                      style={{ color: getChangeColorVar(stock.change_pct) }}
-                    >
-                      {formatPercent(stock.change_pct)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* 統計摘要 */}
+      {!isLoading && treeData.length > 0 && (
+        <p className="mt-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+          顯示前 200 大股票，共 {data?.industries?.length ?? 0} 個產業
+        </p>
       )}
     </div>
   )
