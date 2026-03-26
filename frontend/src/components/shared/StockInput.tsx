@@ -61,8 +61,8 @@ export function StockInput({
         const data: StockSearchResponse | StockSearchResult[] = await res.json()
         // API 可能回傳 {stocks: [...]} 或直接回傳陣列
         const stocks = Array.isArray(data)
-          ? (data as StockSearchResult[]).slice(0, 8)
-          : ((data as StockSearchResponse).stocks ?? []).slice(0, 8)
+          ? (data as StockSearchResult[]).slice(0, 50)
+          : ((data as StockSearchResponse).stocks ?? []).slice(0, 50)
         setResults(stocks)
         if (stocks.length > 0) setIsOpen(true)
       }
@@ -98,11 +98,15 @@ export function StockInput({
     (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setActiveIndex((prev) => Math.min(prev + 1, results.length - 1))
+        const next = Math.min(activeIndex + 1, results.length - 1)
+        setActiveIndex(next)
         if (!isOpen && results.length > 0) setIsOpen(true)
+        document.getElementById(`stock-option-${next}`)?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setActiveIndex((prev) => Math.max(prev - 1, -1))
+        const prev = Math.max(activeIndex - 1, -1)
+        setActiveIndex(prev)
+        if (prev >= 0) document.getElementById(`stock-option-${prev}`)?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (isOpen && results.length > 0) {
@@ -171,25 +175,42 @@ export function StockInput({
 
       {isOpen && results.length > 0 && (
         <div
-          className="absolute top-full left-0 right-0 mt-1 rounded-md border shadow-lg z-50 overflow-hidden"
+          className="absolute top-full left-0 right-0 mt-1 rounded-md border shadow-lg z-50"
           style={{
             background: 'var(--card)',
             borderColor: 'var(--border)',
+            maxHeight: 320,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
           }}
           role="listbox"
         >
+          {/* 搜尋結果數量提示 */}
+          <div
+            className="px-3 py-1.5 text-xs sticky top-0"
+            style={{
+              color: 'var(--muted-foreground)',
+              background: 'var(--card)',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            找到 {results.length} 筆結果{results.length >= 50 ? '（顯示前 50 筆）' : ''}
+            <span className="ml-2" style={{ color: 'var(--primary)' }}>↑↓ 選擇 · Enter 確認</span>
+          </div>
           {results.map((result, index) => (
             <button
               key={result.stock_id}
+              id={`stock-option-${index}`}
               onMouseDown={(e) => {
-                // 用 mousedown 避免 blur 搶先觸發
                 e.preventDefault()
                 handleSelect(result)
               }}
+              onMouseEnter={() => setActiveIndex(index)}
               className="w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors"
               style={{
                 background: index === activeIndex ? 'var(--secondary)' : undefined,
                 color: 'var(--foreground)',
+                borderBottom: '1px solid var(--border)',
               }}
               role="option"
               aria-selected={index === activeIndex}
