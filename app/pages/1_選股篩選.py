@@ -19,6 +19,7 @@ from app.components.sidebar import render_sidebar_mini
 from app.components.strategy_params import render_strategy_params, render_preset_selector
 from app.components.portfolio_utils import load_portfolios, get_portfolio_names, add_holdings_batch
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from core.alerts import AlertEngine
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.session_manager import (
@@ -609,7 +610,7 @@ if get_state(StateKeys.SELECTION_RESULT) is not None:
             'new_low':     {'name': '創新低',       'icon': '📊'},
         }
 
-        ALERTS_FILE = Path(__file__).parent.parent.parent / 'data' / 'alerts.json'
+        ALERTS_FILE = AlertEngine.ALERTS_FILE
         ALERTS_FILE.parent.mkdir(exist_ok=True)
 
         alert_col1, alert_col2, alert_col3 = st.columns([2, 1, 1])

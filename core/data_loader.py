@@ -10,7 +10,7 @@ import pickle
 from pathlib import Path
 from typing import Dict, Optional, List
 import pandas as pd
-from threading import Lock
+from threading import Lock, RLock
 
 # 載入 .env 檔案中的環境變數
 try:
@@ -93,7 +93,7 @@ class DataCache:
                     cls._instance = super().__new__(cls)
                     cls._instance._cache = {}
                     cls._instance._load_times = {}  # 記錄載入時間
-                    cls._instance._rw_lock = Lock()  # 讀寫操作專用鎖
+                    cls._instance._rw_lock = RLock()  # 讀寫操作專用鎖（可重入）
         return cls._instance
 
     def get(self, key: str) -> Optional[pd.DataFrame]:
@@ -428,12 +428,11 @@ def get_active_stocks(days_threshold: int = 30, use_cache: bool = True) -> List[
 def clear_active_stocks_cache():
     """清除活躍股票快取"""
     cache = DataCache()
-    # 清除所有 _active_stocks_* 開頭的快取鍵
-    with cache._rw_lock:
-        keys_to_delete = [k for k in cache._cache if k.startswith('_active_stocks_')]
-        for k in keys_to_delete:
-            cache._cache.pop(k, None)
-            cache._load_times.pop(k, None)
+    # 取得所有 _active_stocks_* 開頭的快取鍵，透過公開方法刪除
+    stats = cache.get_stats()
+    keys_to_delete = [k for k in stats.get('cached_keys', []) if k.startswith('_active_stocks_')]
+    for k in keys_to_delete:
+        cache.clear_key(k)
 
 
 def is_stock_active(stock_id: str, days_threshold: int = 30) -> bool:

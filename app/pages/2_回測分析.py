@@ -137,7 +137,7 @@ with setting_col2:
         index=0,
         help='重新篩選並調整持股的頻率'
     )
-    freq_map = {'每月': 'M', '每季': 'Q', '每半年': '2Q'}
+    freq_map = {'每月': 'ME', '每季': 'QE', '每半年': '2QE'}
 
 with setting_col3:
     st.markdown('**⚙️ 進階設定**')

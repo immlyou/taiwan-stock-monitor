@@ -136,6 +136,20 @@ class TelegramChannel(NotificationChannel):
             目標 Chat ID，若未提供則從設定檔讀取
         """
         telegram_config = NOTIFICATION_CONFIG.get('telegram', {})
+
+        # 優先讀取 UI 設定（data/settings.json），若有啟用則覆蓋環境變數設定
+        try:
+            import json
+            settings_file = Path(__file__).parent.parent / 'data' / 'settings.json'
+            if settings_file.exists():
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    ui_settings = json.load(f)
+                ui_tg = ui_settings.get('telegram', {})
+                if ui_tg.get('enabled') and ui_tg.get('token') and ui_tg.get('chat_id'):
+                    telegram_config = ui_tg
+        except Exception:
+            pass  # 讀取失敗時 fallback 到環境變數設定
+
         self.token = token or telegram_config.get('token', '')
         self.chat_id = chat_id or telegram_config.get('chat_id', '')
 

@@ -160,10 +160,14 @@ class BacktestEngine:
 
         return commission + tax
 
+    # pandas 2.2+ 頻率別名相容對照表（舊 -> 新）
+    _FREQ_COMPAT = {'M': 'ME', 'Q': 'QE', '2Q': '2QE', 'Y': 'YE'}
+
     def _get_rebalance_dates(self, start_date: pd.Timestamp,
                              end_date: pd.Timestamp,
                              freq: str = 'M') -> List[pd.Timestamp]:
         """取得換股日期列表"""
+        freq = self._FREQ_COMPAT.get(freq, freq)
         dates = pd.date_range(start=start_date, end=end_date, freq=freq)
         return dates.tolist()
 
@@ -483,6 +487,24 @@ class BacktestEngine:
             # 記錄當日投資組合價值
             self._record_portfolio_value(date, prices)
             prev_prices = prices
+
+        # 將回測結束時仍持有的部位轉為 exit_date=None 的 Trade 記錄
+        last_date = trading_dates[-1] if len(trading_dates) > 0 else end_date
+        for stock_id, pos in list(self.positions.items()):
+            shares = pos['shares']
+            cost = pos['cost']
+            trade = Trade(
+                stock_id=stock_id,
+                entry_date=pos['entry_date'],
+                entry_price=cost / shares if shares > 0 else 0,
+                exit_date=None,
+                exit_price=None,
+                shares=shares,
+                pnl=0.0,
+                return_pct=0.0,
+                holding_days=(last_date - pos['entry_date']).days,
+            )
+            self.trades.append(trade)
 
         # 整理結果
         if not self.portfolio_history:

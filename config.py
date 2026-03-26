@@ -90,7 +90,7 @@ LIQUIDITY_FILTERS = {
 # 回測預設設定
 BACKTEST_DEFAULTS = {
     'initial_capital': 1_000_000,  # 初始資金 100萬
-    'rebalance_freq': 'M',          # 換股頻率: M=月, Q=季
+    'rebalance_freq': 'ME',         # 換股頻率: ME=月底, QE=季底 (pandas 2.2+ 格式)
     'max_stocks': 10,               # 最大持股數
     'weight_method': 'equal',       # equal=等權重, market_cap=市值加權
 }
@@ -165,6 +165,7 @@ STRATEGY_PRESETS = {
                 'consecutive_months': 6,
                 'use_yoy': True,
                 'use_mom': True,
+                'use_consecutive': False,
             },
         },
         'standard': {
@@ -176,6 +177,7 @@ STRATEGY_PRESETS = {
                 'consecutive_months': 3,
                 'use_yoy': True,
                 'use_mom': True,
+                'use_consecutive': True,
             },
         },
         'aggressive': {
@@ -187,6 +189,7 @@ STRATEGY_PRESETS = {
                 'consecutive_months': 2,
                 'use_yoy': True,
                 'use_mom': True,
+                'use_consecutive': True,
             },
         },
     },

@@ -175,7 +175,9 @@ with tab1:
                         cost = float(entry_price) if entry_price > 0 else 0.0
                         qty = int(entry_shares) if entry_shares > 0 else 0
 
-                        if entry_type in ['買入', '加碼']:
+                        if entry_type in ['買入', '加碼'] and cost <= 0 and qty > 0:
+                            st.warning('同步失敗：買入 / 加碼時價格必須大於 0，請填入正確的成交價格。')
+                        elif entry_type in ['買入', '加碼']:
                             # 買入 / 加碼：新增或增加持股
                             existing = next((h for h in holdings if h['stock_id'] == entry_stock_id), None)
                             if existing:
