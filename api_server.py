@@ -632,8 +632,37 @@ async def market_after_hours():
             except Exception:
                 strategies_summary[stype] = {"total": 0, "top5": []}
 
+        # 大盤指數
+        taiex_data = {}
+        try:
+            benchmark = loader.get_benchmark()
+            if benchmark is not None and len(benchmark) >= 2:
+                taiex_close = float(benchmark.iloc[-1])
+                taiex_prev = float(benchmark.iloc[-2])
+                taiex_change = taiex_close - taiex_prev
+                taiex_change_pct = (taiex_change / taiex_prev * 100) if taiex_prev != 0 else 0
+                taiex_data = {
+                    "close": round(taiex_close, 2),
+                    "change": round(taiex_change, 2),
+                    "change_pct": round(taiex_change_pct, 2),
+                }
+        except Exception:
+            pass
+
+        # 三大法人
+        institutional_data = {}
+        for key, label in [("foreign_investors", "foreign"), ("investment_trust", "trust"), ("dealer", "dealer")]:
+            try:
+                df = loader.get(key)
+                net = float(df.iloc[-1].dropna().sum())
+                institutional_data[label] = {"total_net": _safe_json(net)}
+            except Exception:
+                institutional_data[label] = {"total_net": 0}
+
         return {
             "date": close.index[-1].strftime("%Y-%m-%d"),
+            "taiex": taiex_data,
+            "institutional": institutional_data,
             "market": {
                 "up": int((changes > 0).sum()),
                 "down": int((changes < 0).sum()),
