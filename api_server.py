@@ -524,8 +524,11 @@ async def market_heatmap():
         industry_groups: Dict[str, list] = {}
         for sid in active:
             industry = industry_map.get(sid, "其他")
-            price = float(latest.get(sid, 0) or 0)
-            change = float(changes.get(sid, 0) or 0)
+            raw_price = latest.get(sid, 0)
+            raw_change = changes.get(sid, 0)
+            # 防止 NaN/inf 導致 JSON 序列化失敗
+            price = 0.0 if (pd.isna(raw_price) or np.isinf(raw_price)) else float(raw_price)
+            change = 0.0 if (pd.isna(raw_change) or np.isinf(raw_change)) else float(raw_change)
             if price <= 0:
                 continue
             if industry not in industry_groups:
