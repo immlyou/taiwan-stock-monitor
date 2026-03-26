@@ -24,6 +24,7 @@ from functools import wraps
 from enum import Enum
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Body
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -31,6 +32,32 @@ from pydantic import BaseModel, Field
 import uvicorn
 import pandas as pd
 import numpy as np
+import json as _json
+import math
+
+
+class SafeJSONResponse(JSONResponse):
+    """自動將 NaN/Infinity 替換為 null 的 JSON Response"""
+    def render(self, content: Any) -> bytes:
+        return _json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            default=self._default,
+        ).encode("utf-8")
+
+    @staticmethod
+    def _default(obj: Any) -> Any:
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        if isinstance(obj, (np.floating,)):
+            v = float(obj)
+            return None if (math.isnan(v) or math.isinf(v)) else v
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
 from core.data_loader import DataLoader, get_data_summary, get_active_stocks
@@ -49,6 +76,7 @@ app = FastAPI(
     title="台股戰情中心 API",
     description="提供台股數據查詢、選股策略、警報等功能，供 Next.js 前端及外部系統串接",
     version="2.0.0",
+    default_response_class=SafeJSONResponse,
 )
 
 import logging
