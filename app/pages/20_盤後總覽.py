@@ -429,6 +429,229 @@ else:
     if len(df) > 0:
         st.dataframe(df, use_container_width=True, hide_index=True)
 
+# ===== AI 策略選股建議 =====
+st.markdown('---')
+st.header('🤖 AI 策略選股建議')
+st.caption('根據今日盤後數據，AI 自動篩選推薦標的（僅供參考，非投資建議）')
+
+
+@st.cache_data(ttl=3600)
+def compute_ai_stock_picks():
+    """計算三大策略選股結果"""
+    from core.indicators import rsi as calc_rsi, sma as calc_sma
+
+    loader = get_loader()
+    stock_info = loader.get_stock_info()
+    results = {}
+
+    # ---- 載入共用資料 ----
+    try:
+        close = loader.get('close')
+    except Exception:
+        return {'error': '無法載入收盤價資料'}
+
+    def _name(sid):
+        if stock_info is None:
+            return ''
+        info = stock_info[stock_info['stock_id'] == sid]
+        return info['name'].values[0] if len(info) > 0 else ''
+
+    # 最新一天的收盤價
+    latest_close = close.iloc[-1]
+
+    # ========== 1. 獲利優先（價值投資） ==========
+    try:
+        pe = loader.get('pe_ratio')
+        pb = loader.get('pb_ratio')
+        dy = loader.get('dividend_yield')
+        rev_yoy = loader.get('revenue_yoy')
+
+        # 取最新一列
+        pe_last = pe.iloc[-1]
+        pb_last = pb.iloc[-1]
+        dy_last = dy.iloc[-1]
+        rev_yoy_last = rev_yoy.iloc[-1]
+
+        # 找出所有股票的交集
+        common = latest_close.dropna().index \
+            .intersection(pe_last.dropna().index) \
+            .intersection(pb_last.dropna().index) \
+            .intersection(dy_last.dropna().index) \
+            .intersection(rev_yoy_last.dropna().index)
+
+        mask = (
+            (pe_last[common] > 0) & (pe_last[common] < 15) &
+            (pb_last[common] < 1.5) &
+            (dy_last[common] > 4) &
+            (rev_yoy_last[common] > 0)
+        )
+        filtered = common[mask]
+        value_df = pd.DataFrame({
+            '代號': filtered,
+            '名稱': [_name(s) for s in filtered],
+            '現價': latest_close[filtered].values,
+            '本益比': pe_last[filtered].values,
+            '股價淨值比': pb_last[filtered].values,
+            '殖利率(%)': dy_last[filtered].values,
+            '營收年增率(%)': rev_yoy_last[filtered].values,
+        })
+        value_df = value_df.sort_values('殖利率(%)', ascending=False).head(10).reset_index(drop=True)
+        value_df['推薦理由'] = value_df.apply(
+            lambda r: f"殖利率 {r['殖利率(%)']:.1f}% + PE {r['本益比']:.1f} + 營收年增 {r['營收年增率(%)']:.1f}%",
+            axis=1,
+        )
+        # 格式化數值
+        for col in ['現價', '本益比', '股價淨值比', '殖利率(%)', '營收年增率(%)']:
+            value_df[col] = value_df[col].apply(lambda x: f'{x:.2f}')
+        results['value'] = value_df
+    except Exception:
+        results['value'] = None
+
+    # ========== 2. 短期動能 ==========
+    try:
+        volume = loader.get('volume')
+
+        # RSI(14)
+        rsi_df = calc_rsi(close, period=14)
+        rsi_last = rsi_df.iloc[-1]
+
+        # 20 日均量
+        vol_sma20 = calc_sma(volume, period=20)
+        vol_last = volume.iloc[-1]
+        vol_sma20_last = vol_sma20.iloc[-1]
+
+        # 20 日均線
+        sma20 = calc_sma(close, period=20)
+        sma20_last = sma20.iloc[-1]
+
+        # 近 5 日漲幅
+        if len(close) >= 6:
+            change_5d = ((close.iloc[-1] - close.iloc[-6]) / close.iloc[-6] * 100)
+        else:
+            change_5d = pd.Series(0, index=close.columns)
+
+        common_m = latest_close.dropna().index \
+            .intersection(rsi_last.dropna().index) \
+            .intersection(vol_last.dropna().index) \
+            .intersection(vol_sma20_last.dropna().index) \
+            .intersection(sma20_last.dropna().index) \
+            .intersection(change_5d.dropna().index)
+
+        mask_m = (
+            (rsi_last[common_m] >= 50) & (rsi_last[common_m] <= 70) &
+            (vol_last[common_m] > vol_sma20_last[common_m] * 1.5) &
+            (latest_close[common_m] > sma20_last[common_m]) &
+            (change_5d[common_m] > 0)
+        )
+        filtered_m = common_m[mask_m]
+        momentum_df = pd.DataFrame({
+            '代號': filtered_m,
+            '名稱': [_name(s) for s in filtered_m],
+            '現價': latest_close[filtered_m].values,
+            'RSI(14)': rsi_last[filtered_m].values,
+            '量比(倍)': (vol_last[filtered_m] / vol_sma20_last[filtered_m]).values,
+            '近5日漲幅(%)': change_5d[filtered_m].values,
+        })
+        momentum_df = momentum_df.sort_values('近5日漲幅(%)', ascending=False).head(10).reset_index(drop=True)
+        momentum_df['推薦理由'] = momentum_df.apply(
+            lambda r: f"RSI {r['RSI(14)']:.0f} + 量比 {r['量比(倍)']:.1f}x + 5日漲 {r['近5日漲幅(%)']:.1f}%",
+            axis=1,
+        )
+        for col in ['現價', 'RSI(14)', '量比(倍)', '近5日漲幅(%)']:
+            momentum_df[col] = momentum_df[col].apply(lambda x: f'{x:.2f}')
+        results['momentum'] = momentum_df
+    except Exception:
+        results['momentum'] = None
+
+    # ========== 3. 長期存股（穩健配息） ==========
+    try:
+        pe = loader.get('pe_ratio')
+        dy = loader.get('dividend_yield')
+        rev_yoy = loader.get('revenue_yoy')
+        market_value = loader.get('market_value')
+
+        pe_last = pe.iloc[-1]
+        dy_last = dy.iloc[-1]
+        rev_yoy_last = rev_yoy.iloc[-1]
+        mv_last = market_value.iloc[-1]
+
+        # 市值排名前 50%
+        mv_valid = mv_last.dropna()
+        mv_median = mv_valid.median()
+
+        common_s = latest_close.dropna().index \
+            .intersection(pe_last.dropna().index) \
+            .intersection(dy_last.dropna().index) \
+            .intersection(rev_yoy_last.dropna().index) \
+            .intersection(mv_valid.index)
+
+        mask_s = (
+            (dy_last[common_s] > 5) &
+            (pe_last[common_s] > 0) & (pe_last[common_s] < 20) &
+            (rev_yoy_last[common_s] > -10) &
+            (mv_last[common_s] >= mv_median)
+        )
+        filtered_s = common_s[mask_s]
+        savings_df = pd.DataFrame({
+            '代號': filtered_s,
+            '名稱': [_name(s) for s in filtered_s],
+            '現價': latest_close[filtered_s].values,
+            '殖利率(%)': dy_last[filtered_s].values,
+            '本益比': pe_last[filtered_s].values,
+            '營收年增率(%)': rev_yoy_last[filtered_s].values,
+            '市值(億)': (mv_last[filtered_s] / 1e8).values,
+        })
+        savings_df = savings_df.sort_values('殖利率(%)', ascending=False).head(10).reset_index(drop=True)
+        savings_df['推薦理由'] = savings_df.apply(
+            lambda r: f"殖利率 {r['殖利率(%)']:.1f}% + PE {r['本益比']:.1f} + 市值 {r['市值(億)']:.0f}億",
+            axis=1,
+        )
+        for col in ['現價', '殖利率(%)', '本益比', '營收年增率(%)']:
+            savings_df[col] = savings_df[col].apply(lambda x: f'{x:.2f}')
+        savings_df['市值(億)'] = savings_df['市值(億)'].apply(lambda x: f'{x:,.0f}')
+        results['savings'] = savings_df
+    except Exception:
+        results['savings'] = None
+
+    return results
+
+
+ai_picks = compute_ai_stock_picks()
+
+if isinstance(ai_picks, dict) and 'error' in ai_picks:
+    show_error(Exception(ai_picks['error']), title='AI 選股資料載入失敗', suggestion='請確認資料已下載完成')
+else:
+    _disclaimer = '⚠️ **免責聲明**：以上結果僅為量化篩選，不構成任何投資建議。投資有風險，請自行評估並諮詢專業人士。'
+
+    ai_tab1, ai_tab2, ai_tab3 = st.tabs(['💰 獲利優先', '🚀 短期動能', '🏦 長期存股'])
+
+    with ai_tab1:
+        st.markdown('**價值投資策略** — PE < 15、PB < 1.5、殖利率 > 4%、營收正成長')
+        df_v = ai_picks.get('value')
+        if df_v is not None and len(df_v) > 0:
+            st.dataframe(df_v, use_container_width=True, hide_index=True)
+        else:
+            show_empty_state('目前無符合條件的股票', icon='📭', suggestion='價值型篩選較嚴格，盤後資料更新後再試')
+        st.markdown(_disclaimer)
+
+    with ai_tab2:
+        st.markdown('**動能策略** — RSI 50-70、量 > 1.5倍均量、突破20MA、近5日上漲')
+        df_m = ai_picks.get('momentum')
+        if df_m is not None and len(df_m) > 0:
+            st.dataframe(df_m, use_container_width=True, hide_index=True)
+        else:
+            show_empty_state('目前無符合條件的股票', icon='📭', suggestion='動能策略需要同時滿足多項條件')
+        st.markdown(_disclaimer)
+
+    with ai_tab3:
+        st.markdown('**穩健存股策略** — 殖利率 > 5%、PE 0-20、營收衰退 < 10%、市值前50%')
+        df_s = ai_picks.get('savings')
+        if df_s is not None and len(df_s) > 0:
+            st.dataframe(df_s, use_container_width=True, hide_index=True)
+        else:
+            show_empty_state('目前無符合條件的股票', icon='📭', suggestion='存股篩選需要穩定配息的大型股')
+        st.markdown(_disclaimer)
+
 # 頁尾說明
 st.markdown('---')
 with st.expander('📖 使用說明'):

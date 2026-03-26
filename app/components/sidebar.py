@@ -372,7 +372,6 @@ PAGE_GROUPS = {
             {'id': 'heatmap', 'icon': '🗺️', 'title': '市場熱力圖', 'page': 'pages/18_市場熱力圖.py'},
             {'id': 'money_flow', 'icon': '💸', 'title': '資金流向', 'page': 'pages/19_資金流向.py'},
             {'id': 'after_hours', 'icon': '📋', 'title': '盤後總覽', 'page': 'pages/20_盤後總覽.py'},
-            {'id': 'sentiment', 'icon': '🗣️', 'title': '社群輿情', 'page': 'pages/24_社群輿情.py'},
         ]
     },
     'research': {
