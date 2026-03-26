@@ -38,7 +38,7 @@ export function StockSearch() {
         const data = await res.json()
         // 相容 {stocks: [...]} 格式及直接陣列格式
         const list = Array.isArray(data) ? data : (data.stocks ?? [])
-        setResults(list.slice(0, 8))
+        setResults(list.slice(0, 50))
         setIsOpen(true)
       }
     } catch {
@@ -74,10 +74,14 @@ export function StockSearch() {
       if (!isOpen) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setActiveIndex((prev) => Math.min(prev + 1, results.length - 1))
+        const next = Math.min(activeIndex + 1, results.length - 1)
+        setActiveIndex(next)
+        document.getElementById(`header-search-${next}`)?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setActiveIndex((prev) => Math.max(prev - 1, -1))
+        const prev = Math.max(activeIndex - 1, -1)
+        setActiveIndex(prev)
+        if (prev >= 0) document.getElementById(`header-search-${prev}`)?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Enter' && activeIndex >= 0) {
         e.preventDefault()
         handleSelect(results[activeIndex])
@@ -139,36 +143,49 @@ export function StockSearch() {
       {/* 下拉結果 */}
       {isOpen && results.length > 0 && (
         <div
-          className="absolute top-full left-0 right-0 mt-1 rounded-md border shadow-lg z-50 overflow-hidden"
+          className="absolute top-full left-0 right-0 mt-1 rounded-md border shadow-lg z-50"
           style={{
             background: 'var(--card)',
             borderColor: 'var(--border)',
+            maxHeight: 400,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
           }}
           role="listbox"
         >
+          <div
+            className="px-3 py-1.5 text-xs sticky top-0"
+            style={{ color: 'var(--muted-foreground)', background: 'var(--card)', borderBottom: '1px solid var(--border)' }}
+          >
+            找到 {results.length} 筆{results.length >= 50 ? '（顯示前 50 筆）' : ''}
+            <span className="ml-2" style={{ color: 'var(--primary)' }}>↑↓ 選擇 · Enter 前往</span>
+          </div>
           {results.map((result, index) => {
             const id = result.stock_id ?? result.code ?? ''
             return (
               <button
                 key={id}
-                onClick={() => handleSelect(result)}
+                id={`header-search-${index}`}
+                onMouseDown={(e) => { e.preventDefault(); handleSelect(result) }}
+                onMouseEnter={() => setActiveIndex(index)}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors'
                 )}
                 style={{
                   background: index === activeIndex ? 'var(--secondary)' : undefined,
                   color: 'var(--foreground)',
+                  borderBottom: '1px solid var(--border)',
                 }}
                 role="option"
                 aria-selected={index === activeIndex}
               >
                 <span
-                  className="font-mono font-semibold text-xs px-1.5 py-0.5 rounded"
+                  className="font-mono font-semibold text-xs px-1.5 py-0.5 rounded shrink-0"
                   style={{ background: 'var(--secondary)', color: 'var(--primary)' }}
                 >
                   {id}
                 </span>
-                <span className="flex-1">{result.name}</span>
+                <span className="flex-1 truncate">{result.name}</span>
                 {result.industry && (
                   <span className="text-xs shrink-0" style={{ color: 'var(--muted-foreground)' }}>
                     {result.industry}
