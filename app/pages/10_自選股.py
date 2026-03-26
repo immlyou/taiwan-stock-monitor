@@ -9,7 +9,6 @@ from pathlib import Path
 from datetime import datetime
 import io
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks

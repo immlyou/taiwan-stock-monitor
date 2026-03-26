@@ -18,8 +18,6 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-# 設定路徑
-sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware

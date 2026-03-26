@@ -10,10 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-# 設定路徑
 SCRIPT_DIR = Path(__file__).parent
 ROOT_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(ROOT_DIR))
 
 # 載入 .env 環境變數
 from dotenv import load_dotenv

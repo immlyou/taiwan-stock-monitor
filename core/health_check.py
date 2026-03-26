@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import DATA_DIR, DATA_FILES
 

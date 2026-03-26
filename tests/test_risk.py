@@ -7,7 +7,6 @@ import numpy as np
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.risk import (
     calculate_sharpe_ratio, calculate_sortino_ratio, calculate_max_drawdown,

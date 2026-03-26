@@ -9,7 +9,6 @@ from datetime import datetime
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from config import TRADING_COSTS, BACKTEST_DEFAULTS, PRICE_LIMITS
 from core.backtest.metrics import calculate_metrics, compare_with_benchmark, PerformanceMetrics
 

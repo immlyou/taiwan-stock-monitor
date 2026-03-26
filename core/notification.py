@@ -8,7 +8,6 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import NOTIFICATION_CONFIG
 from core.exceptions import NotificationSendError, NotificationConfigError
 from core.logging_config import get_logger

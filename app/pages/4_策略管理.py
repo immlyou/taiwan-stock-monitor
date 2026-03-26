@@ -7,7 +7,6 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
 from config import STRATEGY_PARAMS

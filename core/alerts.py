@@ -10,7 +10,6 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.indicators import calculate_rsi, calculate_macd, calculate_sma
 

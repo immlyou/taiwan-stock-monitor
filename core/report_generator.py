@@ -15,7 +15,6 @@ import base64
 import json
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class PDFReportGenerator:

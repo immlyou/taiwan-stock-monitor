@@ -17,8 +17,6 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
-# 加入專案路徑
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.data_loader import get_loader
 from core.prediction_tracker import get_tracker, PredictionType, PredictionStatus

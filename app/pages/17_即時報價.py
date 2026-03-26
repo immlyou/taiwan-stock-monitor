@@ -11,8 +11,6 @@ from pathlib import Path
 from datetime import datetime
 import json
 
-# 設定路徑
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config import STREAMLIT_CONFIG
 from core.realtime_quote import (

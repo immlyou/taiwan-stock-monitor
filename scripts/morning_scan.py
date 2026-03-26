@@ -21,8 +21,6 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
-# 設定路徑
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.data_loader import get_loader
 from core.news_scanner import NewsScanner

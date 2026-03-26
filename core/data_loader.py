@@ -29,7 +29,6 @@ except ImportError:
     HAS_STREAMLIT = False
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import DATA_DIR, DATA_FILES, DATA_REGISTRY
 
 # 判斷是否在 Streamlit Cloud 環境
