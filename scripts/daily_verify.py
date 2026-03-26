@@ -12,7 +12,6 @@
     python scripts/daily_verify.py --report     # 僅顯示報告
     python scripts/daily_verify.py --stats 30   # 顯示最近30天統計
 """
-import sys
 import argparse
 from pathlib import Path
 from datetime import datetime

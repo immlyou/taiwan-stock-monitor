@@ -5,7 +5,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import sys
 from pathlib import Path
 
 

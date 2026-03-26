@@ -6,7 +6,6 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from scipy.optimize import minimize
-import sys
 from pathlib import Path
 
 

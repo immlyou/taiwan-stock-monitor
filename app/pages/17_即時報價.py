@@ -6,7 +6,6 @@
 """
 import streamlit as st
 import pandas as pd
-import sys
 from pathlib import Path
 from datetime import datetime
 import json

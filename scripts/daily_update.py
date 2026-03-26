@@ -7,7 +7,6 @@
 可設定為 cron job 或 launchd 每日自動執行
 """
 import os
-import sys
 import pickle
 import logging
 from datetime import datetime

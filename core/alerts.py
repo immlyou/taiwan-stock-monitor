@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
-import sys
 
 from core.indicators import calculate_rsi, calculate_macd, calculate_sma
 

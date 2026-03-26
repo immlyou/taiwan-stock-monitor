@@ -14,7 +14,6 @@ import io
 import base64
 import json
 
-import sys
 
 
 class PDFReportGenerator:

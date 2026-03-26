@@ -10,7 +10,6 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 import pandas as pd
 
-import sys
 
 from config import DATA_DIR, DATA_FILES
 

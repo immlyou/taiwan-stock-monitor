@@ -5,7 +5,6 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 from .base import BaseStrategy
-import sys
 from pathlib import Path
 from indicators import rsi, sma, volume_ratio, breakout_signal
 

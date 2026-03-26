@@ -12,7 +12,6 @@ API 文件:
     啟動後訪問 http://localhost:8000/docs
 """
 import os
-import sys
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta

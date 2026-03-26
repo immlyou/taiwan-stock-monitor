@@ -18,7 +18,6 @@ from typing import Dict, List, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections import defaultdict
-import sys
 
 
 from core.logging_config import get_logger

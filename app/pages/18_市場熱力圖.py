@@ -9,7 +9,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import sys
 from pathlib import Path
 from datetime import datetime
 

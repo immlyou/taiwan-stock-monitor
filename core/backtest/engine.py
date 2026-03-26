@@ -6,7 +6,6 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-import sys
 from pathlib import Path
 
 from config import TRADING_COSTS, BACKTEST_DEFAULTS, PRICE_LIMITS

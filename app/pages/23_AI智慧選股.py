@@ -6,7 +6,6 @@ AI 智慧選股 — 多因子評分 + 市場摘要
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sys
 from pathlib import Path
 from datetime import datetime
 
