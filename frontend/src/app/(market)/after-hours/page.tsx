@@ -14,38 +14,40 @@ import {
   getChangeColorVar,
 } from '@/lib/utils/format'
 
+// 對應 GET /market/after-hours
 interface AfterHoursData {
   date: string
-  taiex: {
+  market: {
+    up: number
+    down: number
+    flat: number
+  }
+  top_gainers: Array<{ stock_id: string; name: string; change_pct: number }>
+  top_losers: Array<{ stock_id: string; name: string; change_pct: number }>
+  taiex?: {
     close: number
     change: number
-    changePercent: number
-    volume: number
-    volumeValue: number
-    advances: number
-    declines: number
-    unchanged: number
+    volume?: number
   }
-  institutional: {
-    foreign: number
-    investmentTrust: number
-    dealer: number
-    total: number
+  institutional?: {
+    foreign?: { net?: number; total_net?: number }
+    trust?: { net?: number; total_net?: number }
+    dealer?: { net?: number; total_net?: number }
   }
-  strategies: {
-    profitFirst: StrategyStock[]
-    shortMomentum: StrategyStock[]
-    longHolding: StrategyStock[]
+  ai_picks?: {
+    value?: AiPickStock[]
+    momentum?: AiPickStock[]
+    savings?: AiPickStock[]
   }
 }
 
-interface StrategyStock {
-  code: string
+interface AiPickStock {
+  stock_id: string
   name: string
-  price: number
-  changePercent: number
-  reason: string
-  score: number
+  price?: number
+  change_pct?: number
+  reason?: string
+  score?: number
 }
 
 function useAfterHours() {
@@ -78,11 +80,11 @@ function ScoreBar({ score }: { score: number }) {
   )
 }
 
-function StrategyTable({
+function AiPickTable({
   stocks,
   isLoading,
 }: {
-  stocks: StrategyStock[]
+  stocks: AiPickStock[]
   isLoading: boolean
 }) {
   if (isLoading) {
@@ -122,30 +124,30 @@ function StrategyTable({
         <tbody>
           {stocks.map((stock) => (
             <tr
-              key={stock.code}
+              key={stock.stock_id}
               className="border-b transition-colors hover:bg-white/5"
               style={{ borderColor: 'var(--border)' }}
             >
               <td className="px-4 py-3 font-mono font-semibold" style={{ color: 'var(--primary)' }}>
-                {stock.code}
+                {stock.stock_id}
               </td>
               <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
                 {stock.name}
               </td>
               <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                {stock.price.toFixed(2)}
+                {stock.price != null ? stock.price.toFixed(2) : '—'}
               </td>
               <td
                 className="px-4 py-3 tabular-nums font-semibold"
-                style={{ color: getChangeColorVar(stock.changePercent) }}
+                style={{ color: getChangeColorVar(stock.change_pct ?? 0) }}
               >
-                {formatPercent(stock.changePercent)}
+                {stock.change_pct != null ? formatPercent(stock.change_pct) : '—'}
               </td>
               <td className="px-4 py-3 w-32">
-                <ScoreBar score={stock.score} />
+                {stock.score != null ? <ScoreBar score={stock.score} /> : '—'}
               </td>
               <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                {stock.reason}
+                {stock.reason ?? '—'}
               </td>
             </tr>
           ))}
@@ -155,19 +157,80 @@ function StrategyTable({
   )
 }
 
+function StockRankTable({
+  title,
+  stocks,
+  isLoading,
+}: {
+  title: string
+  stocks: Array<{ stock_id: string; name: string; change_pct: number }>
+  isLoading: boolean
+}) {
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+    >
+      <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>{title}</h3>
+      </div>
+      {isLoading ? (
+        <div className="space-y-2 p-4">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="h-5 w-full" style={{ background: 'var(--secondary)' }} />
+          ))}
+        </div>
+      ) : (
+        <div className="p-3 space-y-2">
+          {stocks.slice(0, 10).map((s) => (
+            <div key={s.stock_id} className="flex items-center justify-between">
+              <span className="text-xs">
+                <span className="font-mono font-semibold" style={{ color: 'var(--primary)' }}>
+                  {s.stock_id}
+                </span>
+                {s.name && (
+                  <span className="ml-2" style={{ color: 'var(--foreground)' }}>{s.name}</span>
+                )}
+              </span>
+              <span
+                className="text-xs font-semibold tabular-nums"
+                style={{ color: getChangeColorVar(s.change_pct) }}
+              >
+                {formatPercent(s.change_pct)}
+              </span>
+            </div>
+          ))}
+          {!stocks.length && (
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>暫無資料</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AfterHoursPage() {
   const { data, isLoading, isError } = useAfterHours()
 
   const taiex = data?.taiex
+  const market = data?.market
   const inst = data?.institutional
-  const strategies = data?.strategies
+  const aiPicks = data?.ai_picks
+
+  // 取各法人 total_net（有些 API 回傳 total_net，有些回傳 net）
+  const foreignNet = inst?.foreign?.total_net ?? inst?.foreign?.net ?? 0
+  const trustNet = inst?.trust?.total_net ?? inst?.trust?.net ?? 0
+  const dealerNet = inst?.dealer?.total_net ?? inst?.dealer?.net ?? 0
+  const instTotal = foreignNet + trustNet + dealerNet
 
   const marketKpis = [
     {
       title: '收盤指數',
       value: isLoading ? '-' : formatCurrency(taiex?.close ?? 0),
       change: taiex?.change,
-      changeLabel: taiex ? formatPercent(taiex.changePercent) : undefined,
+      changeLabel: taiex?.change != null && taiex?.close != null && taiex.close > 0
+        ? formatPercent((taiex.change / (taiex.close - taiex.change)) * 100)
+        : undefined,
       accentColor:
         taiex?.change !== undefined
           ? getChangeColorVar(taiex.change)
@@ -176,54 +239,45 @@ export default function AfterHoursPage() {
     {
       title: '漲跌點數',
       value: isLoading ? '-' : formatChange(taiex?.change ?? 0),
-      subValue: taiex ? formatPercent(taiex.changePercent) : undefined,
       accentColor: 'var(--primary)',
     },
     {
-      title: '成交量值',
-      value: isLoading ? '-' : formatVolumeValue(taiex?.volumeValue ?? 0),
-      accentColor: 'var(--primary)',
-    },
-    {
-      title: '漲家',
-      value: isLoading ? '-' : String(taiex?.advances ?? 0),
-      subValue: taiex
-        ? `跌 ${taiex.declines} 平 ${taiex.unchanged}`
-        : undefined,
+      title: '上漲家數',
+      value: isLoading ? '-' : String(market?.up ?? 0),
+      subValue: market ? `跌 ${market.down} 平 ${market.flat}` : undefined,
       accentColor: 'var(--stock-up)',
+    },
+    {
+      title: '下跌家數',
+      value: isLoading ? '-' : String(market?.down ?? 0),
+      accentColor: 'var(--stock-down)',
     },
   ]
 
   const institutionalKpis = [
     {
       title: '外資買賣超',
-      value: isLoading ? '-' : formatVolumeValue(inst?.foreign ?? 0),
-      change: inst?.foreign,
-      accentColor:
-        inst?.foreign !== undefined ? getChangeColorVar(inst.foreign) : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(foreignNet),
+      change: foreignNet || undefined,
+      accentColor: getChangeColorVar(foreignNet),
     },
     {
       title: '投信買賣超',
-      value: isLoading ? '-' : formatVolumeValue(inst?.investmentTrust ?? 0),
-      change: inst?.investmentTrust,
-      accentColor:
-        inst?.investmentTrust !== undefined
-          ? getChangeColorVar(inst.investmentTrust)
-          : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(trustNet),
+      change: trustNet || undefined,
+      accentColor: getChangeColorVar(trustNet),
     },
     {
       title: '自營商買賣超',
-      value: isLoading ? '-' : formatVolumeValue(inst?.dealer ?? 0),
-      change: inst?.dealer,
-      accentColor:
-        inst?.dealer !== undefined ? getChangeColorVar(inst.dealer) : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(dealerNet),
+      change: dealerNet || undefined,
+      accentColor: getChangeColorVar(dealerNet),
     },
     {
       title: '三大法人合計',
-      value: isLoading ? '-' : formatVolumeValue(inst?.total ?? 0),
-      change: inst?.total,
-      accentColor:
-        inst?.total !== undefined ? getChangeColorVar(inst.total) : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(instTotal),
+      change: instTotal || undefined,
+      accentColor: getChangeColorVar(instTotal),
     },
   ]
 
@@ -273,65 +327,88 @@ export default function AfterHoursPage() {
           </section>
 
           {/* 三大法人 KPI */}
+          {inst && (
+            <section>
+              <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted-foreground)' }}>
+                三大法人買賣超
+              </h2>
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+                {institutionalKpis.map((card) => (
+                  <KpiCard
+                    key={card.title}
+                    isLoading={isLoading}
+                    accentColor={card.accentColor}
+                    title={card.title}
+                    value={card.value}
+                    change={card.change}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* 漲跌幅排行 */}
           <section>
             <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted-foreground)' }}>
-              三大法人買賣超
+              漲跌幅排行
             </h2>
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-              {institutionalKpis.map((card) => (
-                <KpiCard
-                  key={card.title}
-                  isLoading={isLoading}
-                  accentColor={card.accentColor}
-                  title={card.title}
-                  value={card.value}
-                  change={card.change}
-                />
-              ))}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <StockRankTable
+                title="漲幅排行"
+                stocks={data?.top_gainers ?? []}
+                isLoading={isLoading}
+              />
+              <StockRankTable
+                title="跌幅排行"
+                stocks={data?.top_losers ?? []}
+                isLoading={isLoading}
+              />
             </div>
           </section>
 
           {/* AI 策略選股 */}
-          <section>
-            <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted-foreground)' }}>
-              AI 策略選股
-            </h2>
-            <div
-              className="rounded-lg overflow-hidden"
-              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-            >
-              <Tabs defaultValue="profit">
-                <div className="px-4 pt-4 border-b" style={{ borderColor: 'var(--border)' }}>
-                  <TabsList
-                    className="mb-0"
-                    style={{ background: 'var(--secondary)' }}
-                  >
-                    <TabsTrigger value="profit">獲利優先</TabsTrigger>
-                    <TabsTrigger value="momentum">短期動能</TabsTrigger>
-                    <TabsTrigger value="longterm">長期存股</TabsTrigger>
-                  </TabsList>
-                </div>
-                <TabsContent value="profit">
-                  <StrategyTable
-                    stocks={strategies?.profitFirst ?? []}
-                    isLoading={isLoading}
-                  />
-                </TabsContent>
-                <TabsContent value="momentum">
-                  <StrategyTable
-                    stocks={strategies?.shortMomentum ?? []}
-                    isLoading={isLoading}
-                  />
-                </TabsContent>
-                <TabsContent value="longterm">
-                  <StrategyTable
-                    stocks={strategies?.longHolding ?? []}
-                    isLoading={isLoading}
-                  />
-                </TabsContent>
-              </Tabs>
-            </div>
-          </section>
+          {aiPicks && (
+            <section>
+              <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted-foreground)' }}>
+                AI 策略選股
+              </h2>
+              <div
+                className="rounded-lg overflow-hidden"
+                style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+              >
+                <Tabs defaultValue="value">
+                  <div className="px-4 pt-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                    <TabsList
+                      className="mb-0"
+                      style={{ background: 'var(--secondary)' }}
+                    >
+                      <TabsTrigger value="value">價值優先</TabsTrigger>
+                      <TabsTrigger value="momentum">短期動能</TabsTrigger>
+                      <TabsTrigger value="savings">長期存股</TabsTrigger>
+                    </TabsList>
+                  </div>
+                  <TabsContent value="value">
+                    <AiPickTable
+                      stocks={aiPicks?.value ?? []}
+                      isLoading={isLoading}
+                    />
+                  </TabsContent>
+                  <TabsContent value="momentum">
+                    <AiPickTable
+                      stocks={aiPicks?.momentum ?? []}
+                      isLoading={isLoading}
+                    />
+                  </TabsContent>
+                  <TabsContent value="savings">
+                    <AiPickTable
+                      stocks={aiPicks?.savings ?? []}
+                      isLoading={isLoading}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </section>
+          )}
         </div>
       )}
     </div>

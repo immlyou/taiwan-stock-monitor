@@ -4,7 +4,7 @@ import { use, useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
-import { formatPrice, formatPercent, formatVolume, getChangeColorVar } from '@/lib/utils/format'
+import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/format'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
@@ -15,20 +15,19 @@ interface StockDetailPageProps {
 
 type TabType = 'chart' | 'technical' | 'chip' | 'basic'
 
+// 對應 GET /stock/:id
 interface StockDetail {
-  code: string
+  stock_id: string
   name: string
-  close: number
-  change: number
-  changePercent: number
-  open: number
-  high: number
-  low: number
-  volume: number
-  pe?: number
-  pb?: number
-  dividendYield?: number
-  marketCap?: number
+  industry?: string
+  latest_price: number
+  change_pct: number
+  date?: string
+  pe_ratio?: number
+  pb_ratio?: number
+  dividend_yield?: number
+  revenue_yoy?: number
+  price_history?: Array<{ date: string; price: number }>
 }
 
 interface TechnicalData {
@@ -54,7 +53,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   const [tab, setTab] = useState<TabType>('chart')
 
   const { data: stock, isLoading: stockLoading } = useSWR<StockDetail>(
-    `/stocks/${id}`,
+    `/stock/${id}`,
     fetchAPI
   )
 
@@ -75,13 +74,19 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
     { key: 'basic', label: '基本資料' },
   ]
 
-  const priceHistory = (technical as { priceHistory?: Array<{ date: string; close: number }> })?.priceHistory ?? []
+  // price_history 直接來自 /stock/:id，欄位是 price
+  const priceHistory = stock?.price_history ?? []
+  // 技術面的 priceHistory 欄位是 close
+  const technicalHistory = technical?.priceHistory ?? []
+  const chartData = priceHistory.length > 0
+    ? priceHistory.map((p) => ({ date: p.date, close: p.price }))
+    : technicalHistory
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
-          {stock ? `${stock.code} ${stock.name}` : `個股分析 — ${id}`}
+          {stock ? `${stock.stock_id} ${stock.name}` : `個股分析 — ${id}`}
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>個股詳細分析</p>
       </div>
@@ -90,62 +95,67 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <KpiCard
           title="現價"
-          value={stock ? formatPrice(stock.close) : '—'}
-          change={stock?.change}
-          changeLabel={stock ? formatPercent(stock.changePercent) : undefined}
+          value={stock ? formatPrice(stock.latest_price) : '—'}
+          changeLabel={stock ? formatPercent(stock.change_pct) : undefined}
           isLoading={stockLoading}
           accentColor="var(--primary)"
         />
         <KpiCard
-          title="開盤"
-          value={stock ? formatPrice(stock.open) : '—'}
+          title="產業別"
+          value={stock?.industry ?? '—'}
           isLoading={stockLoading}
           accentColor="var(--muted-foreground)"
         />
         <KpiCard
           title="本益比 PE"
-          value={stock?.pe != null ? stock.pe.toFixed(2) : '—'}
+          value={stock?.pe_ratio != null ? stock.pe_ratio.toFixed(2) : '—'}
           isLoading={stockLoading}
           accentColor="#8b5cf6"
         />
         <KpiCard
           title="股價淨值比 PB"
-          value={stock?.pb != null ? stock.pb.toFixed(2) : '—'}
+          value={stock?.pb_ratio != null ? stock.pb_ratio.toFixed(2) : '—'}
           isLoading={stockLoading}
           accentColor="#f59e0b"
         />
         <KpiCard
           title="殖利率"
-          value={stock?.dividendYield != null ? `${stock.dividendYield.toFixed(2)}%` : '—'}
+          value={stock?.dividend_yield != null ? `${stock.dividend_yield.toFixed(2)}%` : '—'}
           isLoading={stockLoading}
           accentColor="var(--stock-down)"
         />
       </div>
 
-      {/* 今日行情 */}
+      {/* 今日行情摘要 */}
       {stock && (
         <div
           className="rounded-lg p-4 mb-6 flex flex-wrap gap-6"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
         >
           <div>
-            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>最高</span>
-            <p className="font-semibold" style={{ color: 'var(--stock-up)' }}>{formatPrice(stock.high)}</p>
+            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>漲跌幅</span>
+            <p
+              className="font-semibold"
+              style={{ color: getChangeColorVar(stock.change_pct) }}
+            >
+              {formatPercent(stock.change_pct)}
+            </p>
           </div>
-          <div>
-            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>最低</span>
-            <p className="font-semibold" style={{ color: 'var(--stock-down)' }}>{formatPrice(stock.low)}</p>
-          </div>
-          <div>
-            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>成交量</span>
-            <p className="font-semibold" style={{ color: 'var(--foreground)' }}>{formatVolume(stock.volume)}</p>
-          </div>
-          {stock.marketCap && (
+          {stock.revenue_yoy != null && (
             <div>
-              <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>市值</span>
-              <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                {(stock.marketCap / 1e8).toFixed(0)} 億
+              <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>營收年增率</span>
+              <p
+                className="font-semibold"
+                style={{ color: getChangeColorVar(stock.revenue_yoy) }}
+              >
+                {stock.revenue_yoy.toFixed(2)}%
               </p>
+            </div>
+          )}
+          {stock.date && (
+            <div>
+              <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>資料日期</span>
+              <p className="font-semibold" style={{ color: 'var(--foreground)' }}>{stock.date}</p>
             </div>
           )}
         </div>
@@ -178,9 +188,9 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
               <h3 className="text-sm font-medium mb-4" style={{ color: 'var(--muted-foreground)' }}>
                 近期收盤走勢
               </h3>
-              {priceHistory.length > 0 ? (
+              {chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={priceHistory}>
+                  <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} />
                     <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} domain={['auto', 'auto']} />
@@ -299,13 +309,14 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                 <table className="w-full text-sm">
                   <tbody>
                     {[
-                      { label: '股票代號', value: stock.code },
+                      { label: '股票代號', value: stock.stock_id },
                       { label: '公司名稱', value: stock.name },
-                      { label: '收盤價', value: formatPrice(stock.close) },
-                      { label: '本益比', value: stock.pe?.toFixed(2) ?? '—' },
-                      { label: '股價淨值比', value: stock.pb?.toFixed(2) ?? '—' },
-                      { label: '殖利率', value: stock.dividendYield != null ? `${stock.dividendYield.toFixed(2)}%` : '—' },
-                      { label: '市值', value: stock.marketCap != null ? `${(stock.marketCap / 1e8).toFixed(0)} 億元` : '—' },
+                      { label: '產業別', value: stock.industry ?? '—' },
+                      { label: '現價', value: formatPrice(stock.latest_price) },
+                      { label: '本益比', value: stock.pe_ratio?.toFixed(2) ?? '—' },
+                      { label: '股價淨值比', value: stock.pb_ratio?.toFixed(2) ?? '—' },
+                      { label: '殖利率', value: stock.dividend_yield != null ? `${stock.dividend_yield.toFixed(2)}%` : '—' },
+                      { label: '營收年增率', value: stock.revenue_yoy != null ? `${stock.revenue_yoy.toFixed(2)}%` : '—' },
                     ].map(({ label, value }) => (
                       <tr key={label} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td className="py-2 px-3 w-32" style={{ color: 'var(--muted-foreground)' }}>{label}</td>

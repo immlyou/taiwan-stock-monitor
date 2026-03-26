@@ -11,17 +11,22 @@ import {
   Tooltip,
 } from 'recharts'
 
-interface HeatmapItem {
-  code: string
+// 對應 GET /market/heatmap
+interface HeatmapStock {
+  stock_id: string
   name: string
-  marketCap: number
-  changePercent: number
-  sector: string
+  price?: number
+  change_pct: number
+}
+
+interface HeatmapIndustry {
+  industry: string
+  stocks: HeatmapStock[]
 }
 
 interface HeatmapData {
-  items: HeatmapItem[]
-  updatedAt: string
+  date: string
+  industries: HeatmapIndustry[]
 }
 
 function useHeatmap() {
@@ -47,9 +52,9 @@ function changeToColor(changePercent: number): string {
 
 interface TreemapEntry {
   name: string
-  code: string
+  stock_id: string
   size: number
-  changePercent: number
+  change_pct: number
   fill: string
   [key: string]: unknown
 }
@@ -60,12 +65,12 @@ interface CustomContentProps {
   width?: number
   height?: number
   name?: string
-  code?: string
-  changePercent?: number
+  stock_id?: string
+  change_pct?: number
 }
 
 function CustomContent(props: CustomContentProps) {
-  const { x = 0, y = 0, width = 0, height = 0, name, code, changePercent = 0 } = props
+  const { x = 0, y = 0, width = 0, height = 0, name, stock_id, change_pct = 0 } = props
   const showText = width > 50 && height > 40
   const showSubText = width > 70 && height > 60
   return (
@@ -75,7 +80,7 @@ function CustomContent(props: CustomContentProps) {
         y={y + 1}
         width={width - 2}
         height={height - 2}
-        style={{ fill: changeToColor(changePercent), stroke: 'var(--background)', strokeWidth: 1 }}
+        style={{ fill: changeToColor(change_pct), stroke: 'var(--background)', strokeWidth: 1 }}
         rx={2}
       />
       {showText && (
@@ -86,19 +91,32 @@ function CustomContent(props: CustomContentProps) {
           dominantBaseline="middle"
           style={{ fill: '#fff', fontSize: 12, fontWeight: 600 }}
         >
-          {code}
+          {stock_id}
         </text>
       )}
       {showSubText && (
-        <text
-          x={x + width / 2}
-          y={y + height / 2 + 10}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={{ fill: '#ffffffcc', fontSize: 10 }}
-        >
-          {formatPercent(changePercent)}
-        </text>
+        <>
+          {name && (
+            <text
+              x={x + width / 2}
+              y={y + height / 2 + 6}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              style={{ fill: '#ffffffcc', fontSize: 9 }}
+            >
+              {name}
+            </text>
+          )}
+          <text
+            x={x + width / 2}
+            y={y + height / 2 + 20}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            style={{ fill: '#ffffffcc', fontSize: 10 }}
+          >
+            {formatPercent(change_pct)}
+          </text>
+        </>
       )}
     </g>
   )
@@ -118,13 +136,13 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Toolti
       style={{ background: 'var(--card)', border: '1px solid var(--border)', minWidth: 150 }}
     >
       <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-        {item.code} {item.name}
+        {item.stock_id} {item.name}
       </p>
       <p
         className="mt-1 tabular-nums font-semibold"
-        style={{ color: getChangeColorVar(item.changePercent) }}
+        style={{ color: getChangeColorVar(item.change_pct) }}
       >
-        {formatPercent(item.changePercent)}
+        {formatPercent(item.change_pct)}
       </p>
     </div>
   )
@@ -143,13 +161,17 @@ const LEGEND_ITEMS = [
 export default function HeatmapPage() {
   const { data, isLoading, isError } = useHeatmap()
 
-  const treeData: TreemapEntry[] = (data?.items ?? []).map((item) => ({
-    name: item.name,
-    code: item.code,
-    size: item.marketCap,
-    changePercent: item.changePercent,
-    fill: changeToColor(item.changePercent),
-  }))
+  // 把 industries[].stocks[] 攤平為 treemap 所需的扁平陣列
+  // 每個 stock 節點的 size 設為 1（API 未提供市值），讓每格等大
+  const treeData: TreemapEntry[] = (data?.industries ?? []).flatMap((industry) =>
+    (industry.stocks ?? []).map((stock) => ({
+      name: stock.name,
+      stock_id: stock.stock_id,
+      size: 1,
+      change_pct: stock.change_pct,
+      fill: changeToColor(stock.change_pct),
+    }))
+  )
 
   return (
     <div>
@@ -161,12 +183,12 @@ export default function HeatmapPage() {
               市場熱力圖
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-              方塊大小代表市值，顏色代表漲跌幅（紅漲綠跌）
+              顏色代表漲跌幅（紅漲綠跌）
             </p>
           </div>
-          {data?.updatedAt && (
+          {data?.date && (
             <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              更新：{new Date(data.updatedAt).toLocaleTimeString('zh-TW')}
+              資料日期：{data.date}
             </span>
           )}
         </div>
@@ -227,6 +249,48 @@ export default function HeatmapPage() {
           </div>
         )}
       </div>
+
+      {/* 各產業明細 */}
+      {!isLoading && (data?.industries ?? []).length > 0 && (
+        <div className="mt-6 space-y-4">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+            各產業明細
+          </h2>
+          {data!.industries.map((industry) => (
+            <div
+              key={industry.industry}
+              className="rounded-lg overflow-hidden"
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <div className="px-4 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+                  {industry.industry}
+                </h3>
+              </div>
+              <div className="p-3 flex flex-wrap gap-2">
+                {industry.stocks.map((stock) => (
+                  <div
+                    key={stock.stock_id}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs"
+                    style={{ background: 'var(--secondary)' }}
+                  >
+                    <span className="font-mono font-semibold" style={{ color: 'var(--primary)' }}>
+                      {stock.stock_id}
+                    </span>
+                    <span style={{ color: 'var(--foreground)' }}>{stock.name}</span>
+                    <span
+                      className="font-semibold tabular-nums"
+                      style={{ color: getChangeColorVar(stock.change_pct) }}
+                    >
+                      {formatPercent(stock.change_pct)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

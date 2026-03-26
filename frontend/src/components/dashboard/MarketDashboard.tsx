@@ -3,7 +3,7 @@
 import { useMarketSummary } from '@/lib/hooks/useMarketSummary'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { formatCurrency, formatPercent, formatChange, formatVolumeValue } from '@/lib/utils/format'
+import { formatCurrency, formatPercent, formatChange } from '@/lib/utils/format'
 
 export function MarketDashboard() {
   const { summary, isLoading, isError } = useMarketSummary()
@@ -18,51 +18,50 @@ export function MarketDashboard() {
     )
   }
 
+  // taiex_change 是點數變化，計算漲跌幅百分比
+  const taiexIndex = summary?.taiex_index ?? 0
+  const taiexChange = summary?.taiex_change ?? 0
+  // 從現值和變動點反推前一天收盤：prev = index - change
+  const taiexChangePct = taiexIndex > 0 && taiexChange !== 0
+    ? (taiexChange / (taiexIndex - taiexChange)) * 100
+    : 0
+
   const kpiCards = [
     {
       title: '加權指數',
-      value: isLoading ? '-' : formatCurrency(summary?.taiex?.close ?? 0),
-      change: summary?.taiex?.change,
-      changeLabel: formatPercent(summary?.taiex?.changePercent ?? 0),
-      accentColor: summary?.taiex?.change !== undefined
-        ? summary.taiex.change > 0
-          ? 'var(--stock-up)'
-          : summary.taiex.change < 0
-            ? 'var(--stock-down)'
-            : 'var(--border)'
-        : 'var(--primary)',
+      value: isLoading ? '-' : formatCurrency(taiexIndex),
+      change: taiexChange,
+      changeLabel: formatPercent(taiexChangePct),
+      accentColor: taiexChange > 0
+        ? 'var(--stock-up)'
+        : taiexChange < 0
+          ? 'var(--stock-down)'
+          : 'var(--border)',
     },
     {
       title: '漲跌點數',
-      value: isLoading
-        ? '-'
-        : formatChange(summary?.taiex?.change ?? 0),
-      subValue: isLoading ? undefined : formatPercent(summary?.taiex?.changePercent ?? 0),
+      value: isLoading ? '-' : formatChange(taiexChange),
+      subValue: isLoading ? undefined : formatPercent(taiexChangePct),
       accentColor: 'var(--primary)',
     },
     {
-      title: '成交量（億元）',
-      value: isLoading
-        ? '-'
-        : formatVolumeValue(summary?.taiex?.volumeValue ?? 0),
+      title: '總家數',
+      value: isLoading ? '-' : String(summary?.total_stocks ?? 0),
       accentColor: 'var(--primary)',
     },
     {
       title: '上漲家數',
-      value: isLoading ? '-' : String(summary?.advances ?? 0),
+      value: isLoading ? '-' : String(summary?.up_count ?? 0),
       accentColor: 'var(--stock-up)',
     },
     {
       title: '下跌家數',
-      value: isLoading ? '-' : String(summary?.declines ?? 0),
+      value: isLoading ? '-' : String(summary?.down_count ?? 0),
       accentColor: 'var(--stock-down)',
     },
     {
-      title: '外資買賣超',
-      value: isLoading
-        ? '-'
-        : formatVolumeValue(summary?.foreignNet ?? 0),
-      change: summary?.foreignNet,
+      title: '平盤家數',
+      value: isLoading ? '-' : String(summary?.flat_count ?? 0),
       accentColor: 'var(--primary)',
     },
   ]
@@ -105,45 +104,55 @@ export function MarketDashboard() {
             <div className="space-y-3">
               <MarketStatRow
                 label="上漲"
-                value={summary?.advances ?? 0}
-                total={(summary?.advances ?? 0) + (summary?.declines ?? 0) + (summary?.unchanged ?? 0)}
+                value={summary?.up_count ?? 0}
+                total={(summary?.up_count ?? 0) + (summary?.down_count ?? 0) + (summary?.flat_count ?? 0)}
                 color="var(--stock-up)"
               />
               <MarketStatRow
                 label="下跌"
-                value={summary?.declines ?? 0}
-                total={(summary?.advances ?? 0) + (summary?.declines ?? 0) + (summary?.unchanged ?? 0)}
+                value={summary?.down_count ?? 0}
+                total={(summary?.up_count ?? 0) + (summary?.down_count ?? 0) + (summary?.flat_count ?? 0)}
                 color="var(--stock-down)"
               />
               <MarketStatRow
                 label="平盤"
-                value={summary?.unchanged ?? 0}
-                total={(summary?.advances ?? 0) + (summary?.declines ?? 0) + (summary?.unchanged ?? 0)}
+                value={summary?.flat_count ?? 0}
+                total={(summary?.up_count ?? 0) + (summary?.down_count ?? 0) + (summary?.flat_count ?? 0)}
                 color="var(--stock-flat)"
               />
             </div>
           )}
         </div>
 
-        {/* 三大法人買賣超 */}
+        {/* 今日強勢股 */}
         <div
           className="rounded-lg p-4"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
         >
           <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>
-            三大法人買賣超
+            今日漲幅前五
           </h3>
           {isLoading ? (
             <div className="space-y-2">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-6 rounded" style={{ background: 'var(--secondary)' }} />
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-5 rounded" style={{ background: 'var(--secondary)' }} />
               ))}
             </div>
           ) : (
-            <div className="space-y-3">
-              <InstitutionalRow label="外資" value={summary?.foreignNet ?? 0} />
-              <InstitutionalRow label="投信" value={summary?.investmentTrustNet ?? 0} />
-              <InstitutionalRow label="自營商" value={summary?.dealerNet ?? 0} />
+            <div className="space-y-2">
+              {(summary?.top_gainers ?? []).slice(0, 5).map((item) => (
+                <div key={item.stock_id} className="flex justify-between items-center">
+                  <span className="text-xs font-mono" style={{ color: 'var(--primary)' }}>
+                    {item.stock_id}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--stock-up)' }}>
+                    +{item.change_pct.toFixed(2)}%
+                  </span>
+                </div>
+              ))}
+              {!summary?.top_gainers?.length && (
+                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>暫無資料</p>
+              )}
             </div>
           )}
         </div>
@@ -161,6 +170,7 @@ export function MarketDashboard() {
             <p>更新頻率：每 30 秒自動更新</p>
             <p>漲跌顏色：漲紅跌綠（台股慣例）</p>
             <p>成交量單位：張（1,000 股）</p>
+            {summary?.date && <p>資料日期：{summary.date}</p>}
           </div>
         </div>
       </div>
@@ -196,21 +206,6 @@ function MarketStatRow({
           style={{ width: `${percent}%`, background: color }}
         />
       </div>
-    </div>
-  )
-}
-
-function InstitutionalRow({ label, value }: { label: string; value: number }) {
-  const color =
-    value > 0 ? 'var(--stock-up)' : value < 0 ? 'var(--stock-down)' : 'var(--stock-flat)'
-  return (
-    <div className="flex justify-between items-center">
-      <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-        {label}
-      </span>
-      <span className="text-xs font-semibold tabular-nums" style={{ color }}>
-        {value > 0 ? '+' : ''}{formatVolumeValue(value)}
-      </span>
     </div>
   )
 }

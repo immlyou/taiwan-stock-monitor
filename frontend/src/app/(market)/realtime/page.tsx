@@ -16,12 +16,7 @@ interface RealtimeQuote {
   stock_id: string
   name: string
   price: number
-  change: number
   change_pct: number
-  open?: number
-  high?: number
-  low?: number
-  volume?: number
 }
 
 interface BatchQuoteResponse {
@@ -79,7 +74,7 @@ function useMarketIndex() {
 function QuoteRowSkeleton() {
   return (
     <tr>
-      {[...Array(8)].map((_, i) => (
+      {[...Array(4)].map((_, i) => (
         <td key={i} className="px-4 py-3">
           <Skeleton className="h-4 w-14" style={{ background: 'var(--secondary)' }} />
         </td>
@@ -92,13 +87,13 @@ function IndexBadge({
   label,
   value,
   change,
-  changePercent,
+  changePct,
   isLoading,
 }: {
   label: string
   value: number
   change: number
-  changePercent: number
+  changePct: number
   isLoading: boolean
 }) {
   return (
@@ -120,7 +115,7 @@ function IndexBadge({
             className="text-xs tabular-nums font-semibold"
             style={{ color: getChangeColorVar(change) }}
           >
-            {formatChange(change)} ({formatPercent(changePercent)})
+            {formatChange(change)} ({formatPercent(changePct)})
           </span>
         </div>
       )}
@@ -131,6 +126,13 @@ function IndexBadge({
 export default function RealtimePage() {
   const { data, isLoading, isError } = useRealtimeQuotes()
   const { summary, isLoading: indexLoading } = useMarketIndex()
+
+  // 計算加權指數漲跌幅
+  const taiexIndex = summary?.taiex_index ?? 0
+  const taiexChange = summary?.taiex_change ?? 0
+  const taiexChangePct = taiexIndex > 0 && taiexChange !== 0
+    ? (taiexChange / (taiexIndex - taiexChange)) * 100
+    : 0
 
   return (
     <div>
@@ -157,9 +159,9 @@ export default function RealtimePage() {
       <div className="flex flex-wrap gap-3 mb-6">
         <IndexBadge
           label="加權指數"
-          value={summary?.taiex?.close ?? 0}
-          change={summary?.taiex?.change ?? 0}
-          changePercent={summary?.taiex?.changePercent ?? 0}
+          value={taiexIndex}
+          change={taiexChange}
+          changePct={taiexChangePct}
           isLoading={indexLoading}
         />
       </div>
@@ -180,7 +182,7 @@ export default function RealtimePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['代號', '名稱', '現價', '漲跌', '漲跌幅', '開盤', '最高', '最低', '成交量(張)'].map(
+                  {['代號', '名稱', '現價', '漲跌幅'].map(
                     (h) => (
                       <th
                         key={h}
@@ -219,47 +221,17 @@ export default function RealtimePage() {
                           {q.price?.toFixed(2) ?? '-'}
                         </td>
                         <td
-                          className="px-4 py-3 tabular-nums"
-                          style={{ color: getChangeColorVar(q.change_pct) }}
-                        >
-                          {q.change != null ? formatChange(q.change) : '-'}
-                        </td>
-                        <td
-                          className="px-4 py-3 tabular-nums"
+                          className="px-4 py-3 tabular-nums font-semibold"
                           style={{ color: getChangeColorVar(q.change_pct) }}
                         >
                           {formatPercent(q.change_pct)}
-                        </td>
-                        <td
-                          className="px-4 py-3 tabular-nums"
-                          style={{ color: 'var(--foreground)' }}
-                        >
-                          {q.open?.toFixed(2) ?? '-'}
-                        </td>
-                        <td
-                          className="px-4 py-3 tabular-nums"
-                          style={{ color: 'var(--stock-up)' }}
-                        >
-                          {q.high?.toFixed(2) ?? '-'}
-                        </td>
-                        <td
-                          className="px-4 py-3 tabular-nums"
-                          style={{ color: 'var(--stock-down)' }}
-                        >
-                          {q.low?.toFixed(2) ?? '-'}
-                        </td>
-                        <td
-                          className="px-4 py-3 tabular-nums"
-                          style={{ color: 'var(--foreground)' }}
-                        >
-                          {q.volume?.toLocaleString() ?? '-'}
                         </td>
                       </tr>
                     ))
                   : null}
                 {!isLoading && !data?.quotes?.length && (
                   <tr>
-                    <td colSpan={9}>
+                    <td colSpan={4}>
                       <EmptyState
                         title="暫無自選股報價"
                         description="尚未設定任何自選股"

@@ -7,47 +7,21 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   formatVolumeValue,
-  formatChange,
   getChangeColorVar,
 } from '@/lib/utils/format'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts'
 
-interface InstitutionalFlow {
-  date: string
-  foreign: number
-  investmentTrust: number
-  dealer: number
-  total: number
-}
-
-interface ConsecutiveBuyer {
-  code: string
-  name: string
-  consecutiveDays: number
-  totalNetBuy: number
-  institution: string
+// 對應 GET /market/money-flow
+interface InstitutionDetail {
+  total_net: number
+  top_buy?: Array<{ stock_id: string; name: string; net_shares: number }>
+  top_sell?: Array<{ stock_id: string; name: string; net_shares: number }>
 }
 
 interface MoneyFlowData {
-  summary: {
-    foreign: number
-    investmentTrust: number
-    dealer: number
-    total: number
-  }
-  trend: InstitutionalFlow[]
-  consecutiveBuyers: ConsecutiveBuyer[]
-  updatedAt: string
+  date: string
+  foreign: InstitutionDetail
+  trust: InstitutionDetail
+  dealer: InstitutionDetail
 }
 
 function useMoneyFlow() {
@@ -59,33 +33,95 @@ function useMoneyFlow() {
   return { data, isLoading, isError: !!error }
 }
 
-interface CustomTooltipProps {
-  active?: boolean
-  payload?: Array<{ name: string; value: number; color: string }>
-  label?: string
+function TopStockTable({
+  title,
+  items,
+  isLoading,
+  colorVar,
+}: {
+  title: string
+  items: Array<{ stock_id: string; name: string; net_shares: number }>
+  isLoading: boolean
+  colorVar: string
+}) {
+  return (
+    <div>
+      <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--muted-foreground)' }}>
+        {title}
+      </h4>
+      {isLoading ? (
+        <div className="space-y-1">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="h-4 w-full" style={{ background: 'var(--secondary)' }} />
+          ))}
+        </div>
+      ) : items.length > 0 ? (
+        <div className="space-y-1">
+          {items.slice(0, 5).map((item) => (
+            <div key={item.stock_id} className="flex items-center justify-between">
+              <span className="text-xs">
+                <span className="font-mono font-semibold" style={{ color: 'var(--primary)' }}>
+                  {item.stock_id}
+                </span>
+                {item.name && (
+                  <span className="ml-1" style={{ color: 'var(--foreground)' }}>{item.name}</span>
+                )}
+              </span>
+              <span className="text-xs tabular-nums font-semibold" style={{ color: colorVar }}>
+                {(item.net_shares / 1000).toFixed(0)} 張
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>暫無資料</p>
+      )}
+    </div>
+  )
 }
 
-function CustomBarTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (!active || !payload?.length) return null
+function InstitutionCard({
+  label,
+  detail,
+  isLoading,
+}: {
+  label: string
+  detail?: InstitutionDetail
+  isLoading: boolean
+}) {
+  const net = detail?.total_net ?? 0
   return (
     <div
-      className="rounded-lg p-3 text-xs shadow-lg"
+      className="rounded-lg p-4"
       style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
     >
-      <p className="font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
-        {label}
-      </p>
-      {payload.map((entry) => (
-        <div key={entry.name} className="flex items-center justify-between gap-4">
-          <span style={{ color: entry.color }}>{entry.name}</span>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>{label}</h3>
+        {isLoading ? (
+          <Skeleton className="h-5 w-24" style={{ background: 'var(--secondary)' }} />
+        ) : (
           <span
-            className="tabular-nums font-semibold"
-            style={{ color: entry.value >= 0 ? 'var(--stock-up)' : 'var(--stock-down)' }}
+            className="text-sm font-bold tabular-nums"
+            style={{ color: getChangeColorVar(net) }}
           >
-            {formatChange(entry.value / 1e8)} 億
+            {net > 0 ? '+' : ''}{formatVolumeValue(net)}
           </span>
-        </div>
-      ))}
+        )}
+      </div>
+      <div className="space-y-4">
+        <TopStockTable
+          title="買超前五"
+          items={detail?.top_buy ?? []}
+          isLoading={isLoading}
+          colorVar="var(--stock-up)"
+        />
+        <TopStockTable
+          title="賣超前五"
+          items={detail?.top_sell ?? []}
+          isLoading={isLoading}
+          colorVar="var(--stock-down)"
+        />
+      </div>
     </div>
   )
 }
@@ -93,55 +129,37 @@ function CustomBarTooltip({ active, payload, label }: CustomTooltipProps) {
 export default function MoneyFlowPage() {
   const { data, isLoading, isError } = useMoneyFlow()
 
-  const summary = data?.summary
-  const trend = data?.trend ?? []
-  const buyers = data?.consecutiveBuyers ?? []
+  const foreignNet = data?.foreign?.total_net ?? 0
+  const trustNet = data?.trust?.total_net ?? 0
+  const dealerNet = data?.dealer?.total_net ?? 0
+  const total = foreignNet + trustNet + dealerNet
 
   const kpiCards = [
     {
       title: '外資買賣超',
-      value: isLoading ? '-' : formatVolumeValue(summary?.foreign ?? 0),
-      change: summary?.foreign,
-      accentColor:
-        summary?.foreign !== undefined
-          ? getChangeColorVar(summary.foreign)
-          : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(foreignNet),
+      change: foreignNet || undefined,
+      accentColor: getChangeColorVar(foreignNet),
     },
     {
       title: '投信買賣超',
-      value: isLoading ? '-' : formatVolumeValue(summary?.investmentTrust ?? 0),
-      change: summary?.investmentTrust,
-      accentColor:
-        summary?.investmentTrust !== undefined
-          ? getChangeColorVar(summary.investmentTrust)
-          : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(trustNet),
+      change: trustNet || undefined,
+      accentColor: getChangeColorVar(trustNet),
     },
     {
       title: '自營商買賣超',
-      value: isLoading ? '-' : formatVolumeValue(summary?.dealer ?? 0),
-      change: summary?.dealer,
-      accentColor:
-        summary?.dealer !== undefined
-          ? getChangeColorVar(summary.dealer)
-          : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(dealerNet),
+      change: dealerNet || undefined,
+      accentColor: getChangeColorVar(dealerNet),
     },
     {
       title: '三大法人合計',
-      value: isLoading ? '-' : formatVolumeValue(summary?.total ?? 0),
-      change: summary?.total,
-      accentColor:
-        summary?.total !== undefined
-          ? getChangeColorVar(summary.total)
-          : 'var(--primary)',
+      value: isLoading ? '-' : formatVolumeValue(total),
+      change: total || undefined,
+      accentColor: getChangeColorVar(total),
     },
   ]
-
-  const chartData = trend.map((d) => ({
-    date: d.date.slice(5), // MM-DD
-    外資: d.foreign,
-    投信: d.investmentTrust,
-    自營商: d.dealer,
-  }))
 
   return (
     <div>
@@ -156,9 +174,9 @@ export default function MoneyFlowPage() {
               三大法人買賣超分析
             </p>
           </div>
-          {data?.updatedAt && (
+          {data?.date && (
             <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              更新：{new Date(data.updatedAt).toLocaleTimeString('zh-TW')}
+              資料日期：{data.date}
             </span>
           )}
         </div>
@@ -186,147 +204,23 @@ export default function MoneyFlowPage() {
             ))}
           </div>
 
-          {/* 趨勢圖 */}
-          <div
-            className="rounded-lg p-5"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>
-              法人買賣超趨勢
-            </h2>
-            {isLoading ? (
-              <Skeleton className="h-64 w-full" style={{ background: 'var(--secondary)' }} />
-            ) : chartData.length === 0 ? (
-              <EmptyState title="暫無趨勢資料" icon="+" />
-            ) : (
-              <div style={{ height: 300 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tickFormatter={(v: number) => `${(v / 1e8).toFixed(0)}億`}
-                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={55}
-                    />
-                    <Tooltip content={<CustomBarTooltip />} cursor={{ fill: 'var(--secondary)' }} />
-                    <Legend
-                      wrapperStyle={{ fontSize: 12, color: 'var(--muted-foreground)' }}
-                    />
-                    <Bar dataKey="外資" radius={[2, 2, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell
-                          key={index}
-                          fill={(entry['外資'] as number) >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}
-                        />
-                      ))}
-                    </Bar>
-                    <Bar dataKey="投信" radius={[2, 2, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell
-                          key={index}
-                          fill={(entry['投信'] as number) >= 0 ? '#f97316' : '#fb923c'}
-                        />
-                      ))}
-                    </Bar>
-                    <Bar dataKey="自營商" radius={[2, 2, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell
-                          key={index}
-                          fill={(entry['自營商'] as number) >= 0 ? '#a855f7' : '#c084fc'}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          {/* 連續買超排行 */}
-          <div
-            className="rounded-lg overflow-hidden"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            <div className="px-5 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-              <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-                法人連續買超排行
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['代號', '名稱', '法人', '連續買超(日)', '累計買超金額'].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-2 text-left font-medium"
-                        style={{ color: 'var(--muted-foreground)' }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading
-                    ? [...Array(5)].map((_, i) => (
-                        <tr key={i}>
-                          {[...Array(5)].map((_, j) => (
-                            <td key={j} className="px-4 py-3">
-                              <Skeleton className="h-4 w-16" style={{ background: 'var(--secondary)' }} />
-                            </td>
-                          ))}
-                        </tr>
-                      ))
-                    : buyers.length > 0
-                    ? buyers.map((buyer) => (
-                        <tr
-                          key={`${buyer.code}-${buyer.institution}`}
-                          className="border-b transition-colors hover:bg-white/5"
-                          style={{ borderColor: 'var(--border)' }}
-                        >
-                          <td className="px-4 py-3 font-mono font-semibold" style={{ color: 'var(--primary)' }}>
-                            {buyer.code}
-                          </td>
-                          <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
-                            {buyer.name}
-                          </td>
-                          <td className="px-4 py-3" style={{ color: 'var(--muted-foreground)' }}>
-                            {buyer.institution}
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums font-bold"
-                            style={{ color: 'var(--stock-up)' }}
-                          >
-                            {buyer.consecutiveDays} 日
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums"
-                            style={{ color: 'var(--stock-up)' }}
-                          >
-                            {formatVolumeValue(buyer.totalNetBuy)}
-                          </td>
-                        </tr>
-                      ))
-                    : null}
-                  {!isLoading && buyers.length === 0 && (
-                    <tr>
-                      <td colSpan={5}>
-                        <EmptyState title="暫無連續買超資料" icon="+" />
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+          {/* 各法人明細 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <InstitutionCard
+              label="外資"
+              detail={data?.foreign}
+              isLoading={isLoading}
+            />
+            <InstitutionCard
+              label="投信"
+              detail={data?.trust}
+              isLoading={isLoading}
+            />
+            <InstitutionCard
+              label="自營商"
+              detail={data?.dealer}
+              isLoading={isLoading}
+            />
           </div>
         </div>
       )}
