@@ -42,17 +42,15 @@ class ClaudeStockAnalyzer:
     # ── 工具函數 ────────────────────────────────────────────
 
     def _get_client(self):
-        """Lazy init：取得 anthropic client。若未安裝或無 Key 則回傳 None。"""
-        if self._client_initialized:
-            return self._client
-
-        self.__class__._client_initialized = True
-
+        """Lazy init：取得 anthropic client。每次檢查 Key 是否存在。"""
         api_key = os.getenv("ANTHROPIC_API_KEY", "")
         if not api_key:
-            logger.warning("ANTHROPIC_API_KEY 未設定，Claude 分析功能停用")
             self.__class__._client = None
             return None
+
+        # 如果已初始化且 Key 沒變，直接回傳
+        if self._client is not None:
+            return self._client
 
         try:
             import anthropic  # noqa: PLC0415
