@@ -3,210 +3,204 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
-import { getChangeColorVar } from '@/lib/utils/format'
 
-interface FactorWeight {
-  key: string
-  label: string
-  weight: number
-  description: string
-}
-
-interface AiPickResult {
-  code: string
+interface ValueStock {
+  stock_id: string
+  price: number
+  pe_ratio: number
+  pb_ratio: number
+  dividend_yield: number
   name: string
-  close: number
-  changePercent: number
-  aiScore: number
-  factorScores: {
-    value: number
-    growth: number
-    momentum: number
-    quality: number
-    sentiment: number
-  }
-  recommendation: 'strong_buy' | 'buy' | 'hold' | 'sell'
-  targetPrice?: number
 }
 
-const DEFAULT_FACTORS: FactorWeight[] = [
-  { key: 'value', label: '價值因子', weight: 25, description: 'PE、PB、殖利率' },
-  { key: 'growth', label: '成長因子', weight: 25, description: '營收成長、EPS 成長' },
-  { key: 'momentum', label: '動能因子', weight: 20, description: '近期漲幅、強弱度' },
-  { key: 'quality', label: '品質因子', weight: 20, description: 'ROE、毛利率、負債比' },
-  { key: 'sentiment', label: '情緒因子', weight: 10, description: '法人動向、融資比例' },
-]
+interface GrowthStock {
+  stock_id: string
+  price: number
+  revenue_yoy: number
+  revenue_mom: number
+  name: string
+}
 
-const REC_LABELS: Record<string, { label: string; color: string }> = {
-  strong_buy: { label: '強力買進', color: 'var(--stock-up)' },
-  buy: { label: '買進', color: '#22c55e' },
-  hold: { label: '持有', color: 'var(--stock-flat)' },
-  sell: { label: '賣出', color: 'var(--stock-down)' },
+interface MomentumStock {
+  stock_id: string
+  price: number
+  volume_ratio: number
+  rsi: number
+  breakout_high: number
+  name: string
+}
+
+interface StrategyGroup<T> {
+  total: number
+  stocks: T[]
+}
+
+interface AiPickResponse {
+  date: string
+  strategies: {
+    value: StrategyGroup<ValueStock>
+    growth: StrategyGroup<GrowthStock>
+    momentum: StrategyGroup<MomentumStock>
+  }
+}
+
+type TabType = 'value' | 'growth' | 'momentum'
+
+const TAB_LABELS: Record<TabType, string> = {
+  value: '價值選股',
+  growth: '成長選股',
+  momentum: '動能選股',
 }
 
 export default function AiPickPage() {
-  const [factors, setFactors] = useState<FactorWeight[]>(DEFAULT_FACTORS)
-  const [submitted, setSubmitted] = useState(false)
-  const [submitWeights, setSubmitWeights] = useState<Record<string, number>>({})
+  const [activeTab, setActiveTab] = useState<TabType>('value')
 
-  const totalWeight = factors.reduce((s, f) => s + f.weight, 0)
-
-  const { data, isLoading, error } = useSWR<AiPickResult[]>(
-    submitted ? ['/strategy/ai-pick', submitWeights] : null,
-    ([url, w]) => fetchAPI<AiPickResult[]>(url, { method: 'POST', body: JSON.stringify({ weights: w }) })
+  const { data, isLoading, error } = useSWR<AiPickResponse>(
+    '/strategy/ai-pick',
+    fetchAPI
   )
-
-  const handleRun = () => {
-    if (totalWeight !== 100) return
-    const weights: Record<string, number> = {}
-    factors.forEach(f => { weights[f.key] = f.weight })
-    setSubmitWeights(weights)
-    setSubmitted(true)
-  }
-
-  const updateWeight = (key: string, value: number) => {
-    setFactors(prev => prev.map(f => f.key === key ? { ...f, weight: Math.max(0, Math.min(100, value)) } : f))
-  }
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>AI 智慧選股</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>多因子模型 AI 選股排行</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>多策略因子選股排行</p>
       </div>
 
-      {/* 因子權重設定 */}
-      <div
-        className="rounded-lg p-4 mb-6"
-        style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-      >
-        <div className="flex justify-between items-center mb-3">
-          <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>因子權重設定</p>
-          <span
-            className="text-sm font-semibold"
-            style={{ color: totalWeight === 100 ? 'var(--stock-down)' : 'var(--destructive)' }}
-          >
-            總計：{totalWeight}%（需為 100%）
-          </span>
-        </div>
-        <div className="space-y-3">
-          {factors.map((factor) => (
-            <div key={factor.key} className="flex items-center gap-4">
-              <div className="w-28">
-                <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{factor.label}</p>
-                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{factor.description}</p>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={60}
-                step={5}
-                value={factor.weight}
-                onChange={(e) => updateWeight(factor.key, Number(e.target.value))}
-                className="flex-1"
-                style={{ accentColor: 'var(--primary)' }}
-              />
-              <div className="flex items-center gap-1 w-16">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={factor.weight}
-                  onChange={(e) => updateWeight(factor.key, Number(e.target.value))}
-                  className="h-8 w-14 rounded-md border px-2 text-sm text-right tabular-nums"
-                  style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-                />
-                <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>%</span>
-              </div>
-              {/* 進度條 */}
-              <div
-                className="w-24 h-2 rounded-full overflow-hidden"
-                style={{ background: 'var(--secondary)' }}
-              >
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${factor.weight}%`, background: 'var(--primary)' }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button
-            onClick={handleRun}
-            disabled={totalWeight !== 100}
-            className="h-9 px-6 rounded-md text-sm font-medium disabled:opacity-50"
-            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-          >
-            執行 AI 選股
-          </button>
-        </div>
-      </div>
-
-      {/* 結果 */}
-      {!submitted ? null : error ? (
+      {error ? (
         <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-          <p style={{ color: 'var(--destructive)' }}>AI 選股失敗</p>
+          <p style={{ color: 'var(--destructive)' }}>AI 選股資料載入失敗</p>
         </div>
       ) : isLoading ? (
         <div className="rounded-lg p-8 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-          <p style={{ color: 'var(--muted-foreground)' }}>AI 模型運算中...</p>
-        </div>
-      ) : data && data.length > 0 ? (
-        <div
-          className="rounded-lg overflow-hidden"
-          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-        >
-          <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-            <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-              AI 選股排行 — 共 {data.length} 支
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: 'var(--secondary)' }}>
-                  {['排名', '代號', '名稱', '現價', '漲跌%', 'AI 評分', '價值', '成長', '動能', '品質', '情緒', '建議', '目標價'].map(h => (
-                    <th key={h} className="text-left py-2 px-3" style={{ color: 'var(--muted-foreground)', fontSize: '0.75rem' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((row, i) => {
-                  const rec = REC_LABELS[row.recommendation] ?? { label: '—', color: 'var(--foreground)' }
-                  return (
-                    <tr key={row.code} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td className="py-2 px-3 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
-                      <td className="py-2 px-3 font-medium" style={{ color: 'var(--primary)' }}>{row.code}</td>
-                      <td className="py-2 px-3" style={{ color: 'var(--foreground)' }}>{row.name}</td>
-                      <td className="py-2 px-3 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.close.toFixed(2)}</td>
-                      <td className="py-2 px-3 tabular-nums" style={{ color: getChangeColorVar(row.changePercent) }}>
-                        {row.changePercent > 0 ? '+' : ''}{row.changePercent.toFixed(2)}%
-                      </td>
-                      <td className="py-2 px-3 tabular-nums font-bold" style={{ color: 'var(--primary)' }}>
-                        {row.aiScore.toFixed(1)}
-                      </td>
-                      {(['value', 'growth', 'momentum', 'quality', 'sentiment'] as const).map(k => (
-                        <td key={k} className="py-2 px-3 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {row.factorScores[k].toFixed(0)}
-                        </td>
-                      ))}
-                      <td className="py-2 px-3 font-semibold text-xs" style={{ color: rec.color }}>
-                        {rec.label}
-                      </td>
-                      <td className="py-2 px-3 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
-                        {row.targetPrice ? row.targetPrice.toFixed(2) : '—'}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <p style={{ color: 'var(--muted-foreground)' }}>載入中...</p>
         </div>
       ) : data ? (
-        <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-          <p style={{ color: 'var(--muted-foreground)' }}>暫無 AI 選股結果</p>
+        <div>
+          {/* Tab */}
+          <div className="flex gap-2 mb-4">
+            {(Object.keys(TAB_LABELS) as TabType[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="px-5 py-2 rounded-md text-sm font-medium transition-colors"
+                style={{
+                  background: activeTab === tab ? 'var(--primary)' : 'var(--secondary)',
+                  color: activeTab === tab ? 'var(--primary-foreground)' : 'var(--foreground)',
+                }}
+              >
+                {TAB_LABELS[tab]}
+                <span
+                  className="ml-2 text-xs px-1.5 py-0.5 rounded-full"
+                  style={{
+                    background: activeTab === tab ? 'rgba(255,255,255,0.2)' : 'var(--border)',
+                    color: activeTab === tab ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                  }}
+                >
+                  {data.strategies[tab].total}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div className="px-4 py-3 border-b flex justify-between items-center" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                {TAB_LABELS[activeTab]} — 共 {data.strategies[activeTab].total} 支
+              </h3>
+              <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{data.date}</span>
+            </div>
+            <div className="overflow-x-auto">
+              {activeTab === 'value' && (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ background: 'var(--secondary)' }}>
+                      {['排名', '代號', '名稱', '現價', 'PE', 'PB', '殖利率%'].map(h => (
+                        <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.strategies.value.stocks.map((row, i) => (
+                      <tr key={row.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
+                        <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{row.stock_id}</td>
+                        <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{row.name}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.price.toFixed(2)}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.pe_ratio.toFixed(1)}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.pb_ratio.toFixed(2)}</td>
+                        <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: 'var(--primary)' }}>
+                          {row.dividend_yield.toFixed(2)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {activeTab === 'growth' && (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ background: 'var(--secondary)' }}>
+                      {['排名', '代號', '名稱', '現價', '年增率%', '月增率%'].map(h => (
+                        <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.strategies.growth.stocks.map((row, i) => (
+                      <tr key={row.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
+                        <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{row.stock_id}</td>
+                        <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{row.name}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.price.toFixed(2)}</td>
+                        <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: 'var(--stock-up)' }}>
+                          +{row.revenue_yoy.toFixed(2)}%
+                        </td>
+                        <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: row.revenue_mom >= 0 ? 'var(--stock-up)' : 'var(--stock-down)' }}>
+                          {row.revenue_mom >= 0 ? '+' : ''}{row.revenue_mom.toFixed(2)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {activeTab === 'momentum' && (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ background: 'var(--secondary)' }}>
+                      {['排名', '代號', '名稱', '現價', '量比', 'RSI', '突破高點'].map(h => (
+                        <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.strategies.momentum.stocks.map((row, i) => (
+                      <tr key={row.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
+                        <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{row.stock_id}</td>
+                        <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{row.name}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.price.toFixed(2)}</td>
+                        <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: 'var(--primary)' }}>
+                          {row.volume_ratio.toFixed(2)}x
+                        </td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: row.rsi > 70 ? 'var(--stock-down)' : row.rsi < 30 ? 'var(--stock-up)' : 'var(--foreground)' }}>
+                          {row.rsi.toFixed(1)}
+                        </td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
+                          {row.breakout_high.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

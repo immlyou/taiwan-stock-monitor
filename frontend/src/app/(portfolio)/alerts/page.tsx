@@ -7,6 +7,12 @@ import { Alert } from '@/lib/types'
 
 const SWR_KEY = '/alerts'
 
+// API 回傳 { total, alerts: [...] }
+interface AlertsResponse {
+  total: number
+  alerts: Alert[]
+}
+
 const ALERT_TYPES: { key: Alert['type']; label: string; unit: string }[] = [
   { key: 'price_above', label: '價格高於', unit: '元' },
   { key: 'price_below', label: '價格低於', unit: '元' },
@@ -15,7 +21,8 @@ const ALERT_TYPES: { key: Alert['type']; label: string; unit: string }[] = [
 ]
 
 export default function AlertsPage() {
-  const { data: alerts, isLoading, error } = useSWR<Alert[]>(SWR_KEY, fetchAPI)
+  const { data: alertsData, isLoading, error } = useSWR<AlertsResponse>(SWR_KEY, fetchAPI)
+  const alerts = alertsData?.alerts
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({

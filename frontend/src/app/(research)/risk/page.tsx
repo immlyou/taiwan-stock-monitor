@@ -5,18 +5,23 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 
-interface RiskData {
-  code: string
-  name: string
-  var95: number
-  var99: number
-  cvar95: number
-  cvar99: number
-  beta: number
-  sharpe: number
-  maxDrawdown: number
+interface RiskMetrics {
+  var_95: number
+  var_99: number
+  cvar_95: number
+  cvar_99: number
   volatility: number
-  period: string
+  downside_volatility: number
+  max_drawdown: number
+  beta: number
+  tracking_error: number
+}
+
+interface RiskResponse {
+  stock_id: string
+  days: number
+  date_range: { start: string; end: string }
+  risk_metrics: RiskMetrics
 }
 
 interface PortfolioRisk {
@@ -35,9 +40,10 @@ export default function RiskPage() {
   const [tab, setTab] = useState<TabType>('stock')
   const [inputCode, setInputCode] = useState('')
   const [stockCode, setStockCode] = useState('')
+  const [portfolioInput, setPortfolioInput] = useState('')
   const [portfolioCodes, setPortfolioCodes] = useState('')
 
-  const { data: stockRisk, isLoading: stockLoading, error: stockError } = useSWR<RiskData>(
+  const { data: stockRisk, isLoading: stockLoading, error: stockError } = useSWR<RiskResponse>(
     stockCode ? `/risk/stock/${stockCode}` : null,
     fetchAPI
   )
@@ -52,6 +58,11 @@ export default function RiskPage() {
   const handleStockSearch = () => {
     const code = inputCode.trim().toUpperCase()
     if (code) setStockCode(code)
+  }
+
+  const handlePortfolioSearch = () => {
+    const codes = portfolioInput.trim()
+    if (codes) setPortfolioCodes(codes)
   }
 
   return (
@@ -129,10 +140,10 @@ export default function RiskPage() {
             <>
               <div className="flex items-center gap-2 mb-2">
                 <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
-                  {stockRisk.code} {stockRisk.name}
+                  {stockRisk.stock_id}
                 </h2>
                 <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                  分析期間：{stockRisk.period}
+                  分析期間：{stockRisk.date_range.start} ~ {stockRisk.date_range.end}（{stockRisk.days} 日）
                 </span>
               </div>
 
@@ -140,51 +151,51 @@ export default function RiskPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <KpiCard
                   title="VaR 95% (日)"
-                  value={`${stockRisk.var95.toFixed(2)}%`}
+                  value={`${stockRisk.risk_metrics.var_95.toFixed(2)}%`}
                   subValue="95% 信心水準"
                   accentColor="var(--destructive)"
                 />
                 <KpiCard
                   title="VaR 99% (日)"
-                  value={`${stockRisk.var99.toFixed(2)}%`}
+                  value={`${stockRisk.risk_metrics.var_99.toFixed(2)}%`}
                   subValue="99% 信心水準"
                   accentColor="#dc2626"
                 />
                 <KpiCard
                   title="CVaR 95%"
-                  value={`${stockRisk.cvar95.toFixed(2)}%`}
+                  value={`${stockRisk.risk_metrics.cvar_95.toFixed(2)}%`}
                   subValue="條件風險值"
                   accentColor="#f97316"
                 />
                 <KpiCard
                   title="CVaR 99%"
-                  value={`${stockRisk.cvar99.toFixed(2)}%`}
+                  value={`${stockRisk.risk_metrics.cvar_99.toFixed(2)}%`}
                   subValue="條件風險值"
                   accentColor="#f97316"
                 />
                 <KpiCard
                   title="Beta 係數"
-                  value={stockRisk.beta.toFixed(2)}
+                  value={stockRisk.risk_metrics.beta.toFixed(2)}
                   subValue="相對大盤波動"
                   accentColor="#8b5cf6"
                 />
                 <KpiCard
-                  title="Sharpe Ratio"
-                  value={stockRisk.sharpe.toFixed(2)}
-                  subValue="風險調整報酬"
-                  accentColor="var(--primary)"
+                  title="年化波動度"
+                  value={`${stockRisk.risk_metrics.volatility.toFixed(2)}%`}
+                  subValue="年化標準差"
+                  accentColor="#f59e0b"
+                />
+                <KpiCard
+                  title="下行波動度"
+                  value={`${stockRisk.risk_metrics.downside_volatility.toFixed(2)}%`}
+                  subValue="負報酬標準差"
+                  accentColor="#f97316"
                 />
                 <KpiCard
                   title="最大回撤"
-                  value={`${stockRisk.maxDrawdown.toFixed(2)}%`}
+                  value={`${stockRisk.risk_metrics.max_drawdown.toFixed(2)}%`}
                   subValue="歷史最大跌幅"
                   accentColor="var(--stock-down)"
-                />
-                <KpiCard
-                  title="年化波動度"
-                  value={`${stockRisk.volatility.toFixed(2)}%`}
-                  subValue="年化標準差"
-                  accentColor="#f59e0b"
                 />
               </div>
 
@@ -197,15 +208,15 @@ export default function RiskPage() {
                 <div className="space-y-2 text-sm" style={{ color: 'var(--foreground)' }}>
                   <p>
                     <span className="font-medium" style={{ color: 'var(--primary)' }}>VaR（風險值）：</span>
-                    在 95% 信心水準下，單日最大損失不超過 {stockRisk.var95.toFixed(2)}%；99% 水準下為 {stockRisk.var99.toFixed(2)}%
+                    在 95% 信心水準下，單日最大損失不超過 {stockRisk.risk_metrics.var_95.toFixed(2)}%；99% 水準下為 {stockRisk.risk_metrics.var_99.toFixed(2)}%
                   </p>
                   <p>
                     <span className="font-medium" style={{ color: '#f97316' }}>CVaR（條件風險值）：</span>
-                    超越 VaR 臨界時，預期平均損失約為 {stockRisk.cvar95.toFixed(2)}%（95% 水準）
+                    超越 VaR 臨界時，預期平均損失約為 {stockRisk.risk_metrics.cvar_95.toFixed(2)}%（95% 水準）
                   </p>
                   <p>
                     <span className="font-medium" style={{ color: '#8b5cf6' }}>Beta：</span>
-                    {stockRisk.beta > 1 ? '波動度高於大盤，高風險高報酬特性' : stockRisk.beta < 1 ? '波動度低於大盤，相對穩定' : '與大盤同步波動'}
+                    {stockRisk.risk_metrics.beta > 1 ? '波動度高於大盤，高風險高報酬特性' : stockRisk.risk_metrics.beta < 1 ? '波動度低於大盤，相對穩定' : '與大盤同步波動'}
                   </p>
                 </div>
               </div>
@@ -226,14 +237,15 @@ export default function RiskPage() {
             <div className="flex gap-2">
               <input
                 type="text"
-                value={portfolioCodes}
-                onChange={(e) => setPortfolioCodes(e.target.value)}
+                value={portfolioInput}
+                onChange={(e) => setPortfolioInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handlePortfolioSearch()}
                 placeholder="例：2330,2454,2317"
                 className="flex-1 h-9 rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               />
               <button
-                onClick={() => setPortfolioCodes(portfolioCodes)}
+                onClick={handlePortfolioSearch}
                 className="h-9 px-4 rounded-md text-sm font-medium"
                 style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
               >

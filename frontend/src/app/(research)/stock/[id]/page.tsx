@@ -15,7 +15,7 @@ interface StockDetailPageProps {
 
 type TabType = 'chart' | 'technical' | 'chip' | 'basic'
 
-// 對應 GET /stock/:id
+// GET /stock/:id
 interface StockDetail {
   stock_id: string
   name: string
@@ -30,22 +30,51 @@ interface StockDetail {
   price_history?: Array<{ date: string; price: number }>
 }
 
-interface TechnicalData {
-  priceHistory?: Array<{ date: string; close: number; volume: number }>
-  indicators?: {
-    ma5?: number; ma10?: number; ma20?: number; ma60?: number
-    rsi14?: number; macd?: number; macdSignal?: number
-    kdK?: number; kdD?: number
-    bollUpper?: number; bollMiddle?: number; bollLower?: number
-  }
+// GET /stock/:id/ohlcv?days=120
+interface OhlcvResponse {
+  stock_id: string
+  days: number
+  data: Array<{
+    date: string
+    open: number
+    high: number
+    low: number
+    close: number
+    volume: number
+  }>
 }
 
-interface ChipData {
-  foreign?: { buy: number; sell: number; net: number }
-  investmentTrust?: { buy: number; sell: number; net: number }
-  dealer?: { buy: number; sell: number; net: number }
-  marginBalance?: number
-  shortBalance?: number
+// GET /stock/:id/technical
+interface TechnicalResponse {
+  stock_id: string
+  name: string
+  rsi_14?: number
+  macd?: {
+    macd: number
+    signal: number
+    histogram: number
+  }
+  sma?: {
+    sma5?: number
+    sma20?: number
+    sma60?: number
+  }
+  trend?: string
+}
+
+// GET /stock/:id/chip
+interface InstitutionalLatest {
+  latest?: number
+  [key: string]: unknown
+}
+
+interface ChipResponse {
+  stock_id: string
+  name: string
+  foreign_buy_sell?: InstitutionalLatest
+  trust_buy_sell?: InstitutionalLatest
+  dealer_buy_sell?: InstitutionalLatest
+  foreign_holding_pct?: number
 }
 
 export default function StockDetailPage({ params }: StockDetailPageProps) {
@@ -57,13 +86,18 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
     fetchAPI
   )
 
-  const { data: technical } = useSWR<TechnicalData>(
-    tab === 'technical' || tab === 'chart' ? `/stocks/${id}/technical` : null,
+  const { data: ohlcv, isLoading: ohlcvLoading } = useSWR<OhlcvResponse>(
+    tab === 'chart' ? `/stock/${id}/ohlcv?days=120` : null,
     fetchAPI
   )
 
-  const { data: chip } = useSWR<ChipData>(
-    tab === 'chip' ? `/stocks/${id}/chip` : null,
+  const { data: technical } = useSWR<TechnicalResponse>(
+    tab === 'technical' ? `/stock/${id}/technical` : null,
+    fetchAPI
+  )
+
+  const { data: chip } = useSWR<ChipResponse>(
+    tab === 'chip' ? `/stock/${id}/chip` : null,
     fetchAPI
   )
 
@@ -74,13 +108,8 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
     { key: 'basic', label: '基本資料' },
   ]
 
-  // price_history 直接來自 /stock/:id，欄位是 price
-  const priceHistory = stock?.price_history ?? []
-  // 技術面的 priceHistory 欄位是 close
-  const technicalHistory = technical?.priceHistory ?? []
-  const chartData = priceHistory.length > 0
-    ? priceHistory.map((p) => ({ date: p.date, close: p.price }))
-    : technicalHistory
+  // OHLCV 資料，取 close 欄位畫折線
+  const chartData = ohlcv?.data ?? []
 
   return (
     <div>
@@ -183,67 +212,156 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
         </div>
 
         <div className="p-4">
+          {/* 走勢圖 Tab：使用 /stock/{id}/ohlcv?days=120 */}
           {tab === 'chart' && (
             <div>
               <h3 className="text-sm font-medium mb-4" style={{ color: 'var(--muted-foreground)' }}>
-                近期收盤走勢
+                近 120 日收盤走勢
               </h3>
-              {chartData.length > 0 ? (
+              {ohlcvLoading ? (
+                <div className="h-64 flex items-center justify-center" style={{ color: 'var(--muted-foreground)' }}>
+                  載入走勢資料中...
+                </div>
+              ) : chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} />
-                    <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} domain={['auto', 'auto']} />
-                    <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                      tickFormatter={(v: string) => v.slice(5)}
                     />
-                    <Line type="monotone" dataKey="close" stroke="var(--primary)" dot={false} strokeWidth={2} name="收盤價" />
+                    <YAxis
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                      domain={['auto', 'auto']}
+                      width={60}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'var(--card)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--foreground)',
+                      }}
+                      formatter={(value) => [
+                        typeof value === 'number' ? formatPrice(value) : String(value ?? '—'),
+                        '收盤價' as string,
+                      ]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="close"
+                      stroke="var(--primary)"
+                      dot={false}
+                      strokeWidth={2}
+                      name="收盤價"
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="h-64 flex items-center justify-center" style={{ color: 'var(--muted-foreground)' }}>
-                  載入走勢資料中...
+                  暫無走勢資料
                 </div>
               )}
             </div>
           )}
 
+          {/* 技術分析 Tab：使用 /stock/{id}/technical */}
           {tab === 'technical' && (
             <div className="space-y-4">
               <h3 className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>技術指標</h3>
-              {technical?.indicators ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {([
-                    { label: 'MA5', value: technical.indicators.ma5 },
-                    { label: 'MA10', value: technical.indicators.ma10 },
-                    { label: 'MA20', value: technical.indicators.ma20 },
-                    { label: 'MA60', value: technical.indicators.ma60 },
-                    { label: 'RSI(14)', value: technical.indicators.rsi14 },
-                    { label: 'MACD', value: technical.indicators.macd },
-                    { label: 'KD-K', value: technical.indicators.kdK },
-                    { label: 'KD-D', value: technical.indicators.kdD },
-                    { label: '布林上軌', value: technical.indicators.bollUpper },
-                    { label: '布林中軌', value: technical.indicators.bollMiddle },
-                    { label: '布林下軌', value: technical.indicators.bollLower },
-                  ] as { label: string; value?: number }[]).filter(i => i.value != null).map((item) => (
+              {technical ? (
+                <>
+                  {/* 趨勢判斷 */}
+                  {technical.trend && (
                     <div
-                      key={item.label}
-                      className="rounded-md p-3"
+                      className="rounded-md p-3 flex items-center gap-2"
                       style={{ background: 'var(--secondary)' }}
                     >
-                      <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>{item.label}</p>
-                      <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {item.value!.toFixed(2)}
-                      </p>
+                      <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>趨勢判斷</span>
+                      <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                        {technical.trend}
+                      </span>
                     </div>
-                  ))}
-                </div>
+                  )}
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {/* SMA 均線 */}
+                    {technical.sma?.sma5 != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MA5</p>
+                        <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+                          {technical.sma.sma5.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {technical.sma?.sma20 != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MA20</p>
+                        <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+                          {technical.sma.sma20.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {technical.sma?.sma60 != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MA60</p>
+                        <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+                          {technical.sma.sma60.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {/* RSI */}
+                    {technical.rsi_14 != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>RSI(14)</p>
+                        <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+                          {technical.rsi_14.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {/* MACD */}
+                    {technical.macd?.macd != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MACD</p>
+                        <p
+                          className="font-semibold tabular-nums"
+                          style={{ color: getChangeColorVar(technical.macd.macd) }}
+                        >
+                          {technical.macd.macd.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {technical.macd?.signal != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>Signal</p>
+                        <p
+                          className="font-semibold tabular-nums"
+                          style={{ color: getChangeColorVar(technical.macd.signal) }}
+                        >
+                          {technical.macd.signal.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                    {technical.macd?.histogram != null && (
+                      <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                        <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>柱狀值</p>
+                        <p
+                          className="font-semibold tabular-nums"
+                          style={{ color: getChangeColorVar(technical.macd.histogram) }}
+                        >
+                          {technical.macd.histogram.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </>
               ) : (
                 <p style={{ color: 'var(--muted-foreground)' }}>載入技術指標中...</p>
               )}
             </div>
           )}
 
+          {/* 籌碼 Tab：使用 /stock/{id}/chip */}
           {tab === 'chip' && (
             <div className="space-y-4">
               <h3 className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>三大法人買賣超</h3>
@@ -252,49 +370,37 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                   <table className="w-full text-sm">
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        {['法人', '買進', '賣出', '買賣超'].map((h) => (
+                        {['法人', '最新買賣超 (張)'].map((h) => (
                           <th key={h} className="text-left py-2 px-3" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {([
-                        { label: '外資', data: chip.foreign },
-                        { label: '投信', data: chip.investmentTrust },
-                        { label: '自營商', data: chip.dealer },
-                      ] as { label: string; data?: { buy: number; sell: number; net: number } }[]).filter(r => r.data).map(({ label, data }) => (
+                        { label: '外資', latest: chip.foreign_buy_sell?.latest },
+                        { label: '投信', latest: chip.trust_buy_sell?.latest },
+                        { label: '自營商', latest: chip.dealer_buy_sell?.latest },
+                      ] as { label: string; latest?: number }[]).filter(r => r.latest != null).map(({ label, latest }) => (
                         <tr key={label} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td className="py-2 px-3" style={{ color: 'var(--foreground)' }}>{label}</td>
-                          <td className="py-2 px-3 tabular-nums" style={{ color: 'var(--stock-up)' }}>
-                            {data!.buy.toLocaleString()}
-                          </td>
-                          <td className="py-2 px-3 tabular-nums" style={{ color: 'var(--stock-down)' }}>
-                            {data!.sell.toLocaleString()}
-                          </td>
                           <td
                             className="py-2 px-3 font-semibold tabular-nums"
-                            style={{ color: getChangeColorVar(data!.net) }}
+                            style={{ color: getChangeColorVar(latest!) }}
                           >
-                            {data!.net > 0 ? '+' : ''}{data!.net.toLocaleString()}
+                            {latest! > 0 ? '+' : ''}{latest!.toLocaleString()}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  <div className="grid grid-cols-2 gap-3 mt-4">
-                    <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
-                      <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>融資餘額</p>
+                  {chip.foreign_holding_pct != null && (
+                    <div className="rounded-md p-3 mt-2" style={{ background: 'var(--secondary)' }}>
+                      <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>外資持股比例</p>
                       <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                        {chip.marginBalance?.toLocaleString() ?? '—'} 張
+                        {chip.foreign_holding_pct.toFixed(2)}%
                       </p>
                     </div>
-                    <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
-                      <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>融券餘額</p>
-                      <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                        {chip.shortBalance?.toLocaleString() ?? '—'} 張
-                      </p>
-                    </div>
-                  </div>
+                  )}
                 </>
               ) : (
                 <p style={{ color: 'var(--muted-foreground)' }}>載入籌碼資料中...</p>
@@ -302,6 +408,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
             </div>
           )}
 
+          {/* 基本資料 Tab */}
           {tab === 'basic' && (
             <div>
               <h3 className="text-sm font-medium mb-4" style={{ color: 'var(--muted-foreground)' }}>基本資料</h3>
@@ -313,13 +420,15 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                       { label: '公司名稱', value: stock.name },
                       { label: '產業別', value: stock.industry ?? '—' },
                       { label: '現價', value: formatPrice(stock.latest_price) },
-                      { label: '本益比', value: stock.pe_ratio?.toFixed(2) ?? '—' },
-                      { label: '股價淨值比', value: stock.pb_ratio?.toFixed(2) ?? '—' },
+                      { label: '漲跌幅', value: formatPercent(stock.change_pct) },
+                      { label: '本益比 (PE)', value: stock.pe_ratio?.toFixed(2) ?? '—' },
+                      { label: '股價淨值比 (PB)', value: stock.pb_ratio?.toFixed(2) ?? '—' },
                       { label: '殖利率', value: stock.dividend_yield != null ? `${stock.dividend_yield.toFixed(2)}%` : '—' },
                       { label: '營收年增率', value: stock.revenue_yoy != null ? `${stock.revenue_yoy.toFixed(2)}%` : '—' },
+                      { label: '資料日期', value: stock.date ?? '—' },
                     ].map(({ label, value }) => (
                       <tr key={label} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td className="py-2 px-3 w-32" style={{ color: 'var(--muted-foreground)' }}>{label}</td>
+                        <td className="py-2 px-3 w-36" style={{ color: 'var(--muted-foreground)' }}>{label}</td>
                         <td className="py-2 px-3" style={{ color: 'var(--foreground)' }}>{value}</td>
                       </tr>
                     ))}

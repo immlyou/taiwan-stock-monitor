@@ -7,33 +7,37 @@ import {
   ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 
-interface TechnicalChartData {
+interface TechnicalChartItem {
   date: string
-  open: number
-  high: number
-  low: number
   close: number
-  volume: number
-  ma5?: number
-  ma20?: number
+  sma5?: number
+  sma20?: number
+  sma60?: number
+  rsi14?: number
   macd?: number
-  macdSignal?: number
-  macdHist?: number
-  kdK?: number
-  kdD?: number
-  rsi?: number
-  bollUpper?: number
-  bollMiddle?: number
-  bollLower?: number
+  macd_signal?: number
+  macd_hist?: number
+  bb_upper?: number
+  bb_mid?: number
+  bb_lower?: number
+  kdj_k?: number
+  kdj_d?: number
+  kdj_j?: number
+}
+
+interface TechnicalChartResponse {
+  stock_id: string
+  days: number
+  data: TechnicalChartItem[]
 }
 
 type Indicator = 'macd' | 'kd' | 'rsi' | 'boll'
 
-const PERIODS = [
-  { label: '1 個月', value: '1m' },
-  { label: '3 個月', value: '3m' },
-  { label: '6 個月', value: '6m' },
-  { label: '1 年', value: '1y' },
+const PERIODS: { label: string; value: string; days: number }[] = [
+  { label: '1 個月', value: '1m', days: 30 },
+  { label: '3 個月', value: '3m', days: 90 },
+  { label: '6 個月', value: '6m', days: 180 },
+  { label: '1 年', value: '1y', days: 365 },
 ]
 
 const INDICATORS: { key: Indicator; label: string }[] = [
@@ -49,10 +53,16 @@ export default function TechnicalPage() {
   const [period, setPeriod] = useState('3m')
   const [activeIndicators, setActiveIndicators] = useState<Indicator[]>(['macd'])
 
-  const { data: chartData, isLoading, error } = useSWR<TechnicalChartData[]>(
-    stockCode ? `/stocks/${stockCode}/technical-chart?period=${period}` : null,
+  const selectedPeriod = PERIODS.find(p => p.value === period) ?? PERIODS[1]
+
+  const { data: response, isLoading, error } = useSWR<TechnicalChartResponse>(
+    stockCode
+      ? `/stock/${stockCode}/technical-chart?days=${selectedPeriod.days}`
+      : null,
     fetchAPI
   )
+
+  const chartData = response?.data ?? []
 
   const toggleIndicator = (ind: Indicator) => {
     setActiveIndicators(prev =>
@@ -70,7 +80,7 @@ export default function TechnicalPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>技術分析</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>OHLCV 圖表與技術指標</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>收盤價走勢與技術指標</p>
       </div>
 
       {/* 控制列 */}
@@ -164,9 +174,9 @@ export default function TechnicalPage() {
         >
           <p style={{ color: 'var(--muted-foreground)' }}>載入 {stockCode} 技術分析中...</p>
         </div>
-      ) : chartData && chartData.length > 0 ? (
+      ) : chartData.length > 0 ? (
         <div className="space-y-4">
-          {/* 價格圖 */}
+          {/* 收盤價 + 均線 */}
           <div
             className="rounded-lg p-4"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
@@ -184,14 +194,16 @@ export default function TechnicalPage() {
                 />
                 <Legend />
                 <Line type="monotone" dataKey="close" stroke="var(--primary)" dot={false} strokeWidth={2} name="收盤" />
+                <Line type="monotone" dataKey="sma5" stroke="#3b82f6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA5" />
+                <Line type="monotone" dataKey="sma20" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA20" />
+                <Line type="monotone" dataKey="sma60" stroke="#10b981" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA60" />
                 {activeIndicators.includes('boll') && (
                   <>
-                    <Line type="monotone" dataKey="bollUpper" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林上軌" />
-                    <Line type="monotone" dataKey="bollMiddle" stroke="#8b5cf6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林中軌" />
-                    <Line type="monotone" dataKey="bollLower" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林下軌" />
+                    <Line type="monotone" dataKey="bb_upper" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林上軌" />
+                    <Line type="monotone" dataKey="bb_mid" stroke="#8b5cf6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林中軌" />
+                    <Line type="monotone" dataKey="bb_lower" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林下軌" />
                   </>
                 )}
-                <Bar dataKey="volume" fill="var(--secondary)" name="成交量" yAxisId={1} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -209,9 +221,9 @@ export default function TechnicalPage() {
                   <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
-                  <Bar dataKey="macdHist" fill="var(--primary)" name="柱狀" />
+                  <Bar dataKey="macd_hist" fill="var(--primary)" name="柱狀" />
                   <Line type="monotone" dataKey="macd" stroke="#ef4444" dot={false} strokeWidth={1.5} name="MACD" />
-                  <Line type="monotone" dataKey="macdSignal" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="Signal" />
+                  <Line type="monotone" dataKey="macd_signal" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="Signal" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -231,8 +243,8 @@ export default function TechnicalPage() {
                   <YAxis domain={[0, 100]} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
                   <Legend />
-                  <Line type="monotone" dataKey="kdK" stroke="#3b82f6" dot={false} strokeWidth={1.5} name="K" />
-                  <Line type="monotone" dataKey="kdD" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="D" />
+                  <Line type="monotone" dataKey="kdj_k" stroke="#3b82f6" dot={false} strokeWidth={1.5} name="K" />
+                  <Line type="monotone" dataKey="kdj_d" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="D" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -251,7 +263,7 @@ export default function TechnicalPage() {
                   <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <YAxis domain={[0, 100]} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
-                  <Line type="monotone" dataKey="rsi" stroke="#8b5cf6" dot={false} strokeWidth={1.5} name="RSI" />
+                  <Line type="monotone" dataKey="rsi14" stroke="#8b5cf6" dot={false} strokeWidth={1.5} name="RSI" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>

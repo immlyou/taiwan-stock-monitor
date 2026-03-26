@@ -26,6 +26,11 @@ const OPERATORS: { key: StrategyCondition['operator']; label: string }[] = [
 
 const SWR_KEY = '/strategies/saved'
 
+interface SavedStrategiesResponse {
+  total: number
+  strategies: Strategy[]
+}
+
 interface DialogState {
   open: boolean
   mode: 'create' | 'edit'
@@ -39,7 +44,8 @@ const emptyStrategy = (): Partial<Strategy> => ({
 })
 
 export default function StrategiesPage() {
-  const { data: strategies, isLoading } = useSWR<Strategy[]>(SWR_KEY, fetchAPI)
+  const { data: strategiesRes, isLoading } = useSWR<SavedStrategiesResponse>(SWR_KEY, fetchAPI)
+  const strategies = strategiesRes?.strategies
   const [dialog, setDialog] = useState<DialogState>({ open: false, mode: 'create' })
   const [form, setForm] = useState<Partial<Strategy>>(emptyStrategy())
   const [deleteId, setDeleteId] = useState<string | null>(null)

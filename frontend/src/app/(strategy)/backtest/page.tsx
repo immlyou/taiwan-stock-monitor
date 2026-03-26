@@ -3,69 +3,84 @@
 import { useState } from 'react'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
-import { getChangeColorVar } from '@/lib/utils/format'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts'
 
+interface BacktestMetrics {
+  total_return: number
+  annualized_return: number
+  volatility: number
+  sharpe_ratio: number
+  sortino_ratio: number
+  max_drawdown: number
+  win_rate: number
+  total_trades: number
+  profit_factor: number
+  calmar_ratio: number
+}
+
+interface PortfolioValue {
+  date: string
+  value: number
+}
+
+interface BenchmarkComparison {
+  excess_return: number
+  beta: number
+  alpha: number
+  information_ratio: number
+  correlation: number
+  tracking_error: number
+}
+
 interface BacktestResult {
-  summary: {
-    totalReturn: number
-    annualReturn: number
-    maxDrawdown: number
-    sharpe: number
-    winRate: number
-    tradeCount: number
-    startDate: string
-    endDate: string
-    initialCapital: number
-    finalCapital: number
+  strategy: string
+  preset: string
+  config: {
+    initial_capital: number
+    rebalance_freq: string
+    max_stocks: number
+    weight_method: string
+    start_date: string
+    end_date: string
   }
-  navHistory: Array<{ date: string; nav: number; benchmark?: number }>
-  trades: Array<{
-    date: string
-    code: string
-    name: string
-    action: 'buy' | 'sell'
-    price: number
-    shares: number
-    pnl?: number
-  }>
+  metrics: BacktestMetrics
+  portfolio_values: PortfolioValue[]
+  benchmark_comparison: BenchmarkComparison
 }
 
 const STRATEGIES = [
-  { key: 'ma_crossover', label: '均線交叉' },
-  { key: 'rsi_reversal', label: 'RSI 反轉' },
-  { key: 'breakout', label: '突破策略' },
-  { key: 'value_investing', label: '價值投資' },
+  { key: 'value', label: '價值投資' },
+  { key: 'growth', label: '成長選股' },
+  { key: 'momentum', label: '動能選股' },
 ]
 
 export default function BacktestPage() {
   const [form, setForm] = useState({
-    strategy: 'ma_crossover',
-    stockCode: '',
-    startDate: '2023-01-01',
+    strategy: 'value',
+    startDate: '2024-01-01',
     endDate: '2024-12-31',
     initialCapital: 1000000,
-    fastPeriod: 5,
-    slowPeriod: 20,
   })
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const handleRun = async () => {
-    if (!form.stockCode.trim()) {
-      setError('請輸入股票代號')
-      return
-    }
     setLoading(true)
     setError('')
     setResult(null)
     try {
       const data = await fetchAPI<BacktestResult>('/backtest/run', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          strategy: form.strategy,
+          preset: 'standard',
+          start_date: form.startDate,
+          end_date: form.endDate,
+          initial_capital: form.initialCapital,
+        }),
       })
       setResult(data)
     } catch {
@@ -107,17 +122,6 @@ export default function BacktestPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
-            <input
-              type="text"
-              value={form.stockCode}
-              onChange={(e) => updateForm('stockCode', e.target.value.toUpperCase())}
-              placeholder="例：2330"
-              className="h-9 w-full rounded-md border px-3 text-sm"
-              style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-            />
-          </div>
-          <div>
             <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>開始日期</label>
             <input
               type="date"
@@ -147,26 +151,6 @@ export default function BacktestPage() {
               style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
             />
           </div>
-          <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>快線週期</label>
-            <input
-              type="number"
-              value={form.fastPeriod}
-              onChange={(e) => updateForm('fastPeriod', Number(e.target.value))}
-              className="h-9 w-full rounded-md border px-3 text-sm"
-              style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-            />
-          </div>
-          <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>慢線週期</label>
-            <input
-              type="number"
-              value={form.slowPeriod}
-              onChange={(e) => updateForm('slowPeriod', Number(e.target.value))}
-              className="h-9 w-full rounded-md border px-3 text-sm"
-              style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-            />
-          </div>
         </div>
         {error && (
           <p className="mt-2 text-sm" style={{ color: 'var(--destructive)' }}>{error}</p>
@@ -190,39 +174,43 @@ export default function BacktestPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiCard
               title="總報酬率"
-              value={`${result.summary.totalReturn > 0 ? '+' : ''}${result.summary.totalReturn.toFixed(2)}%`}
-              accentColor={result.summary.totalReturn >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}
+              value={`${result.metrics.total_return > 0 ? '+' : ''}${result.metrics.total_return.toFixed(2)}%`}
+              accentColor={result.metrics.total_return >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}
             />
             <KpiCard
               title="年化報酬率"
-              value={`${result.summary.annualReturn > 0 ? '+' : ''}${result.summary.annualReturn.toFixed(2)}%`}
+              value={`${result.metrics.annualized_return > 0 ? '+' : ''}${result.metrics.annualized_return.toFixed(2)}%`}
               accentColor="var(--primary)"
             />
             <KpiCard
               title="最大回撤"
-              value={`${result.summary.maxDrawdown.toFixed(2)}%`}
+              value={`${result.metrics.max_drawdown.toFixed(2)}%`}
               accentColor="var(--destructive)"
             />
             <KpiCard
               title="Sharpe Ratio"
-              value={result.summary.sharpe.toFixed(2)}
+              value={result.metrics.sharpe_ratio.toFixed(2)}
               accentColor="#8b5cf6"
             />
             <KpiCard
               title="勝率"
-              value={`${result.summary.winRate.toFixed(1)}%`}
+              value={`${result.metrics.win_rate.toFixed(1)}%`}
               accentColor="#f59e0b"
             />
             <KpiCard
               title="交易次數"
-              value={String(result.summary.tradeCount)}
+              value={String(result.metrics.total_trades)}
               accentColor="var(--muted-foreground)"
             />
             <KpiCard
-              title="期末資金"
-              value={`${(result.summary.finalCapital / 1e4).toFixed(1)} 萬`}
-              subValue={`初始 ${(result.summary.initialCapital / 1e4).toFixed(0)} 萬`}
-              accentColor="var(--stock-down)"
+              title="獲利因子"
+              value={result.metrics.profit_factor.toFixed(2)}
+              accentColor="var(--stock-up)"
+            />
+            <KpiCard
+              title="Calmar Ratio"
+              value={result.metrics.calmar_ratio.toFixed(2)}
+              accentColor="#f97316"
             />
           </div>
 
@@ -231,63 +219,53 @@ export default function BacktestPage() {
             className="rounded-lg p-4"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
-            <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>策略淨值走勢</h3>
+            <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>
+              策略淨值走勢（{result.config.start_date} ~ {result.config.end_date}）
+            </h3>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={result.navHistory}>
+              <LineChart data={result.portfolio_values}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
-                <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
-                <ReferenceLine y={result.summary.initialCapital} stroke="var(--border)" strokeDasharray="4 2" />
-                <Line type="monotone" dataKey="nav" stroke="var(--primary)" dot={false} strokeWidth={2} name="策略淨值" />
-                {result.navHistory[0]?.benchmark !== undefined && (
-                  <Line type="monotone" dataKey="benchmark" stroke="var(--muted-foreground)" dot={false} strokeWidth={1.5} strokeDasharray="4 2" name="指數基準" />
-                )}
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
+                  tickFormatter={(v: string) => v.slice(5)}
+                  interval={Math.floor(result.portfolio_values.length / 8)}
+                />
+                <YAxis
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
+                  tickFormatter={(v: number) => `${(v / 1e4).toFixed(0)}萬`}
+                />
+                <Tooltip
+                  contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(v: any) => [`${(Number(v ?? 0) / 1e4).toFixed(2)} 萬`, '淨值']}
+                />
+                <ReferenceLine y={result.config.initial_capital} stroke="var(--border)" strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="value" stroke="var(--primary)" dot={false} strokeWidth={2} name="策略淨值" />
               </LineChart>
             </ResponsiveContainer>
           </div>
 
-          {/* 交易記錄 */}
+          {/* 基準對比 */}
           <div
-            className="rounded-lg overflow-hidden"
+            className="rounded-lg p-4"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
-            <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-              <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>交易記錄</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ background: 'var(--secondary)' }}>
-                    {['日期', '代號', '名稱', '操作', '價格', '張數', '損益'].map(h => (
-                      <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.trades.slice(0, 50).map((t, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{t.date}</td>
-                      <td className="py-2 px-4" style={{ color: 'var(--primary)' }}>{t.code}</td>
-                      <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{t.name}</td>
-                      <td
-                        className="py-2 px-4 font-medium"
-                        style={{ color: t.action === 'buy' ? 'var(--stock-up)' : 'var(--stock-down)' }}
-                      >
-                        {t.action === 'buy' ? '買進' : '賣出'}
-                      </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{t.price.toFixed(2)}</td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{t.shares}</td>
-                      <td
-                        className="py-2 px-4 tabular-nums font-medium"
-                        style={{ color: t.pnl != null ? getChangeColorVar(t.pnl) : 'var(--muted-foreground)' }}
-                      >
-                        {t.pnl != null ? `${t.pnl > 0 ? '+' : ''}${t.pnl.toLocaleString()}` : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>基準比較</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              {[
+                { label: '超額報酬', value: `${result.benchmark_comparison.excess_return.toFixed(2)}%` },
+                { label: 'Alpha', value: result.benchmark_comparison.alpha.toFixed(2) },
+                { label: 'Beta', value: result.benchmark_comparison.beta.toFixed(2) },
+                { label: 'Information Ratio', value: result.benchmark_comparison.information_ratio.toFixed(2) },
+                { label: '相關係數', value: result.benchmark_comparison.correlation.toFixed(2) },
+                { label: 'Tracking Error', value: `${result.benchmark_comparison.tracking_error.toFixed(2)}%` },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <p className="text-xs mb-0.5" style={{ color: 'var(--muted-foreground)' }}>{label}</p>
+                  <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>{value}</p>
+                </div>
+              ))}
             </div>
           </div>
         </div>

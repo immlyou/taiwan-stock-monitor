@@ -8,23 +8,17 @@ import { getChangeColorVar } from '@/lib/utils/format'
 interface JournalEntry {
   id: string
   date: string
-  code: string
-  name: string
-  action: 'buy' | 'sell' | 'add' | 'reduce'
-  shares: number
-  price: number
-  totalAmount: number
-  fee: number
-  note?: string
-  realizedPnl?: number
-  createdAt: string
+  stock_id: string
+  action: string
+  shares: number | null
+  price: number | null
+  note: string
+  created_at: string
 }
 
 interface JournalResponse {
   entries: JournalEntry[]
   total: number
-  page: number
-  pageSize: number
 }
 
 const SWR_KEY_BASE = '/journal'
@@ -34,46 +28,44 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   sell: { label: '賣出', color: 'var(--stock-down)' },
   add: { label: '加碼', color: 'var(--stock-up)' },
   reduce: { label: '減碼', color: 'var(--stock-down)' },
+  note: { label: '備注', color: 'var(--muted-foreground)' },
 }
 
 export default function JournalPage() {
-  const [page, setPage] = useState(1)
-  const PAGE_SIZE = 20
+  const [limit] = useState(50)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
-    code: '',
-    action: 'buy' as JournalEntry['action'],
+    stock_id: '',
+    action: 'buy' as string,
     shares: '',
     price: '',
     note: '',
   })
   const [saving, setSaving] = useState(false)
 
-  const swrKey = `${SWR_KEY_BASE}?page=${page}&pageSize=${PAGE_SIZE}`
+  const swrKey = `${SWR_KEY_BASE}?limit=${limit}`
   const { data, isLoading, error } = useSWR<JournalResponse>(swrKey, fetchAPI)
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1
-
   const handleCreate = async () => {
-    if (!form.code.trim() || !form.shares || !form.price) return
+    if (!form.stock_id.trim()) return
     setSaving(true)
     try {
       await fetchAPI(SWR_KEY_BASE, {
         method: 'POST',
         body: JSON.stringify({
           date: form.date,
-          code: form.code.toUpperCase(),
+          stock_id: form.stock_id.toUpperCase(),
           action: form.action,
-          shares: Number(form.shares),
-          price: Number(form.price),
-          note: form.note || undefined,
+          shares: form.shares ? Number(form.shares) : null,
+          price: form.price ? Number(form.price) : null,
+          note: form.note || '',
         }),
       })
       await mutate(swrKey)
       setDialogOpen(false)
-      setForm({ date: new Date().toISOString().slice(0, 10), code: '', action: 'buy', shares: '', price: '', note: '' })
+      setForm({ date: new Date().toISOString().slice(0, 10), stock_id: '', action: 'buy', shares: '', price: '', note: '' })
     } finally {
       setSaving(false)
     }
@@ -85,7 +77,7 @@ export default function JournalPage() {
     setDeleteId(null)
   }
 
-  const totalAmount = form.shares && form.price
+  const estimatedAmount = form.shares && form.price
     ? (Number(form.shares) * 1000 * Number(form.price)).toLocaleString()
     : '—'
 
@@ -116,96 +108,60 @@ export default function JournalPage() {
           ))}
         </div>
       ) : (
-        <>
-          <div
-            className="rounded-lg overflow-hidden mb-4"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            {data && data.entries.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ background: 'var(--secondary)' }}>
-                      {['日期', '代號', '名稱', '操作', '張數', '成交價', '成交金額', '手續費', '已實現損益', '備注', '操作'].map(h => (
-                        <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.entries.map((e) => {
-                      const actionInfo = ACTION_LABELS[e.action] ?? { label: e.action, color: 'var(--foreground)' }
-                      return (
-                        <tr key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>{e.date}</td>
-                          <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{e.code}</td>
-                          <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{e.name}</td>
-                          <td className="py-2 px-4 font-semibold" style={{ color: actionInfo.color }}>{actionInfo.label}</td>
-                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{e.shares}</td>
-                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{e.price.toFixed(2)}</td>
-                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                            {(e.totalAmount / 1e4).toFixed(1)} 萬
-                          </td>
-                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
-                            {e.fee.toLocaleString()}
-                          </td>
-                          <td
-                            className="py-2 px-4 tabular-nums font-medium"
-                            style={{ color: e.realizedPnl != null ? getChangeColorVar(e.realizedPnl) : 'var(--muted-foreground)' }}
+        <div
+          className="rounded-lg overflow-hidden mb-4"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          {data && data.entries.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background: 'var(--secondary)' }}>
+                    {['日期', '代號', '操作', '張數', '成交價', '預估金額', '備注', '操作'].map(h => (
+                      <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.entries.map((e) => {
+                    const actionInfo = ACTION_LABELS[e.action] ?? { label: e.action, color: 'var(--foreground)' }
+                    const amount = e.shares && e.price ? e.shares * 1000 * e.price : null
+                    return (
+                      <tr key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>{e.date}</td>
+                        <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{e.stock_id}</td>
+                        <td className="py-2 px-4 font-semibold" style={{ color: actionInfo.color }}>{actionInfo.label}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{e.shares ?? '—'}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
+                          {e.price != null ? e.price.toFixed(2) : '—'}
+                        </td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
+                          {amount != null ? `${(amount / 1e4).toFixed(1)} 萬` : '—'}
+                        </td>
+                        <td className="py-2 px-4 max-w-32 truncate" style={{ color: 'var(--muted-foreground)' }}>
+                          {e.note || '—'}
+                        </td>
+                        <td className="py-2 px-4">
+                          <button
+                            onClick={() => setDeleteId(e.id)}
+                            className="text-xs px-2 py-1 rounded"
+                            style={{ color: 'var(--destructive)' }}
                           >
-                            {e.realizedPnl != null
-                              ? `${e.realizedPnl > 0 ? '+' : ''}${(e.realizedPnl / 1e4).toFixed(1)} 萬`
-                              : '—'}
-                          </td>
-                          <td className="py-2 px-4 max-w-32 truncate" style={{ color: 'var(--muted-foreground)' }}>
-                            {e.note ?? '—'}
-                          </td>
-                          <td className="py-2 px-4">
-                            <button
-                              onClick={() => setDeleteId(e.id)}
-                              className="text-xs px-2 py-1 rounded"
-                              style={{ color: 'var(--destructive)' }}
-                            >
-                              刪除
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="p-12 text-center">
-                <p style={{ color: 'var(--muted-foreground)' }}>尚無交易記錄</p>
-              </div>
-            )}
-          </div>
-
-          {/* 分頁 */}
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="h-8 px-3 rounded text-sm disabled:opacity-50"
-                style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
-              >
-                上一頁
-              </button>
-              <span className="h-8 flex items-center px-3 text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                {page} / {totalPages}
-              </span>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="h-8 px-3 rounded text-sm disabled:opacity-50"
-                style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
-              >
-                下一頁
-              </button>
+                            刪除
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-12 text-center">
+              <p style={{ color: 'var(--muted-foreground)' }}>尚無交易記錄</p>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* 新增 Dialog */}
@@ -232,8 +188,8 @@ export default function JournalPage() {
                   <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
                   <input
                     type="text"
-                    value={form.code}
-                    onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
+                    value={form.stock_id}
+                    onChange={(e) => setForm(p => ({ ...p, stock_id: e.target.value.toUpperCase() }))}
                     placeholder="例：2330"
                     className="h-9 w-full rounded-md border px-3 text-sm"
                     style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -291,7 +247,7 @@ export default function JournalPage() {
               <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                 <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>預估金額：</span>
                 <span className="text-sm font-semibold ml-1" style={{ color: 'var(--foreground)' }}>
-                  {totalAmount} 元
+                  {estimatedAmount} 元
                 </span>
               </div>
 
@@ -317,7 +273,7 @@ export default function JournalPage() {
               </button>
               <button
                 onClick={handleCreate}
-                disabled={saving}
+                disabled={saving || !form.stock_id.trim()}
                 className="h-9 px-4 rounded-md text-sm disabled:opacity-60"
                 style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
               >

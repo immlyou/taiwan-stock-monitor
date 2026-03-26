@@ -3,29 +3,42 @@
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
-import { getChangeColorVar, formatPrice, formatVolume } from '@/lib/utils/format'
+import { getChangeColorVar } from '@/lib/utils/format'
 
-interface WatchlistItem {
-  id: string
-  code: string
+interface WatchlistStock {
+  stock_id: string
   name: string
-  close: number
-  change: number
-  changePercent: number
-  open: number
-  high: number
-  low: number
-  volume: number
-  addedAt: string
+  industry?: string
+  price: number | null
+  change_pct: number | null
 }
 
-const SWR_KEY = '/watchlists/default'
+interface WatchlistDetail {
+  id: string
+  name: string
+  stocks_count: number
+  stocks: WatchlistStock[]
+}
+
+const WATCHLIST_ID = 'default'
+const SWR_KEY = `/watchlists/${WATCHLIST_ID}`
 
 export default function WatchlistPage() {
-  const { data: items, isLoading, error } = useSWR<WatchlistItem[]>(SWR_KEY, fetchAPI)
+  const { data, isLoading, error } = useSWR<WatchlistDetail>(SWR_KEY, fetchAPI)
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
+
+  const ensureWatchlistExists = async () => {
+    try {
+      await fetchAPI(SWR_KEY)
+    } catch {
+      await fetchAPI('/watchlists', {
+        method: 'POST',
+        body: JSON.stringify({ name: WATCHLIST_ID, stocks: [] }),
+      })
+    }
+  }
 
   const handleAdd = async () => {
     const code = addCode.trim().toUpperCase()
@@ -33,9 +46,15 @@ export default function WatchlistPage() {
     setAdding(true)
     setAddError('')
     try {
-      await fetchAPI(`${SWR_KEY}/stocks`, {
-        method: 'POST',
-        body: JSON.stringify({ code }),
+      await ensureWatchlistExists()
+      const currentStocks = data?.stocks.map(s => s.stock_id) ?? []
+      if (currentStocks.includes(code)) {
+        setAddError(`${code} 已在自選股清單中`)
+        return
+      }
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ stocks: [...currentStocks, code] }),
       })
       await mutate(SWR_KEY)
       setAddCode('')
@@ -46,10 +65,17 @@ export default function WatchlistPage() {
     }
   }
 
-  const handleRemove = async (id: string) => {
-    await fetchAPI(`${SWR_KEY}/stocks/${id}`, { method: 'DELETE' })
+  const handleRemove = async (stock_id: string) => {
+    const currentStocks = data?.stocks.map(s => s.stock_id) ?? []
+    const updated = currentStocks.filter(s => s !== stock_id)
+    await fetchAPI(SWR_KEY, {
+      method: 'PUT',
+      body: JSON.stringify({ stocks: updated }),
+    })
     await mutate(SWR_KEY)
   }
+
+  const stocks = data?.stocks ?? []
 
   return (
     <div>
@@ -87,10 +113,16 @@ export default function WatchlistPage() {
         )}
       </div>
 
-      {/* 自選股卡片 / 表格 */}
-      {error ? (
-        <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-          <p style={{ color: 'var(--destructive)' }}>資料載入失敗</p>
+      {/* 自選股卡片 */}
+      {error && !data ? (
+        <div
+          className="rounded-lg p-12 text-center"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <p className="text-lg mb-2" style={{ color: 'var(--muted-foreground)' }}>自選股清單為空</p>
+          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+            在上方輸入股票代號，新增到自選股追蹤
+          </p>
         </div>
       ) : isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -98,17 +130,17 @@ export default function WatchlistPage() {
             <div key={i} className="h-28 rounded-lg animate-pulse" style={{ background: 'var(--card)' }} />
           ))}
         </div>
-      ) : items && items.length > 0 ? (
+      ) : stocks.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {items.map((item) => (
+          {stocks.map((item) => (
             <div
-              key={item.id}
+              key={item.stock_id}
               className="rounded-lg p-4 relative"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
             >
               {/* 移除按鈕 */}
               <button
-                onClick={() => handleRemove(item.id)}
+                onClick={() => handleRemove(item.stock_id)}
                 className="absolute top-3 right-3 text-xs opacity-50 hover:opacity-100 transition-opacity"
                 style={{ color: 'var(--muted-foreground)' }}
               >
@@ -117,44 +149,31 @@ export default function WatchlistPage() {
 
               {/* 代號名稱 */}
               <div className="mb-2">
-                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>{item.code}</span>
+                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>{item.stock_id}</span>
                 <span className="ml-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>{item.name}</span>
               </div>
 
               {/* 價格 */}
               <div className="flex items-end gap-3 mb-2">
                 <span className="text-2xl font-bold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                  {formatPrice(item.close)}
+                  {item.price != null ? item.price.toFixed(2) : '—'}
                 </span>
-                <span
-                  className="text-sm font-semibold tabular-nums"
-                  style={{ color: getChangeColorVar(item.change) }}
-                >
-                  {item.change > 0 ? '+' : ''}{formatPrice(item.change)}
-                </span>
-                <span
-                  className="text-sm tabular-nums"
-                  style={{ color: getChangeColorVar(item.changePercent) }}
-                >
-                  ({item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%)
-                </span>
+                {item.change_pct != null && (
+                  <span
+                    className="text-sm font-semibold tabular-nums"
+                    style={{ color: getChangeColorVar(item.change_pct) }}
+                  >
+                    {item.change_pct > 0 ? '+' : ''}{item.change_pct.toFixed(2)}%
+                  </span>
+                )}
               </div>
 
-              {/* 今日行情 */}
-              <div className="grid grid-cols-3 gap-1 text-xs">
-                <div>
-                  <span style={{ color: 'var(--muted-foreground)' }}>最高 </span>
-                  <span style={{ color: 'var(--stock-up)' }}>{formatPrice(item.high)}</span>
+              {/* 行業 */}
+              {item.industry && (
+                <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  {item.industry}
                 </div>
-                <div>
-                  <span style={{ color: 'var(--muted-foreground)' }}>最低 </span>
-                  <span style={{ color: 'var(--stock-down)' }}>{formatPrice(item.low)}</span>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--muted-foreground)' }}>量 </span>
-                  <span style={{ color: 'var(--foreground)' }}>{formatVolume(item.volume)}</span>
-                </div>
-              </div>
+              )}
             </div>
           ))}
         </div>

@@ -8,26 +8,40 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 
-interface CompareResult {
-  codes: string[]
-  performance: Array<{
-    date: string
-    [code: string]: number | string
-  }>
-  summary: Array<{
-    code: string
-    name: string
-    totalReturn: number
-    maxDrawdown: number
-    sharpe: number
-    volatility: number
-    currentPrice: number
-    changePercent: number
-  }>
+interface StockDataPoint {
+  date: string
+  price: number
+  normalized: number
+}
+
+interface StockCompare {
+  stock_id: string
+  name: string
+  base_price: number
+  latest_price: number
+  total_return_pct: number
+  data: StockDataPoint[]
+}
+
+interface CompareResponse {
+  days: number
+  stocks: StockCompare[]
+}
+
+// Transform API response into recharts-friendly format
+function buildChartData(stocks: StockCompare[]) {
+  if (!stocks.length) return []
+  const allDates = stocks[0].data.map(d => d.date)
+  return allDates.map((date, i) => {
+    const point: Record<string, string | number> = { date }
+    stocks.forEach(s => {
+      point[s.stock_id] = s.data[i]?.normalized ?? 100
+    })
+    return point
+  })
 }
 
 const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6']
-
 const MAX_STOCKS = 5
 
 export default function ComparePage() {
@@ -35,8 +49,8 @@ export default function ComparePage() {
   const [selectedCodes, setSelectedCodes] = useState<string[]>([])
   const [submitted, setSubmitted] = useState<string[]>([])
 
-  const { data, isLoading, error } = useSWR<CompareResult>(
-    submitted.length >= 2 ? `/stocks/compare?codes=${submitted.join(',')}` : null,
+  const { data, isLoading, error } = useSWR<CompareResponse>(
+    submitted.length >= 2 ? `/stocks/compare?ids=${submitted.join(',')}&days=60` : null,
     fetchAPI
   )
 
@@ -56,6 +70,8 @@ export default function ComparePage() {
       setSubmitted([...selectedCodes])
     }
   }
+
+  const chartData = data ? buildChartData(data.stocks) : []
 
   return (
     <div>
@@ -150,26 +166,31 @@ export default function ComparePage() {
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
             <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>
-              相對報酬率走勢（基期=100）
+              相對報酬率走勢（基期=100，近 {data.days} 日）
             </h3>
             <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={data.performance}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
+                  tickFormatter={(v: string) => v.slice(5)}
+                  interval={Math.floor(chartData.length / 8)}
+                />
                 <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                 <Tooltip
                   contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
                 />
                 <Legend />
-                {data.codes.map((code, i) => (
+                {data.stocks.map((s, i) => (
                   <Line
-                    key={code}
+                    key={s.stock_id}
                     type="monotone"
-                    dataKey={code}
+                    dataKey={s.stock_id}
                     stroke={COLORS[i]}
                     dot={false}
                     strokeWidth={2}
-                    name={code}
+                    name={`${s.stock_id} ${s.name}`}
                   />
                 ))}
               </LineChart>
@@ -188,30 +209,27 @@ export default function ComparePage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: 'var(--secondary)' }}>
-                    {['股票', '現價', '漲跌%', '總報酬', '最大回撤', 'Sharpe', '波動度'].map(h => (
+                    {['股票', '基期價', '最新價', '總報酬'].map(h => (
                       <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {data.summary.map((s, i) => (
-                    <tr key={s.code} style={{ borderBottom: '1px solid var(--border)' }}>
+                  {data.stocks.map((s, i) => (
+                    <tr key={s.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td className="py-2 px-4 font-medium" style={{ color: COLORS[i] }}>
-                        {s.code}
+                        {s.stock_id}
                         <span className="ml-1 text-xs" style={{ color: 'var(--muted-foreground)' }}>{s.name}</span>
                       </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{s.currentPrice.toFixed(2)}</td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: getChangeColorVar(s.changePercent) }}>
-                        {s.changePercent > 0 ? '+' : ''}{s.changePercent.toFixed(2)}%
+                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
+                        {s.base_price.toFixed(2)}
                       </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: getChangeColorVar(s.totalReturn) }}>
-                        {s.totalReturn > 0 ? '+' : ''}{s.totalReturn.toFixed(2)}%
+                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
+                        {s.latest_price.toFixed(2)}
                       </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--stock-down)' }}>
-                        {s.maxDrawdown.toFixed(2)}%
+                      <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: getChangeColorVar(s.total_return_pct) }}>
+                        {s.total_return_pct > 0 ? '+' : ''}{s.total_return_pct.toFixed(2)}%
                       </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{s.sharpe.toFixed(2)}</td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{s.volatility.toFixed(2)}%</td>
                     </tr>
                   ))}
                 </tbody>

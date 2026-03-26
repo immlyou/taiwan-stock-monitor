@@ -11,23 +11,67 @@ import {
   formatChange,
   getChangeColorVar,
 } from '@/lib/utils/format'
-import type { Position } from '@/lib/types'
 
-interface Portfolio {
-  totalAsset: number
-  totalCost: number
-  totalPnl: number
-  totalPnlPercent: number
-  positions: Position[]
+interface Holding {
+  stock_id: string
+  name?: string
+  shares: number
+  cost_price: number
+  current_price?: number
+  current_value?: number
+  pnl?: number
+  pnl_pct?: number
 }
 
-function usePortfolio() {
-  const { data, error, isLoading } = useSWR<Portfolio>(
-    '/portfolios',
-    (path: string) => fetchAPI<Portfolio>(path),
-    { refreshInterval: 30000, revalidateOnFocus: true }
-  )
-  return { portfolio: data, isLoading, isError: !!error }
+interface PortfolioSummary {
+  total_cost: number
+  total_value: number
+  total_pnl: number
+  total_pnl_pct: number
+}
+
+interface PortfolioDetail {
+  id: string
+  name: string
+  holdings: Holding[]
+  summary: PortfolioSummary
+}
+
+interface PortfolioListItem {
+  id: string
+  name: string
+  holdings_count: number
+}
+
+interface PortfoliosListResponse {
+  total: number
+  portfolios: PortfolioListItem[]
+}
+
+function useDashboard() {
+  // Fetch portfolio list first
+  const { data: listData, error: listError, isLoading: listLoading } =
+    useSWR<PortfoliosListResponse>(
+      '/portfolios',
+      (path: string) => fetchAPI<PortfoliosListResponse>(path),
+      { refreshInterval: 30000, revalidateOnFocus: true }
+    )
+
+  // Use first portfolio id if available, otherwise try 'default'
+  const firstId = listData?.portfolios?.[0]?.id ?? null
+  const portfolioId = firstId
+
+  const { data: detail, error: detailError, isLoading: detailLoading } =
+    useSWR<PortfolioDetail>(
+      portfolioId ? `/portfolios/${portfolioId}` : null,
+      (path: string) => fetchAPI<PortfolioDetail>(path),
+      { refreshInterval: 30000, revalidateOnFocus: true }
+    )
+
+  const isLoading = listLoading || (!!portfolioId && detailLoading)
+  const isError = !!listError
+
+  return { detail, isLoading, isError, hasPortfolio: !!portfolioId }
 }
 
 function PositionRowSkeleton() {
@@ -43,27 +87,30 @@ function PositionRowSkeleton() {
 }
 
 export default function DashboardPage() {
-  const { portfolio, isLoading, isError } = usePortfolio()
+  const { detail, isLoading, isError, hasPortfolio } = useDashboard()
+
+  const summary = detail?.summary
+  const holdings = detail?.holdings ?? []
 
   const kpiCards = [
     {
       title: '總資產',
-      value: isLoading ? '-' : formatCurrency(portfolio?.totalAsset ?? 0),
+      value: isLoading ? '-' : formatCurrency(summary?.total_value ?? 0),
       accentColor: 'var(--primary)',
     },
     {
       title: '總成本',
-      value: isLoading ? '-' : formatCurrency(portfolio?.totalCost ?? 0),
+      value: isLoading ? '-' : formatCurrency(summary?.total_cost ?? 0),
       accentColor: 'var(--muted-foreground)',
     },
     {
       title: '未實現損益',
-      value: isLoading ? '-' : formatChange(portfolio?.totalPnl ?? 0),
-      subValue: isLoading ? undefined : formatPercent(portfolio?.totalPnlPercent ?? 0),
-      change: portfolio?.totalPnl,
+      value: isLoading ? '-' : formatChange(summary?.total_pnl ?? 0),
+      subValue: isLoading ? undefined : formatPercent(summary?.total_pnl_pct ?? 0),
+      change: summary?.total_pnl,
       accentColor:
-        portfolio?.totalPnl !== undefined
-          ? getChangeColorVar(portfolio.totalPnl)
+        summary?.total_pnl !== undefined
+          ? getChangeColorVar(summary.total_pnl)
           : 'var(--primary)',
     },
   ]
@@ -135,66 +182,72 @@ export default function DashboardPage() {
                 <tbody>
                   {isLoading
                     ? [...Array(5)].map((_, i) => <PositionRowSkeleton key={i} />)
-                    : portfolio?.positions?.length
-                    ? portfolio.positions.map((pos) => (
-                        <tr
-                          key={pos.code}
-                          className="border-b transition-colors hover:bg-white/5"
-                          style={{ borderColor: 'var(--border)' }}
-                        >
-                          <td
-                            className="px-4 py-3 font-mono font-semibold"
-                            style={{ color: 'var(--primary)' }}
+                    : holdings.length > 0
+                    ? holdings.map((h) => {
+                        const currentPrice = h.current_price ?? h.cost_price
+                        const marketValue = h.current_value ?? h.shares * h.cost_price
+                        const pnl = h.pnl ?? 0
+                        const pnlPct = h.pnl_pct ?? 0
+                        return (
+                          <tr
+                            key={h.stock_id}
+                            className="border-b transition-colors hover:bg-white/5"
+                            style={{ borderColor: 'var(--border)' }}
                           >
-                            {pos.code}
-                          </td>
-                          <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
-                            {pos.name}
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums"
-                            style={{ color: 'var(--foreground)' }}
-                          >
-                            {pos.shares.toLocaleString()}
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums"
-                            style={{ color: 'var(--foreground)' }}
-                          >
-                            {pos.avgCost.toFixed(2)}
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums font-semibold"
-                            style={{
-                              color: getChangeColorVar(pos.currentPrice - pos.avgCost),
-                            }}
-                          >
-                            {pos.currentPrice.toFixed(2)}
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums"
-                            style={{ color: 'var(--foreground)' }}
-                          >
-                            {formatCurrency(pos.marketValue)}
-                          </td>
-                          <td
-                            className="px-4 py-3 tabular-nums font-semibold"
-                            style={{ color: getChangeColorVar(pos.unrealizedPnl) }}
-                          >
-                            {formatChange(pos.unrealizedPnl)}
-                            <span className="ml-1 text-xs opacity-75">
-                              ({formatPercent(pos.unrealizedPnlPercent)})
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                            <td
+                              className="px-4 py-3 font-mono font-semibold"
+                              style={{ color: 'var(--primary)' }}
+                            >
+                              {h.stock_id}
+                            </td>
+                            <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
+                              {h.name ?? '—'}
+                            </td>
+                            <td
+                              className="px-4 py-3 tabular-nums"
+                              style={{ color: 'var(--foreground)' }}
+                            >
+                              {h.shares.toLocaleString()}
+                            </td>
+                            <td
+                              className="px-4 py-3 tabular-nums"
+                              style={{ color: 'var(--foreground)' }}
+                            >
+                              {h.cost_price.toFixed(2)}
+                            </td>
+                            <td
+                              className="px-4 py-3 tabular-nums font-semibold"
+                              style={{
+                                color: getChangeColorVar(currentPrice - h.cost_price),
+                              }}
+                            >
+                              {currentPrice.toFixed(2)}
+                            </td>
+                            <td
+                              className="px-4 py-3 tabular-nums"
+                              style={{ color: 'var(--foreground)' }}
+                            >
+                              {formatCurrency(marketValue)}
+                            </td>
+                            <td
+                              className="px-4 py-3 tabular-nums font-semibold"
+                              style={{ color: getChangeColorVar(pnl) }}
+                            >
+                              {formatChange(pnl)}
+                              <span className="ml-1 text-xs opacity-75">
+                                ({formatPercent(pnlPct)})
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })
                     : null}
-                  {!isLoading && !portfolio?.positions?.length && (
+                  {!isLoading && holdings.length === 0 && (
                     <tr>
                       <td colSpan={7}>
                         <EmptyState
-                          title="目前沒有持股"
-                          description="尚未建立任何持倉紀錄"
+                          title={hasPortfolio ? '目前沒有持股' : '尚未建立投資組合'}
+                          description={hasPortfolio ? '尚未建立任何持倉紀錄' : '請前往投資組合頁面新增持股'}
                           icon="+"
                         />
                       </td>

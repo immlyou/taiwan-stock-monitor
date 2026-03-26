@@ -2,15 +2,14 @@
 
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { useMarketSummary } from '@/lib/hooks/useMarketSummary'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
-  formatCurrency,
   formatPercent,
   formatChange,
-  formatVolumeValue,
   getChangeColorVar,
 } from '@/lib/utils/format'
 
@@ -27,27 +26,23 @@ interface AfterHoursData {
   taiex?: {
     close: number
     change: number
-    volume?: number
+    change_pct?: number
   }
   institutional?: {
-    foreign?: { net?: number; total_net?: number }
-    trust?: { net?: number; total_net?: number }
-    dealer?: { net?: number; total_net?: number }
+    foreign?: { total_net?: number }
+    trust?: { total_net?: number }
+    dealer?: { total_net?: number }
   }
   ai_picks?: {
-    value?: AiPickStock[]
-    momentum?: AiPickStock[]
-    savings?: AiPickStock[]
+    value?: { total: number; top5: AiPickStock[] }
+    growth?: { total: number; top5: AiPickStock[] }
+    momentum?: { total: number; top5: AiPickStock[] }
   }
 }
 
 interface AiPickStock {
   stock_id: string
   name: string
-  price?: number
-  change_pct?: number
-  reason?: string
-  score?: number
 }
 
 function useAfterHours() {
@@ -59,32 +54,21 @@ function useAfterHours() {
   return { data, isLoading, isError: !!error }
 }
 
-function ScoreBar({ score }: { score: number }) {
-  const pct = Math.min(100, Math.max(0, score))
-  const color = pct >= 70 ? 'var(--stock-up)' : pct >= 40 ? '#f59e0b' : 'var(--stock-down)'
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className="flex-1 rounded-full h-1.5 overflow-hidden"
-        style={{ background: 'var(--secondary)' }}
-      >
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, background: color }}
-        />
-      </div>
-      <span className="text-xs tabular-nums w-8 text-right" style={{ color: 'var(--muted-foreground)' }}>
-        {score}
-      </span>
-    </div>
-  )
+// 三大法人股數（原始單位：股）→ 格式化為「張」
+function formatShares(shares: number): string {
+  const lots = shares / 1000
+  const abs = Math.abs(lots)
+  const sign = lots >= 0 ? '+' : ''
+  if (abs >= 1e4) return `${sign}${(lots / 1e4).toFixed(1)} 萬張`
+  if (abs >= 1e3) return `${sign}${(lots / 1e3).toFixed(1)} 千張`
+  return `${sign}${lots.toFixed(0)} 張`
 }
 
-function AiPickTable({
-  stocks,
+function AiPickList({
+  category,
   isLoading,
 }: {
-  stocks: AiPickStock[]
+  category: { total: number; top5: AiPickStock[] } | undefined
   isLoading: boolean
 }) {
   if (isLoading) {
@@ -94,65 +78,47 @@ function AiPickTable({
           <div key={i} className="flex items-center gap-4">
             <Skeleton className="h-4 w-12" style={{ background: 'var(--secondary)' }} />
             <Skeleton className="h-4 w-20" style={{ background: 'var(--secondary)' }} />
-            <Skeleton className="h-4 flex-1" style={{ background: 'var(--secondary)' }} />
           </div>
         ))}
       </div>
     )
   }
 
-  if (!stocks?.length) {
+  const stocks = category?.top5 ?? []
+
+  if (!stocks.length) {
     return <EmptyState title="暫無策略選股結果" icon="+" />
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            {['代號', '名稱', '現價', '漲跌幅', '評分', '入選原因'].map((h) => (
-              <th
-                key={h}
-                className="px-4 py-2 text-left font-medium"
-                style={{ color: 'var(--muted-foreground)' }}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {stocks.map((stock) => (
-            <tr
-              key={stock.stock_id}
-              className="border-b transition-colors hover:bg-white/5"
-              style={{ borderColor: 'var(--border)' }}
+    <div className="p-4">
+      {category && (
+        <p className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>
+          共 {category.total} 支符合條件，顯示前 {stocks.length} 支
+        </p>
+      )}
+      <div className="space-y-2">
+        {stocks.map((stock, i) => (
+          <div
+            key={stock.stock_id}
+            className="flex items-center gap-3 py-2 border-b"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <span
+              className="text-xs tabular-nums w-5 text-center font-semibold"
+              style={{ color: 'var(--muted-foreground)' }}
             >
-              <td className="px-4 py-3 font-mono font-semibold" style={{ color: 'var(--primary)' }}>
-                {stock.stock_id}
-              </td>
-              <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
-                {stock.name}
-              </td>
-              <td className="px-4 py-3 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                {stock.price != null ? stock.price.toFixed(2) : '—'}
-              </td>
-              <td
-                className="px-4 py-3 tabular-nums font-semibold"
-                style={{ color: getChangeColorVar(stock.change_pct ?? 0) }}
-              >
-                {stock.change_pct != null ? formatPercent(stock.change_pct) : '—'}
-              </td>
-              <td className="px-4 py-3 w-32">
-                {stock.score != null ? <ScoreBar score={stock.score} /> : '—'}
-              </td>
-              <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                {stock.reason ?? '—'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              {i + 1}
+            </span>
+            <span className="font-mono font-semibold text-sm" style={{ color: 'var(--primary)' }}>
+              {stock.stock_id}
+            </span>
+            <span className="text-sm" style={{ color: 'var(--foreground)' }}>
+              {stock.name}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -211,35 +177,41 @@ function StockRankTable({
 
 export default function AfterHoursPage() {
   const { data, isLoading, isError } = useAfterHours()
+  const { summary, isLoading: summaryLoading } = useMarketSummary()
 
   const taiex = data?.taiex
   const market = data?.market
   const inst = data?.institutional
   const aiPicks = data?.ai_picks
 
-  // 取各法人 total_net（有些 API 回傳 total_net，有些回傳 net）
-  const foreignNet = inst?.foreign?.total_net ?? inst?.foreign?.net ?? 0
-  const trustNet = inst?.trust?.total_net ?? inst?.trust?.net ?? 0
-  const dealerNet = inst?.dealer?.total_net ?? inst?.dealer?.net ?? 0
+  // 加權指數收盤從 /market/summary 取，報酬指數 taiex.close 僅供參考
+  const taiexIndex = summary?.taiex_index
+  const taiexChange = taiex?.change
+  const taiexChangePct = taiex?.change_pct
+
+  // 三大法人：total_net 單位為「股」，格式化為「張」
+  const foreignNet = inst?.foreign?.total_net ?? 0
+  const trustNet = inst?.trust?.total_net ?? 0
+  const dealerNet = inst?.dealer?.total_net ?? 0
   const instTotal = foreignNet + trustNet + dealerNet
+
+  const combinedLoading = isLoading || summaryLoading
 
   const marketKpis = [
     {
       title: '收盤指數',
-      value: isLoading ? '-' : formatCurrency(taiex?.close ?? 0),
-      change: taiex?.change,
-      changeLabel: taiex?.change != null && taiex?.close != null && taiex.close > 0
-        ? formatPercent((taiex.change / (taiex.close - taiex.change)) * 100)
-        : undefined,
+      value: combinedLoading ? '-' : taiexIndex != null ? taiexIndex.toFixed(2) : '-',
+      change: taiexChange,
+      changeLabel: taiexChangePct != null ? `${taiexChangePct > 0 ? '+' : ''}${taiexChangePct.toFixed(2)}%` : undefined,
       accentColor:
-        taiex?.change !== undefined
-          ? getChangeColorVar(taiex.change)
+        taiexChange !== undefined
+          ? getChangeColorVar(taiexChange)
           : 'var(--primary)',
     },
     {
       title: '漲跌點數',
-      value: isLoading ? '-' : formatChange(taiex?.change ?? 0),
-      accentColor: 'var(--primary)',
+      value: isLoading ? '-' : formatChange(taiexChange ?? 0),
+      accentColor: taiexChange != null ? getChangeColorVar(taiexChange) : 'var(--primary)',
     },
     {
       title: '上漲家數',
@@ -257,25 +229,25 @@ export default function AfterHoursPage() {
   const institutionalKpis = [
     {
       title: '外資買賣超',
-      value: isLoading ? '-' : formatVolumeValue(foreignNet),
+      value: isLoading ? '-' : formatShares(foreignNet),
       change: foreignNet || undefined,
       accentColor: getChangeColorVar(foreignNet),
     },
     {
       title: '投信買賣超',
-      value: isLoading ? '-' : formatVolumeValue(trustNet),
+      value: isLoading ? '-' : formatShares(trustNet),
       change: trustNet || undefined,
       accentColor: getChangeColorVar(trustNet),
     },
     {
       title: '自營商買賣超',
-      value: isLoading ? '-' : formatVolumeValue(dealerNet),
+      value: isLoading ? '-' : formatShares(dealerNet),
       change: dealerNet || undefined,
       accentColor: getChangeColorVar(dealerNet),
     },
     {
       title: '三大法人合計',
-      value: isLoading ? '-' : formatVolumeValue(instTotal),
+      value: isLoading ? '-' : formatShares(instTotal),
       change: instTotal || undefined,
       accentColor: getChangeColorVar(instTotal),
     },
@@ -314,7 +286,7 @@ export default function AfterHoursPage() {
               {marketKpis.map((card) => (
                 <KpiCard
                   key={card.title}
-                  isLoading={isLoading}
+                  isLoading={combinedLoading}
                   accentColor={card.accentColor}
                   title={card.title}
                   value={card.value}
@@ -382,28 +354,19 @@ export default function AfterHoursPage() {
                       className="mb-0"
                       style={{ background: 'var(--secondary)' }}
                     >
-                      <TabsTrigger value="value">價值優先</TabsTrigger>
-                      <TabsTrigger value="momentum">短期動能</TabsTrigger>
-                      <TabsTrigger value="savings">長期存股</TabsTrigger>
+                      <TabsTrigger value="value">價值型</TabsTrigger>
+                      <TabsTrigger value="growth">成長型</TabsTrigger>
+                      <TabsTrigger value="momentum">動能型</TabsTrigger>
                     </TabsList>
                   </div>
                   <TabsContent value="value">
-                    <AiPickTable
-                      stocks={aiPicks?.value ?? []}
-                      isLoading={isLoading}
-                    />
+                    <AiPickList category={aiPicks?.value} isLoading={isLoading} />
+                  </TabsContent>
+                  <TabsContent value="growth">
+                    <AiPickList category={aiPicks?.growth} isLoading={isLoading} />
                   </TabsContent>
                   <TabsContent value="momentum">
-                    <AiPickTable
-                      stocks={aiPicks?.momentum ?? []}
-                      isLoading={isLoading}
-                    />
-                  </TabsContent>
-                  <TabsContent value="savings">
-                    <AiPickTable
-                      stocks={aiPicks?.savings ?? []}
-                      isLoading={isLoading}
-                    />
+                    <AiPickList category={aiPicks?.momentum} isLoading={isLoading} />
                   </TabsContent>
                 </Tabs>
               </div>

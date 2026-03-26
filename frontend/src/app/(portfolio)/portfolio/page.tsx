@@ -6,69 +6,110 @@ import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { getChangeColorVar } from '@/lib/utils/format'
 
-interface Position {
-  id: string
-  code: string
-  name: string
+interface Holding {
+  stock_id: string
   shares: number
-  avgCost: number
-  currentPrice: number
-  marketValue: number
-  unrealizedPnl: number
-  unrealizedPnlPercent: number
-  costBasis: number
+  cost_price: number
+  buy_date?: string
+  name?: string
+  current_price?: number
+  current_value?: number
+  cost_value?: number
+  pnl?: number
+  pnl_pct?: number
 }
 
 interface PortfolioSummary {
-  totalMarketValue: number
-  totalCostBasis: number
-  totalUnrealizedPnl: number
-  totalUnrealizedPnlPercent: number
-  cashBalance: number
-  positions: Position[]
+  total_cost: number
+  total_value: number
+  total_pnl: number
+  total_pnl_pct: number
 }
 
-const SWR_KEY = '/portfolios/default'
+interface PortfolioDetail {
+  id: string
+  name: string
+  description: string
+  holdings: Holding[]
+  summary: PortfolioSummary
+}
+
+const PORTFOLIO_ID = 'default'
+const SWR_KEY = `/portfolios/${PORTFOLIO_ID}`
 
 export default function PortfolioPage() {
-  const { data, isLoading, error } = useSWR<PortfolioSummary>(SWR_KEY, fetchAPI)
+  const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editPosition, setEditPosition] = useState<Position | null>(null)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [editHolding, setEditHolding] = useState<Holding | null>(null)
+  const [deleteStockId, setDeleteStockId] = useState<string | null>(null)
   const [form, setForm] = useState({
-    code: '',
+    stock_id: '',
     shares: '',
-    avgCost: '',
+    cost_price: '',
   })
   const [saving, setSaving] = useState(false)
 
   const openAdd = () => {
-    setEditPosition(null)
-    setForm({ code: '', shares: '', avgCost: '' })
+    setEditHolding(null)
+    setForm({ stock_id: '', shares: '', cost_price: '' })
     setDialogOpen(true)
   }
 
-  const openEdit = (pos: Position) => {
-    setEditPosition(pos)
-    setForm({ code: pos.code, shares: String(pos.shares), avgCost: String(pos.avgCost) })
+  const openEdit = (h: Holding) => {
+    setEditHolding(h)
+    setForm({ stock_id: h.stock_id, shares: String(h.shares), cost_price: String(h.cost_price) })
     setDialogOpen(true)
+  }
+
+  const buildUpdatedHoldings = (
+    current: Holding[],
+    action: 'add' | 'edit' | 'delete',
+    payload?: { stock_id: string; shares: number; cost_price: number } | string
+  ): Array<{ stock_id: string; shares: number; cost_price: number }> => {
+    const clean = current.map(h => ({
+      stock_id: h.stock_id,
+      shares: h.shares,
+      cost_price: h.cost_price,
+    }))
+    if (action === 'delete' && typeof payload === 'string') {
+      return clean.filter(h => h.stock_id !== payload)
+    }
+    if (action === 'add' && typeof payload === 'object') {
+      return [...clean, payload]
+    }
+    if (action === 'edit' && typeof payload === 'object') {
+      return clean.map(h => (h.stock_id === payload.stock_id ? { ...h, ...payload } : h))
+    }
+    return clean
+  }
+
+  const ensurePortfolioExists = async () => {
+    try {
+      await fetchAPI(SWR_KEY)
+    } catch {
+      await fetchAPI('/portfolios', {
+        method: 'POST',
+        body: JSON.stringify({ name: PORTFOLIO_ID, description: '預設組合' }),
+      })
+    }
   }
 
   const handleSave = async () => {
-    if (!form.code.trim() || !form.shares || !form.avgCost) return
+    if (!form.stock_id.trim() || !form.shares || !form.cost_price) return
     setSaving(true)
     try {
-      if (editPosition) {
-        await fetchAPI(`${SWR_KEY}/positions/${editPosition.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ shares: Number(form.shares), avgCost: Number(form.avgCost) }),
-        })
-      } else {
-        await fetchAPI(`${SWR_KEY}/positions`, {
-          method: 'POST',
-          body: JSON.stringify({ code: form.code.toUpperCase(), shares: Number(form.shares), avgCost: Number(form.avgCost) }),
-        })
+      await ensurePortfolioExists()
+      const current = data?.holdings ?? []
+      const payload = {
+        stock_id: form.stock_id.toUpperCase(),
+        shares: Number(form.shares),
+        cost_price: Number(form.cost_price),
       }
+      const updated = buildUpdatedHoldings(current, editHolding ? 'edit' : 'add', payload)
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ holdings: updated }),
+      })
       await mutate(SWR_KEY)
       setDialogOpen(false)
     } finally {
@@ -76,11 +117,19 @@ export default function PortfolioPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    await fetchAPI(`${SWR_KEY}/positions/${id}`, { method: 'DELETE' })
+  const handleDelete = async (stock_id: string) => {
+    const current = data?.holdings ?? []
+    const updated = buildUpdatedHoldings(current, 'delete', stock_id)
+    await fetchAPI(SWR_KEY, {
+      method: 'PUT',
+      body: JSON.stringify({ holdings: updated }),
+    })
     await mutate(SWR_KEY)
-    setDeleteId(null)
+    setDeleteStockId(null)
   }
+
+  const summary = data?.summary
+  const holdings = data?.holdings ?? []
 
   return (
     <div>
@@ -98,9 +147,12 @@ export default function PortfolioPage() {
         </button>
       </div>
 
-      {error ? (
-        <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-          <p style={{ color: 'var(--destructive)' }}>資料載入失敗</p>
+      {error && !data ? (
+        <div
+          className="rounded-lg p-8 text-center"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <p style={{ color: 'var(--muted-foreground)' }}>尚無投資組合，點擊新增持股建立預設組合</p>
         </div>
       ) : isLoading ? (
         <div className="space-y-3">
@@ -108,32 +160,34 @@ export default function PortfolioPage() {
             {[...Array(4)].map((_, i) => <KpiCard key={i} title="" value="" isLoading />)}
           </div>
         </div>
-      ) : data ? (
+      ) : (
         <div className="space-y-4">
           {/* 總覽 KPI */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiCard
-              title="總市值"
-              value={`${(data.totalMarketValue / 1e4).toFixed(1)} 萬`}
-              accentColor="var(--primary)"
-            />
-            <KpiCard
-              title="未實現損益"
-              value={`${data.totalUnrealizedPnl > 0 ? '+' : ''}${(data.totalUnrealizedPnl / 1e4).toFixed(1)} 萬`}
-              subValue={`${data.totalUnrealizedPnlPercent > 0 ? '+' : ''}${data.totalUnrealizedPnlPercent.toFixed(2)}%`}
-              accentColor={data.totalUnrealizedPnl >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}
-            />
-            <KpiCard
-              title="持股成本"
-              value={`${(data.totalCostBasis / 1e4).toFixed(1)} 萬`}
-              accentColor="var(--muted-foreground)"
-            />
-            <KpiCard
-              title="現金餘額"
-              value={`${(data.cashBalance / 1e4).toFixed(1)} 萬`}
-              accentColor="#f59e0b"
-            />
-          </div>
+          {summary && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiCard
+                title="總市值"
+                value={`${(summary.total_value / 1e4).toFixed(1)} 萬`}
+                accentColor="var(--primary)"
+              />
+              <KpiCard
+                title="未實現損益"
+                value={`${summary.total_pnl > 0 ? '+' : ''}${(summary.total_pnl / 1e4).toFixed(1)} 萬`}
+                subValue={`${summary.total_pnl_pct > 0 ? '+' : ''}${summary.total_pnl_pct.toFixed(2)}%`}
+                accentColor={summary.total_pnl >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}
+              />
+              <KpiCard
+                title="持股成本"
+                value={`${(summary.total_cost / 1e4).toFixed(1)} 萬`}
+                accentColor="var(--muted-foreground)"
+              />
+              <KpiCard
+                title="持股數"
+                value={`${holdings.length} 支`}
+                accentColor="#f59e0b"
+              />
+            </div>
+          )}
 
           {/* 持股表格 */}
           <div
@@ -142,62 +196,68 @@ export default function PortfolioPage() {
           >
             <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
               <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                持股明細（{data.positions.length} 支）
+                持股明細（{holdings.length} 支）
               </h3>
             </div>
-            {data.positions.length > 0 ? (
+            {holdings.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ background: 'var(--secondary)' }}>
-                      {['代號', '名稱', '持股（張）', '均成本', '現價', '市值', '未實現損益', '報酬率', '操作'].map(h => (
+                      {['代號', '名稱', '持股（張）', '成本價', '現價', '市值', '未實現損益', '報酬率', '操作'].map(h => (
                         <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {data.positions.map((pos) => (
-                      <tr key={pos.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{pos.code}</td>
-                        <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{pos.name}</td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{pos.shares}</td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{pos.avgCost.toFixed(2)}</td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{pos.currentPrice.toFixed(2)}</td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {(pos.marketValue / 1e4).toFixed(1)} 萬
-                        </td>
-                        <td
-                          className="py-2 px-4 tabular-nums font-medium"
-                          style={{ color: getChangeColorVar(pos.unrealizedPnl) }}
-                        >
-                          {pos.unrealizedPnl > 0 ? '+' : ''}{(pos.unrealizedPnl / 1e4).toFixed(1)} 萬
-                        </td>
-                        <td
-                          className="py-2 px-4 tabular-nums font-semibold"
-                          style={{ color: getChangeColorVar(pos.unrealizedPnlPercent) }}
-                        >
-                          {pos.unrealizedPnlPercent > 0 ? '+' : ''}{pos.unrealizedPnlPercent.toFixed(2)}%
-                        </td>
-                        <td className="py-2 px-4">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => openEdit(pos)}
-                              className="text-xs px-2 py-1 rounded"
-                              style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
-                            >
-                              編輯
-                            </button>
-                            <button
-                              onClick={() => setDeleteId(pos.id)}
-                              className="text-xs px-2 py-1 rounded"
-                              style={{ color: 'var(--destructive)' }}
-                            >
-                              刪除
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {holdings.map((h) => {
+                      const pnl = h.pnl ?? 0
+                      const pnlPct = h.pnl_pct ?? 0
+                      const currentPrice = h.current_price ?? h.cost_price
+                      const marketValue = h.current_value ?? h.shares * h.cost_price
+                      return (
+                        <tr key={h.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{h.stock_id}</td>
+                          <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{h.name ?? '—'}</td>
+                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{h.shares}</td>
+                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{h.cost_price.toFixed(2)}</td>
+                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{currentPrice.toFixed(2)}</td>
+                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
+                            {(marketValue / 1e4).toFixed(1)} 萬
+                          </td>
+                          <td
+                            className="py-2 px-4 tabular-nums font-medium"
+                            style={{ color: getChangeColorVar(pnl) }}
+                          >
+                            {pnl > 0 ? '+' : ''}{(pnl / 1e4).toFixed(1)} 萬
+                          </td>
+                          <td
+                            className="py-2 px-4 tabular-nums font-semibold"
+                            style={{ color: getChangeColorVar(pnlPct) }}
+                          >
+                            {pnlPct > 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                          </td>
+                          <td className="py-2 px-4">
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => openEdit(h)}
+                                className="text-xs px-2 py-1 rounded"
+                                style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
+                              >
+                                編輯
+                              </button>
+                              <button
+                                onClick={() => setDeleteStockId(h.stock_id)}
+                                className="text-xs px-2 py-1 rounded"
+                                style={{ color: 'var(--destructive)' }}
+                              >
+                                刪除
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -208,7 +268,7 @@ export default function PortfolioPage() {
             )}
           </div>
         </div>
-      ) : null}
+      )}
 
       {/* 新增/編輯 Dialog */}
       {dialogOpen && (
@@ -218,16 +278,16 @@ export default function PortfolioPage() {
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
             <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--foreground)' }}>
-              {editPosition ? '編輯持股' : '新增持股'}
+              {editHolding ? '編輯持股' : '新增持股'}
             </h2>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
                 <input
                   type="text"
-                  value={form.code}
-                  onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
-                  disabled={!!editPosition}
+                  value={form.stock_id}
+                  onChange={(e) => setForm(p => ({ ...p, stock_id: e.target.value.toUpperCase() }))}
+                  disabled={!!editHolding}
                   placeholder="例：2330"
                   className="h-9 w-full rounded-md border px-3 text-sm disabled:opacity-60"
                   style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -245,11 +305,11 @@ export default function PortfolioPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>平均成本（元/股）</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>成本價（元/股）</label>
                 <input
                   type="number"
-                  value={form.avgCost}
-                  onChange={(e) => setForm(p => ({ ...p, avgCost: e.target.value }))}
+                  value={form.cost_price}
+                  onChange={(e) => setForm(p => ({ ...p, cost_price: e.target.value }))}
                   placeholder="例：580"
                   className="h-9 w-full rounded-md border px-3 text-sm"
                   style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -278,19 +338,19 @@ export default function PortfolioPage() {
       )}
 
       {/* 刪除確認 */}
-      {deleteId && (
+      {deleteStockId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
           <div
             className="w-full max-w-sm rounded-lg p-6"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
             <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>確認刪除</h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--muted-foreground)' }}>確定要移除此持股紀錄嗎？</p>
+            <p className="text-sm mb-4" style={{ color: 'var(--muted-foreground)' }}>確定要移除 {deleteStockId} 的持股紀錄嗎？</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setDeleteId(null)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}>
+              <button onClick={() => setDeleteStockId(null)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}>
                 取消
               </button>
-              <button onClick={() => handleDelete(deleteId)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}>
+              <button onClick={() => handleDelete(deleteStockId)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}>
                 刪除
               </button>
             </div>
