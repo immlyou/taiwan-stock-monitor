@@ -14,14 +14,17 @@ API 文件:
 import os
 import json
 import uuid
+import time
 import asyncio
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
+from functools import wraps
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import uvicorn
@@ -56,6 +59,8 @@ _cors_origins_raw = os.getenv("CORS_ORIGINS", "*")
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 _cors_allow_credentials = _cors_origins != ["*"]
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -83,6 +88,32 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(sec
     return True
 
 
+# ─── API 回應快取 ────────────────────────────────────────
+_api_cache: Dict[str, Any] = {}
+_cache_ttl: Dict[str, float] = {}
+
+
+def cached_response(ttl_seconds: int = 300):
+    """快取 API 回應的裝飾器，預設 5 分鐘 TTL。
+
+    僅快取無路徑參數的 GET 端點（即 args 為空），
+    有路徑參數的個股端點不適合全量快取。
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            cache_key = f"{func.__name__}:{str(sorted(kwargs.items()))}"
+            now = time.time()
+            if cache_key in _api_cache and now - _cache_ttl.get(cache_key, 0) < ttl_seconds:
+                return _api_cache[cache_key]
+            result = await func(*args, **kwargs)
+            _api_cache[cache_key] = result
+            _cache_ttl[cache_key] = now
+            return result
+        return wrapper
+    return decorator
+
+
 # 全域 DataLoader
 loader = DataLoader()
 
@@ -104,6 +135,26 @@ async def _startup_security_check():
             "CORS_ORIGINS 未設定或為 '*'，已停用 allow_credentials。"
             " 生產環境請設定 CORS_ORIGINS 為具體域名。"
         )
+
+
+@app.on_event("startup")
+async def _preload_data():
+    """啟動時預先載入最常用的 pickle 資料，降低首次請求延遲。"""
+    preload_keys = [
+        'close', 'pe_ratio', 'pb_ratio', 'dividend_yield',
+        'revenue_yoy', 'volume', 'market_value', 'categories',
+    ]
+    loop = asyncio.get_event_loop()
+
+    def _load():
+        for key in preload_keys:
+            try:
+                loader.get(key)
+            except Exception:
+                pass
+
+    await loop.run_in_executor(None, _load)
+    logger.info("資料預熱完成，已載入 %d 個資料集", len(preload_keys))
 
 
 # ─── 工具函數 ───────────────────────────────────────────
@@ -308,6 +359,7 @@ async def health():
 
 
 @app.get("/stocks/list", tags=["股票"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=3600)
 async def stocks_list():
     """
     取得全部股票清單，包含代號與名稱。
@@ -370,6 +422,7 @@ async def stocks_search(
 
 
 @app.get("/stocks/active", tags=["股票"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=3600)
 async def stocks_active():
     """
     取得仍在交易的活躍股票清單（排除已下市）。
@@ -406,6 +459,7 @@ async def stocks_active():
 
 
 @app.get("/market/summary", tags=["市場"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=60)
 async def market_summary():
     """
     市場總覽 - 取得大盤指數、上漲/下跌家數等摘要資訊。
@@ -449,6 +503,7 @@ async def market_summary():
 
 
 @app.get("/market/heatmap", tags=["市場"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def market_heatmap():
     """
     市場熱力圖資料 - 依產業分組，顯示各股漲跌幅。
@@ -494,6 +549,7 @@ async def market_heatmap():
 
 
 @app.get("/market/money-flow", tags=["市場"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def market_money_flow():
     """
     市場資金流向 - 三大法人買賣超統計。
@@ -540,6 +596,7 @@ async def market_money_flow():
 
 
 @app.get("/market/after-hours", tags=["市場"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def market_after_hours():
     """
     盤後總覽 - 含市場統計與三大策略 AI 選股結果。
@@ -622,6 +679,7 @@ async def market_benchmark(
 
 
 @app.get("/market/industries", tags=["市場"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def market_industries():
     """
     產業列表與各產業統計。
@@ -1192,6 +1250,7 @@ async def stocks_compare(
 # /strategy/{strategy_type} 之前，確保 FastAPI 路由匹配正確。
 
 @app.get("/strategy/ai-pick", tags=["策略"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=600)
 async def strategy_ai_pick_early(
     top_n: int = Query(default=10, ge=1, le=30, description="每策略回傳前 N 檔"),
 ):
@@ -1200,6 +1259,7 @@ async def strategy_ai_pick_early(
 
 
 @app.get("/strategy/composite", tags=["策略"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=600)
 async def strategy_composite_early(
     top_n: int = Query(default=20, ge=1, le=50),
 ):
@@ -2477,6 +2537,7 @@ async def news_latest(
 
 
 @app.get("/social/hot-stocks", tags=["社群"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=600)
 async def social_hot_stocks(
     top_n: int = Query(default=20, ge=1, le=50),
 ):
@@ -2684,6 +2745,7 @@ async def risk_portfolio(req: PortfolioRiskRequest):
 
 
 @app.get("/morning-report", tags=["報告"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=600)
 async def morning_report():
     """
     產生每日晨報摘要，包含市場概況、漲跌排行、策略選股結果。
