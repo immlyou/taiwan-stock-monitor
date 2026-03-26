@@ -221,7 +221,7 @@ function Badge({
 
 function XGBoostTab() {
   const { data, isLoading, error } = useSWR<XGBoostResponse>(
-    '/ai/xgboost?top_n=20',
+    '/strategy/ai-xgboost?top_n=20',
     fetchAPI
   )
 
@@ -377,7 +377,7 @@ function LSTMTab() {
   const [stockId, setStockId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useSWR<LSTMResponse>(
-    stockId ? `/ai/lstm/${stockId}` : null,
+    stockId ? `/strategy/ai-lstm/${stockId}` : null,
     fetchAPI
   )
 
@@ -531,7 +531,7 @@ function ClaudeTab() {
   const [stockId, setStockId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useSWR<ClaudeResponse>(
-    stockId ? `/ai/claude/${stockId}` : null,
+    stockId ? `/strategy/ai-claude/${stockId}` : null,
     fetchAPI
   )
 

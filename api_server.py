@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from functools import wraps
+from enum import Enum
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -1279,7 +1280,7 @@ def _get_claude_analyzer():
     return _claude_analyzer
 
 
-@app.get("/ai/claude/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@app.get("/strategy/ai-claude/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
 @cached_response(ttl_seconds=3600)
 async def strategy_ai_claude(stock_id: str):
     """使用 Claude API 對個股進行智慧分析，回傳綜合分析摘要、投資建議與關鍵因素。
@@ -1347,7 +1348,7 @@ def _get_lstm_predictor():
     return _lstm_predictor
 
 
-@app.get("/ai/lstm/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@app.get("/strategy/ai-lstm/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
 @cached_response(ttl_seconds=1800)
 async def strategy_ai_lstm(stock_id: str):
     """LSTM 價格趨勢預測 — 預測個股未來 5 日趨勢方向與估計價格。
@@ -1417,7 +1418,7 @@ def _get_xgboost_picker():
     return _xgboost_picker
 
 
-@app.get("/ai/xgboost", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@app.get("/strategy/ai-xgboost", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
 @cached_response(ttl_seconds=3600)
 async def strategy_ai_xgboost(
     top_n: int = Query(default=20, ge=1, le=50, description="回傳預測報酬前 N 名股票"),
@@ -1502,9 +1503,14 @@ async def strategy_composite_early(
     return await strategy_composite(top_n=top_n)
 
 
+class StrategyType(str, Enum):
+    value = "value"
+    growth = "growth"
+    momentum = "momentum"
+
 @app.get("/strategy/{strategy_type}", tags=["策略"], dependencies=[Depends(verify_api_key)])
 async def run_strategy(
-    strategy_type: str,
+    strategy_type: StrategyType,
     preset: str = Query(default="standard", description="預設組合: conservative/standard/aggressive"),
     top_n: int = Query(default=20, description="回傳前 N 檔", ge=1, le=50),
 ):
@@ -1518,8 +1524,7 @@ async def run_strategy(
 
     範例: /strategy/value?preset=conservative&top_n=10
     """
-    if strategy_type not in ("value", "growth", "momentum"):
-        raise HTTPException(status_code=400, detail="策略類型需為 value/growth/momentum")
+    # strategy_type 已由 StrategyType Enum 自動驗證
 
     from config import STRATEGY_PRESETS
 
