@@ -18,6 +18,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -60,3 +61,4 @@ reports/
 
 # Legacy Flask files
 legacy/
+.gstack/
