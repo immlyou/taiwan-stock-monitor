@@ -1,11 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatPercent, formatPrice } from '@/lib/utils/format'
+import { formatPercent } from '@/lib/utils/format'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -31,14 +31,11 @@ interface HeatmapData {
 interface ProcessedIndustry {
   industry: string
   weight: number
+  avgChange: number
+  stockCount: number
+  upCount: number
+  downCount: number
   stocks: HeatmapStock[]
-}
-
-interface TooltipInfo {
-  stock: HeatmapStock
-  industry: string
-  x: number
-  y: number
 }
 
 /* ------------------------------------------------------------------ */
@@ -55,7 +52,7 @@ function useHeatmap() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Color scale (Bloomberg-style multi-stop gradient)                  */
+/*  Color helpers                                                      */
 /* ------------------------------------------------------------------ */
 
 function getHeatColor(changePct: number): string {
@@ -71,263 +68,256 @@ function getHeatColor(changePct: number): string {
   return '#14532d'
 }
 
+function getTextColor(changePct: number): string {
+  return changePct >= 0 ? '#fca5a5' : '#86efac'
+}
+
 /* ------------------------------------------------------------------ */
-/*  Data processing: group by industry, cap at 150 stocks              */
+/*  Process data                                                       */
 /* ------------------------------------------------------------------ */
 
 function processIndustries(data: HeatmapData | undefined): ProcessedIndustry[] {
   if (!data?.industries?.length) return []
 
-  // Flatten all stocks with their industry tag
-  const tagged = data.industries.flatMap((ind) =>
-    (ind.stocks ?? []).map((s) => ({ ...s, industry: ind.industry })),
-  )
-
-  // Sort by price descending, take top 150
-  tagged.sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
-  const top = tagged.slice(0, 150)
-
-  // Re-group by industry, preserving original order
-  const industryOrder: string[] = []
-  const map = new Map<string, HeatmapStock[]>()
-  for (const s of top) {
-    if (!map.has(s.industry)) {
-      industryOrder.push(s.industry)
-      map.set(s.industry, [])
-    }
-    map.get(s.industry)!.push(s)
-  }
-
-  return industryOrder.map((ind) => {
-    const stocks = map.get(ind)!
-    const weight = stocks.reduce((sum, s) => sum + (s.price ?? 1), 0)
-    return { industry: ind, weight, stocks }
-  })
+  return data.industries
+    .filter(ind => ind.stocks?.length > 0)
+    .map(ind => {
+      const stocks = ind.stocks.sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
+      const weight = stocks.reduce((sum, s) => sum + (s.price ?? 1), 0)
+      const avgChange = stocks.reduce((sum, s) => sum + s.change_pct, 0) / stocks.length
+      const upCount = stocks.filter(s => s.change_pct > 0).length
+      const downCount = stocks.filter(s => s.change_pct < 0).length
+      return { industry: ind.industry, weight, avgChange, stockCount: stocks.length, upCount, downCount, stocks }
+    })
+    .sort((a, b) => b.weight - a.weight)
 }
 
 /* ------------------------------------------------------------------ */
 /*  Legend                                                              */
 /* ------------------------------------------------------------------ */
 
-const LEGEND_ITEMS = [
-  { label: '+7%+', color: '#7f1d1d' },
-  { label: '+5%', color: '#991b1b' },
-  { label: '+3%', color: '#b91c1c' },
-  { label: '+1%', color: '#dc2626' },
-  { label: '0~1%', color: '#ef4444' },
-  { label: '0%', color: '#374151' },
-  { label: '-1%', color: '#22c55e' },
-  { label: '-3%', color: '#16a34a' },
-  { label: '-5%', color: '#15803d' },
-  { label: '-5%-', color: '#14532d' },
+const LEGEND = [
+  { label: '漲 7%+', color: '#7f1d1d' },
+  { label: '漲 3-5%', color: '#b91c1c' },
+  { label: '漲 0-3%', color: '#ef4444' },
+  { label: '平盤', color: '#374151' },
+  { label: '跌 0-3%', color: '#22c55e' },
+  { label: '跌 3-5%', color: '#15803d' },
+  { label: '跌 5%+', color: '#14532d' },
 ]
 
 /* ------------------------------------------------------------------ */
-/*  Tooltip component (fixed position, follows cursor)                 */
+/*  Level 1: Industry Grid (像目錄)                                    */
 /* ------------------------------------------------------------------ */
 
-function HeatmapTooltip({ info }: { info: TooltipInfo | null }) {
-  if (!info) return null
-  const { stock, industry, x, y } = info
+function IndustryGrid({
+  industries,
+  onSelect,
+}: {
+  industries: ProcessedIndustry[]
+  onSelect: (industry: ProcessedIndustry) => void
+}) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+      gap: 8,
+      height: 'calc(100vh - 160px)',
+      overflowY: 'auto',
+      alignContent: 'start',
+    }}>
+      {industries.map((ind, i) => (
+        <button
+          key={ind.industry}
+          onClick={() => onSelect(ind)}
+          style={{
+            background: getHeatColor(ind.avgChange),
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 8,
+            padding: '16px 14px',
+            cursor: 'pointer',
+            textAlign: 'left',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.3s ease',
+            opacity: 0,
+            animation: `fadeIn 0.3s ease ${i * 20}ms forwards`,
+            position: 'relative',
+            overflow: 'hidden',
+            minHeight: 100,
+          }}
+          className="industry-card"
+        >
+          {/* 產業名稱 */}
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginBottom: 8, textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+            {ind.industry}
+          </div>
 
-  // Offset so tooltip doesn't overlap cursor
-  const offsetX = 14
-  const offsetY = 14
+          {/* 平均漲跌幅 */}
+          <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginBottom: 8, textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
+            {ind.avgChange >= 0 ? '+' : ''}{ind.avgChange.toFixed(2)}%
+          </div>
+
+          {/* 股數 & 漲跌比 */}
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
+            <span>{ind.stockCount} 檔</span>
+            <span style={{ color: '#fca5a5' }}>▲{ind.upCount}</span>
+            <span style={{ color: '#86efac' }}>▼{ind.downCount}</span>
+          </div>
+
+          {/* 右下角箭頭 */}
+          <div style={{ position: 'absolute', right: 10, bottom: 10, color: 'rgba(255,255,255,0.3)', fontSize: 18 }}>
+            →
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Level 2: Stock Grid (產業內的個股)                                  */
+/* ------------------------------------------------------------------ */
+
+function StockGrid({
+  industry,
+  onBack,
+}: {
+  industry: ProcessedIndustry
+  onBack: () => void
+}) {
+  const [tooltip, setTooltip] = useState<{ stock: HeatmapStock; x: number; y: number } | null>(null)
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        left: x + offsetX,
-        top: y + offsetY,
-        zIndex: 9999,
-        pointerEvents: 'none',
-        background: '#1e1e2e',
-        border: '1px solid #444',
-        borderRadius: 8,
-        padding: '10px 14px',
-        minWidth: 180,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>
-          {stock.stock_id}
-        </span>
-        <span style={{ color: '#aaa', fontSize: 12 }}>{stock.name}</span>
-      </div>
-      <div style={{ color: '#ccc', fontSize: 11, marginBottom: 6 }}>{industry}</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ color: '#fff', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-          ${formatPrice(stock.price)}
-        </span>
-        <span
+    <div>
+      {/* 返回列 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 12,
+        padding: '8px 0',
+      }}>
+        <button
+          onClick={onBack}
           style={{
-            color: getHeatColor(stock.change_pct),
-            fontSize: 14,
+            background: 'var(--secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '6px 14px',
+            cursor: 'pointer',
+            color: 'var(--foreground)',
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            transition: 'background 0.15s',
+          }}
+          className="back-btn"
+        >
+          ← 返回產業總覽
+        </button>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ color: 'var(--foreground)', fontSize: 18, fontWeight: 700 }}>
+            {industry.industry}
+          </span>
+          <span style={{
+            color: getTextColor(industry.avgChange),
+            fontSize: 16,
             fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
-            filter: 'brightness(1.5)',
-          }}
-        >
-          {formatPercent(stock.change_pct)}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Single stock cell                                                  */
-/* ------------------------------------------------------------------ */
-
-interface StockCellProps {
-  stock: HeatmapStock
-  industry: string
-  index: number
-  onHover: (info: TooltipInfo | null) => void
-}
-
-function StockCell({ stock, industry, index, onHover }: StockCellProps) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [entered, setEntered] = useState(false)
-
-  // Staggered entrance animation
-  useEffect(() => {
-    const timer = setTimeout(() => setEntered(true), index * 5)
-    return () => clearTimeout(timer)
-  }, [index])
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      onHover({ stock, industry, x: e.clientX, y: e.clientY })
-    },
-    [stock, industry, onHover],
-  )
-
-  const handleMouseLeave = useCallback(() => {
-    onHover(null)
-  }, [onHover])
-
-  const bg = getHeatColor(stock.change_pct)
-
-  return (
-    <div
-      ref={ref}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      style={{
-        flex: `${stock.price} 1 0`,
-        minWidth: 0,
-        minHeight: 40,
-        backgroundColor: bg,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '1px solid rgba(0,0,0,0.25)',
-        cursor: 'pointer',
-        overflow: 'hidden',
-        padding: '2px 4px',
-        transition: 'transform 0.15s ease, box-shadow 0.15s ease, background-color 0.5s ease',
-        opacity: entered ? 1 : 0,
-        transform: entered ? 'scale(1)' : 'scale(0.85)',
-        position: 'relative',
-      }}
-      className="stock-cell"
-    >
-      <span
-        style={{
-          color: '#fff',
-          fontSize: 11,
-          fontWeight: 700,
-          lineHeight: 1.2,
-          textShadow: '0 1px 3px rgba(0,0,0,0.6)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          maxWidth: '100%',
-        }}
-      >
-        {stock.stock_id}
-      </span>
-      <span
-        style={{
-          color: 'rgba(255,255,255,0.85)',
-          fontSize: 9,
-          fontWeight: 500,
-          lineHeight: 1.2,
-          textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-          fontVariantNumeric: 'tabular-nums',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {formatPercent(stock.change_pct)}
-      </span>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Industry group                                                     */
-/* ------------------------------------------------------------------ */
-
-interface IndustryGroupProps {
-  industry: ProcessedIndustry
-  startIndex: number
-  onHover: (info: TooltipInfo | null) => void
-}
-
-function IndustryGroup({ industry, startIndex, onHover }: IndustryGroupProps) {
-  return (
-    <div
-      style={{
-        flex: `${industry.weight} 1 0`,
-        minWidth: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Industry label */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          zIndex: 5,
-          background: 'rgba(0,0,0,0.55)',
-          backdropFilter: 'blur(4px)',
-          padding: '2px 8px',
-          borderBottomRightRadius: 6,
-          pointerEvents: 'none',
-        }}
-      >
-        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 10, fontWeight: 600 }}>
-          {industry.industry}
-        </span>
+          }}>
+            {industry.avgChange >= 0 ? '+' : ''}{industry.avgChange.toFixed(2)}%
+          </span>
+          <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
+            {industry.stockCount} 檔
+          </span>
+        </div>
       </div>
 
-      {/* Stock cells inside industry */}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignContent: 'stretch',
-        }}
-      >
+      {/* 個股方塊 */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+        gap: 4,
+        height: 'calc(100vh - 220px)',
+        overflowY: 'auto',
+        alignContent: 'start',
+      }}>
         {industry.stocks.map((stock, i) => (
-          <StockCell
+          <div
             key={stock.stock_id}
-            stock={stock}
-            industry={industry.industry}
-            index={startIndex + i}
-            onHover={onHover}
-          />
+            onMouseMove={(e) => setTooltip({ stock, x: e.clientX, y: e.clientY })}
+            onMouseLeave={() => setTooltip(null)}
+            style={{
+              background: getHeatColor(stock.change_pct),
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 4,
+              padding: '10px 8px',
+              cursor: 'pointer',
+              textAlign: 'center',
+              transition: 'transform 0.12s ease, box-shadow 0.12s ease, opacity 0.25s ease',
+              opacity: 0,
+              animation: `fadeIn 0.25s ease ${i * 8}ms forwards`,
+              minHeight: 70,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 2,
+            }}
+            className="stock-cell"
+          >
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 13, textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+              {stock.stock_id}
+            </span>
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, lineHeight: 1.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {stock.name}
+            </span>
+            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textShadow: '0 1px 2px rgba(0,0,0,0.4)' }}>
+              {formatPercent(stock.change_pct)}
+            </span>
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
+              ${stock.price?.toFixed(0)}
+            </span>
+          </div>
         ))}
       </div>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div style={{
+          position: 'fixed',
+          left: tooltip.x + 14,
+          top: tooltip.y + 14,
+          zIndex: 9999,
+          pointerEvents: 'none',
+          background: '#1e1e2e',
+          border: '1px solid #444',
+          borderRadius: 8,
+          padding: '10px 14px',
+          minWidth: 180,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{tooltip.stock.stock_id}</span>
+            <span style={{ color: '#aaa', fontSize: 12 }}>{tooltip.stock.name}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#fff', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              ${tooltip.stock.price?.toFixed(2)}
+            </span>
+            <span style={{
+              color: getHeatColor(tooltip.stock.change_pct),
+              fontSize: 14,
+              fontWeight: 700,
+              fontVariantNumeric: 'tabular-nums',
+              filter: 'brightness(1.5)',
+            }}>
+              {formatPercent(tooltip.stock.change_pct)}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -338,25 +328,16 @@ function IndustryGroup({ industry, startIndex, onHover }: IndustryGroupProps) {
 
 function HeatmapSkeleton() {
   return (
-    <div
-      style={{
-        height: 'calc(100vh - 120px)',
-        minHeight: 500,
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 2,
-        padding: 2,
-      }}
-    >
-      {Array.from({ length: 30 }).map((_, i) => (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+      gap: 8,
+      height: 'calc(100vh - 160px)',
+    }}>
+      {Array.from({ length: 20 }).map((_, i) => (
         <Skeleton
           key={i}
-          style={{
-            flex: `${50 + Math.random() * 150} 1 0`,
-            minHeight: 50 + Math.random() * 60,
-            background: 'var(--secondary)',
-            borderRadius: 2,
-          }}
+          style={{ background: 'var(--secondary)', borderRadius: 8, minHeight: 100 }}
         />
       ))}
     </div>
@@ -369,143 +350,85 @@ function HeatmapSkeleton() {
 
 export default function HeatmapPage() {
   const { data, isLoading, isError } = useHeatmap()
-  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null)
+  const [selectedIndustry, setSelectedIndustry] = useState<ProcessedIndustry | null>(null)
 
   const industries = useMemo(() => processIndustries(data), [data])
-  const totalStocks = useMemo(
-    () => industries.reduce((sum, ind) => sum + ind.stocks.length, 0),
-    [industries],
-  )
 
-  // Calculate cumulative start index for staggered animation
-  const startIndices = useMemo(() => {
-    const indices: number[] = []
-    let acc = 0
-    for (const ind of industries) {
-      indices.push(acc)
-      acc += ind.stocks.length
-    }
-    return indices
-  }, [industries])
+  const handleSelect = useCallback((ind: ProcessedIndustry) => {
+    setSelectedIndustry(ind)
+  }, [])
 
-  const handleHover = useCallback((info: TooltipInfo | null) => {
-    setTooltip(info)
+  const handleBack = useCallback(() => {
+    setSelectedIndustry(null)
   }, [])
 
   return (
-    <div style={{ position: 'relative' }}>
-      {/* ---- Header bar ---- */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 8,
-          flexWrap: 'wrap',
-          gap: 8,
-        }}
-      >
+    <div>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+        flexWrap: 'wrap',
+        gap: 8,
+      }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-          <h1 style={{ color: 'var(--foreground)', fontSize: 18, fontWeight: 700, margin: 0 }}>
-            Market Heatmap
+          <h1 style={{ color: 'var(--foreground)', fontSize: 20, fontWeight: 700, margin: 0 }}>
+            市場熱力圖
           </h1>
           {data?.date && (
-            <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>
-              {data.date}
-            </span>
+            <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>{data.date}</span>
           )}
-          {!isLoading && totalStocks > 0 && (
-            <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>
-              {totalStocks} stocks / {industries.length} industries
+          {!isLoading && !selectedIndustry && (
+            <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
+              {industries.length} 個產業 · 點擊進入查看個股
             </span>
           )}
         </div>
 
         {/* Legend */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-          {LEGEND_ITEMS.map((item) => (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {LEGEND.map((item) => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 2,
-                  background: item.color,
-                  display: 'inline-block',
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ color: 'var(--muted-foreground)', fontSize: 10 }}>
-                {item.label}
-              </span>
+              <span style={{ width: 12, height: 12, borderRadius: 2, background: item.color, display: 'inline-block' }} />
+              <span style={{ color: 'var(--muted-foreground)', fontSize: 10 }}>{item.label}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ---- Main heatmap area ---- */}
+      {/* Content */}
       {isLoading ? (
         <HeatmapSkeleton />
       ) : isError ? (
-        <div
-          style={{
-            height: 'calc(100vh - 120px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <EmptyState
-            title="Unable to load heatmap"
-            description="Please check if the backend service is running, or try again later"
-            icon="!"
-          />
-        </div>
-      ) : industries.length === 0 ? (
-        <div
-          style={{
-            height: 'calc(100vh - 120px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <EmptyState title="No heatmap data available" icon="+" />
-        </div>
+        <EmptyState title="無法載入熱力圖" description="請確認後端服務是否正常運行" icon="!" />
+      ) : selectedIndustry ? (
+        <StockGrid industry={selectedIndustry} onBack={handleBack} />
       ) : (
-        <div
-          style={{
-            height: 'calc(100vh - 120px)',
-            minHeight: 500,
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 2,
-            borderRadius: 6,
-            overflow: 'hidden',
-            background: '#111',
-          }}
-        >
-          {industries.map((industry, idx) => (
-            <IndustryGroup
-              key={industry.industry}
-              industry={industry}
-              startIndex={startIndices[idx]}
-              onHover={handleHover}
-            />
-          ))}
-        </div>
+        <IndustryGrid industries={industries} onSelect={handleSelect} />
       )}
 
-      {/* ---- Tooltip ---- */}
-      <HeatmapTooltip info={tooltip} />
-
-      {/* ---- Global hover style ---- */}
+      {/* Animations */}
       <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: scale(0.92); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .industry-card:hover {
+          transform: scale(1.03) !important;
+          box-shadow: 0 4px 20px rgba(255,255,255,0.15) !important;
+          border-color: rgba(255,255,255,0.3) !important;
+          z-index: 5;
+        }
         .stock-cell:hover {
-          transform: scale(1.08) !important;
-          z-index: 10 !important;
-          border-color: rgba(255,255,255,0.6) !important;
-          box-shadow: 0 0 12px rgba(255,255,255,0.3) !important;
+          transform: scale(1.06) !important;
+          box-shadow: 0 0 12px rgba(255,255,255,0.25) !important;
+          border-color: rgba(255,255,255,0.5) !important;
+          z-index: 10;
+        }
+        .back-btn:hover {
+          background: var(--border) !important;
         }
       `}</style>
     </div>
