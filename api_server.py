@@ -1464,10 +1464,22 @@ async def strategy_ai_xgboost(
         for item in all_results[1:]:
             item.pop("__feature_importance__", None)
 
-    # 取前 top_n，補上股票名稱
+    # 取前 top_n，補上股票名稱，清理 NaN/inf
     top_results = all_results[:top_n]
     for item in top_results:
         item["name"] = name_map.get(item["stock_id"], "")
+        for k, v in list(item.items()):
+            if isinstance(v, float) and (pd.isna(v) or np.isinf(v)):
+                item[k] = 0.0
+            elif isinstance(v, dict):
+                for kk, vv in list(v.items()):
+                    if isinstance(vv, float) and (pd.isna(vv) or np.isinf(vv)):
+                        v[kk] = 0.0
+
+    # feature_importance 也清理
+    for k, v in list(feature_importance.items()):
+        if isinstance(v, float) and (pd.isna(v) or np.isinf(v)):
+            feature_importance[k] = 0.0
 
     return {
         "date":               datetime.now().strftime("%Y-%m-%d"),
