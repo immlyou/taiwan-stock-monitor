@@ -5,8 +5,10 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 from .base import BaseStrategy
+import sys
 from pathlib import Path
-from core.indicators import rsi, sma, volume_ratio, breakout_signal
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from indicators import rsi, sma, volume_ratio, breakout_signal
 
 
 class MomentumStrategy(BaseStrategy):

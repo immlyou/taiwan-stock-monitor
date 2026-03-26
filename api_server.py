@@ -2,7 +2,7 @@
 """
 台股戰情中心 API Server
 ========================
-提供 REST API 讓 OpenClaw 或其他外部系統串接查詢台股數據。
+提供 REST API 讓 Next.js 前端或外部系統串接查詢台股數據。
 
 啟動方式:
     python api_server.py
@@ -12,22 +12,29 @@ API 文件:
     啟動後訪問 http://localhost:8000/docs
 """
 import os
+import json
+import uuid
+import asyncio
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
-
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field
 import uvicorn
 import pandas as pd
 import numpy as np
 
-from config import STRATEGY_PARAMS, TRADING_COSTS
+from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
 from core.data_loader import DataLoader, get_data_summary, get_active_stocks
-from core.indicators import calculate_rsi, calculate_macd, calculate_sma
+from core.indicators import (
+    calculate_rsi, calculate_macd, calculate_sma, calculate_ema,
+    calculate_bollinger_bands, calculate_kdj, calculate_atr,
+    calculate_bias, calculate_williams_r, calculate_cci,
+)
 from core.alerts import AlertEngine
 from core.strategies.value import ValueStrategy
 from core.strategies.growth import GrowthStrategy
@@ -36,8 +43,8 @@ from core.strategies.momentum import MomentumStrategy
 # ─── 初始化 ─────────────────────────────────────────────
 app = FastAPI(
     title="台股戰情中心 API",
-    description="提供台股數據查詢、選股策略、警報等功能，供 OpenClaw 等外部系統串接",
-    version="1.0.0",
+    description="提供台股數據查詢、選股策略、警報等功能，供 Next.js 前端及外部系統串接",
+    version="2.0.0",
 )
 
 import logging
@@ -45,12 +52,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # CORS 設定：從環境變數讀取允許的來源（逗號分隔），預設為 "*"
-# 生產環境請設定 CORS_ORIGINS 為具體域名，例如：
-#   CORS_ORIGINS=https://app.example.com,https://admin.example.com
 _cors_origins_raw = os.getenv("CORS_ORIGINS", "*")
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
-# allow_origins=["*"] 搭配 allow_credentials=True 違反 CORS 規範，
-# 使用萬用字元時必須停用 credentials。
 _cors_allow_credentials = _cors_origins != ["*"]
 
 app.add_middleware(
@@ -62,7 +65,6 @@ app.add_middleware(
 )
 
 # API Key 驗證
-# 生產環境必須設定 STOCK_API_KEY 環境變數，否則所有端點將無需認證即可存取。
 API_KEY = os.getenv("STOCK_API_KEY", "")
 security = HTTPBearer(auto_error=False)
 
@@ -74,7 +76,6 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(sec
     生產環境務必設定 STOCK_API_KEY。
     """
     if not API_KEY:
-        # 記錄每次未認證存取，便於在日誌中識別生產環境的設定疏漏
         logger.debug("API_KEY 未設定，跳過認證（本地開發模式）")
         return True
     if not credentials or credentials.credentials != API_KEY:
@@ -84,6 +85,10 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(sec
 
 # 全域 DataLoader
 loader = DataLoader()
+
+# 資料目錄
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
 
 
 @app.on_event("startup")
@@ -125,6 +130,141 @@ def _get_stock_latest(stock_id: str, days: int = 1):
     return data
 
 
+def _load_json_file(filename: str, default=None):
+    """安全讀取 data/ 目錄下的 JSON 檔案"""
+    path = DATA_DIR / filename
+    if default is None:
+        default = {}
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+
+def _save_json_file(filename: str, data) -> None:
+    """安全寫入 data/ 目錄下的 JSON 檔案"""
+    path = DATA_DIR / filename
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+
+def _get_stock_name_map() -> Dict[str, str]:
+    """取得股票代號 -> 名稱的對照表"""
+    try:
+        cats = loader.get("categories")
+        if "stock_id" in cats.columns and "name" in cats.columns:
+            return dict(zip(cats["stock_id"].astype(str), cats["name"].astype(str)))
+        elif cats.index.name == "stock_id" or cats.index.dtype == object:
+            if "name" in cats.columns:
+                return dict(zip(cats.index.astype(str), cats["name"].astype(str)))
+    except Exception:
+        pass
+    return {}
+
+
+def _get_industry_map() -> Dict[str, str]:
+    """取得股票代號 -> 產業的對照表"""
+    try:
+        cats = loader.get("categories")
+        for col in ["category", "industry", "產業", "類別"]:
+            if col in cats.columns:
+                id_col = "stock_id" if "stock_id" in cats.columns else cats.index
+                if isinstance(id_col, str):
+                    return dict(zip(cats[id_col].astype(str), cats[col].astype(str)))
+                else:
+                    return dict(zip(id_col.astype(str), cats[col].astype(str)))
+    except Exception:
+        pass
+    return {}
+
+
+# ─── Pydantic Models ─────────────────────────────────────
+
+class HoldingItem(BaseModel):
+    stock_id: str
+    shares: int = Field(ge=1)
+    cost_price: float = Field(ge=0)
+    buy_date: Optional[str] = None
+
+
+class PortfolioCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+
+class PortfolioUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    holdings: Optional[List[HoldingItem]] = None
+
+
+class WatchlistCreateRequest(BaseModel):
+    name: str
+    stocks: Optional[List[str]] = []
+
+
+class WatchlistUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    stocks: Optional[List[str]] = None
+
+
+class JournalEntryRequest(BaseModel):
+    stock_id: str
+    action: str = Field(description="buy | sell | note")
+    shares: Optional[int] = None
+    price: Optional[float] = None
+    note: Optional[str] = ""
+    date: Optional[str] = None
+
+
+class AlertCreateRequest(BaseModel):
+    stock_id: str
+    type: str = Field(description="price_above | price_below | rsi_above | rsi_below | volume_spike | ma_cross_up | ma_cross_down | new_high | new_low")
+    value: float
+    note: Optional[str] = ""
+
+
+class BacktestRequest(BaseModel):
+    strategy: str = Field(description="value | growth | momentum")
+    preset: str = Field(default="standard", description="conservative | standard | aggressive")
+    initial_capital: float = Field(default=1_000_000, ge=10_000)
+    rebalance_freq: str = Field(default="ME", description="ME=月底, QE=季底")
+    max_stocks: int = Field(default=10, ge=1, le=50)
+    weight_method: str = Field(default="equal", description="equal | market_cap")
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class PredictionRequest(BaseModel):
+    stock_id: str
+    horizon_days: int = Field(default=5, ge=1, le=60)
+    method: str = Field(default="trend", description="trend | mean_reversion")
+
+
+class StrategyCreateRequest(BaseModel):
+    name: str
+    strategy_type: str
+    preset: str = "standard"
+    description: Optional[str] = ""
+    params: Optional[Dict[str, Any]] = None
+
+
+class PortfolioRiskRequest(BaseModel):
+    holdings: List[Dict[str, Any]] = Field(description="[{stock_id, weight}]")
+    days: int = Field(default=252, ge=30, le=1260)
+
+
+class SettingsUpdateRequest(BaseModel):
+    theme: Optional[str] = None
+    language: Optional[str] = None
+    notifications_enabled: Optional[bool] = None
+    default_days: Optional[int] = None
+    extra: Optional[Dict[str, Any]] = None
+
+
 # ─── API 端點 ───────────────────────────────────────────
 
 @app.get("/", tags=["系統"])
@@ -132,22 +272,138 @@ async def root():
     """API 根目錄"""
     return {
         "name": "台股戰情中心 API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs",
-        "endpoints": [
-            "/market/summary",
-            "/stock/{stock_id}",
-            "/stock/{stock_id}/technical",
-            "/stock/{stock_id}/chip",
-            "/strategy/{strategy_type}",
-            "/alerts/check",
-            "/morning-report",
-            "/screener",
-        ],
     }
 
 
-# ─── 市場概覽 ───────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+# 第一批：通用 + 市場資料
+# ════════════════════════════════════════════════════════
+
+@app.get("/health", tags=["系統"])
+async def health():
+    """
+    系統健康檢查。
+
+    回傳 API 服務狀態、資料載入狀態及最新資料日期。
+    """
+    try:
+        close = loader.get("close")
+        latest_date = close.index.max().strftime("%Y-%m-%d")
+        total_stocks = len(close.columns)
+        return {
+            "status": "ok",
+            "version": "2.0.0",
+            "latest_data_date": latest_date,
+            "total_stocks": total_stocks,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        return {
+            "status": "degraded",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+@app.get("/stocks/list", tags=["股票"], dependencies=[Depends(verify_api_key)])
+async def stocks_list():
+    """
+    取得全部股票清單，包含代號與名稱。
+
+    回傳所有在資料庫中的股票（含已下市），搭配類別資訊。
+    """
+    try:
+        close = loader.get("close")
+        all_ids = [col for col in close.columns if col != "date"]
+        name_map = _get_stock_name_map()
+        industry_map = _get_industry_map()
+
+        return {
+            "total": len(all_ids),
+            "stocks": [
+                {
+                    "stock_id": sid,
+                    "name": name_map.get(sid, ""),
+                    "industry": industry_map.get(sid, ""),
+                }
+                for sid in all_ids
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stocks/search", tags=["股票"], dependencies=[Depends(verify_api_key)])
+async def stocks_search(
+    q: str = Query(..., description="搜尋關鍵字（代號或名稱）", min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """
+    搜尋股票（依代號或名稱模糊比對）。
+
+    範例: /stocks/search?q=台積電
+    """
+    try:
+        close = loader.get("close")
+        all_ids = [col for col in close.columns if col != "date"]
+        name_map = _get_stock_name_map()
+        industry_map = _get_industry_map()
+        q_lower = q.lower()
+
+        results = []
+        for sid in all_ids:
+            name = name_map.get(sid, "")
+            if q_lower in sid.lower() or q_lower in name.lower():
+                results.append({
+                    "stock_id": sid,
+                    "name": name,
+                    "industry": industry_map.get(sid, ""),
+                })
+            if len(results) >= limit:
+                break
+
+        return {"query": q, "total": len(results), "stocks": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stocks/active", tags=["股票"], dependencies=[Depends(verify_api_key)])
+async def stocks_active():
+    """
+    取得仍在交易的活躍股票清單（排除已下市）。
+
+    以近 30 天內有交易資料為判斷標準。
+    """
+    try:
+        active = get_active_stocks()
+        name_map = _get_stock_name_map()
+        industry_map = _get_industry_map()
+        close = loader.get("close")
+
+        latest = close[active].iloc[-1]
+        prev = close[active].iloc[-2]
+        changes = ((latest - prev) / prev * 100).fillna(0)
+
+        stocks = []
+        for sid in active:
+            stocks.append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "industry": industry_map.get(sid, ""),
+                "latest_price": round(float(latest.get(sid, 0) or 0), 2),
+                "change_pct": round(float(changes.get(sid, 0) or 0), 2),
+            })
+
+        return {
+            "total": len(active),
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "stocks": stocks,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/market/summary", tags=["市場"], dependencies=[Depends(verify_api_key)])
 async def market_summary():
@@ -159,7 +415,6 @@ async def market_summary():
     if "error" in summary:
         raise HTTPException(status_code=500, detail=summary["error"])
 
-    # 計算漲跌家數
     close = loader.get("close")
     active = get_active_stocks()
 
@@ -171,7 +426,6 @@ async def market_summary():
     down_count = int((changes < 0).sum())
     flat_count = int((changes == 0).sum())
 
-    # 漲幅/跌幅排行
     top_gainers = changes.nlargest(10)
     top_losers = changes.nsmallest(10)
 
@@ -194,7 +448,230 @@ async def market_summary():
     }
 
 
-# ─── 個股查詢 ───────────────────────────────────────────
+@app.get("/market/heatmap", tags=["市場"], dependencies=[Depends(verify_api_key)])
+async def market_heatmap():
+    """
+    市場熱力圖資料 - 依產業分組，顯示各股漲跌幅。
+
+    回傳每支活躍股票的漲跌幅及產業分類，供前端繪製熱力圖。
+    """
+    try:
+        close = loader.get("close")
+        active = get_active_stocks()
+        name_map = _get_stock_name_map()
+        industry_map = _get_industry_map()
+
+        latest = close[active].iloc[-1]
+        prev = close[active].iloc[-2]
+        changes = ((latest - prev) / prev * 100).fillna(0)
+
+        # 依產業分組
+        industry_groups: Dict[str, list] = {}
+        for sid in active:
+            industry = industry_map.get(sid, "其他")
+            price = float(latest.get(sid, 0) or 0)
+            change = float(changes.get(sid, 0) or 0)
+            if price <= 0:
+                continue
+            if industry not in industry_groups:
+                industry_groups[industry] = []
+            industry_groups[industry].append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "price": round(price, 2),
+                "change_pct": round(change, 2),
+            })
+
+        return {
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "industries": [
+                {"industry": ind, "stocks": stocks}
+                for ind, stocks in sorted(industry_groups.items())
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/market/money-flow", tags=["市場"], dependencies=[Depends(verify_api_key)])
+async def market_money_flow():
+    """
+    市場資金流向 - 三大法人買賣超統計。
+
+    回傳外資、投信、自營商的整體買賣超金額與最活躍標的。
+    """
+    try:
+        result = {
+            "date": None,
+            "foreign": {"total_net": 0, "top_buy": [], "top_sell": []},
+            "investment_trust": {"total_net": 0, "top_buy": [], "top_sell": []},
+            "dealer": {"total_net": 0, "top_buy": [], "top_sell": []},
+        }
+
+        name_map = _get_stock_name_map()
+
+        for key, label in [
+            ("foreign_investors", "foreign"),
+            ("investment_trust", "investment_trust"),
+            ("dealer", "dealer"),
+        ]:
+            try:
+                df = loader.get(key)
+                latest = df.iloc[-1].dropna()
+                if result["date"] is None:
+                    result["date"] = df.index[-1].strftime("%Y-%m-%d")
+                result[label]["total_net"] = _safe_json(latest.sum())
+                top_buy = latest.nlargest(10)
+                top_sell = latest.nsmallest(10)
+                result[label]["top_buy"] = [
+                    {"stock_id": sid, "name": name_map.get(sid, ""), "net_shares": int(v)}
+                    for sid, v in top_buy.items() if v > 0
+                ]
+                result[label]["top_sell"] = [
+                    {"stock_id": sid, "name": name_map.get(sid, ""), "net_shares": int(v)}
+                    for sid, v in top_sell.items() if v < 0
+                ]
+            except Exception:
+                pass
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/market/after-hours", tags=["市場"], dependencies=[Depends(verify_api_key)])
+async def market_after_hours():
+    """
+    盤後總覽 - 含市場統計與三大策略 AI 選股結果。
+
+    整合當日收盤數據與 value / growth / momentum 策略各取前 5 名。
+    """
+    try:
+        close = loader.get("close")
+        active = get_active_stocks()
+
+        latest = close[active].iloc[-1]
+        prev = close[active].iloc[-2]
+        changes = ((latest - prev) / prev * 100).dropna()
+        name_map = _get_stock_name_map()
+
+        top_gainers = changes.nlargest(5)
+        top_losers = changes.nsmallest(5)
+
+        strategies_summary = {}
+        for stype in ("value", "growth", "momentum"):
+            try:
+                resp = await run_strategy(stype, preset="standard", top_n=5)
+                strategies_summary[stype] = {
+                    "total": resp["total_matches"],
+                    "top5": [
+                        {"stock_id": s["stock_id"], "name": name_map.get(s["stock_id"], "")}
+                        for s in resp["stocks"][:5]
+                    ],
+                }
+            except Exception:
+                strategies_summary[stype] = {"total": 0, "top5": []}
+
+        return {
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "market": {
+                "up": int((changes > 0).sum()),
+                "down": int((changes < 0).sum()),
+                "flat": int((changes == 0).sum()),
+            },
+            "top_gainers": [
+                {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
+                for sid, pct in top_gainers.items()
+            ],
+            "top_losers": [
+                {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
+                for sid, pct in top_losers.items()
+            ],
+            "ai_picks": strategies_summary,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/market/benchmark", tags=["市場"], dependencies=[Depends(verify_api_key)])
+async def market_benchmark(
+    days: int = Query(default=252, ge=20, le=1260, description="取得最近 N 個交易日"),
+):
+    """
+    大盤指數時序資料。
+
+    回傳加權股價報酬指數歷史數據，供前端繪製大盤走勢圖。
+    """
+    try:
+        benchmark = loader.get_benchmark()
+        series = benchmark.dropna().tail(days)
+        start_val = float(series.iloc[0])
+        return {
+            "days": days,
+            "start_date": series.index[0].strftime("%Y-%m-%d"),
+            "end_date": series.index[-1].strftime("%Y-%m-%d"),
+            "latest_value": _safe_json(series.iloc[-1]),
+            "total_return_pct": round((float(series.iloc[-1]) / start_val - 1) * 100, 2),
+            "data": [
+                {"date": d.strftime("%Y-%m-%d"), "value": _safe_json(v)}
+                for d, v in series.items()
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/market/industries", tags=["市場"], dependencies=[Depends(verify_api_key)])
+async def market_industries():
+    """
+    產業列表與各產業統計。
+
+    回傳所有產業分類及其包含的股票數量、當日漲跌幅平均值。
+    """
+    try:
+        active = get_active_stocks()
+        close = loader.get("close")
+        industry_map = _get_industry_map()
+        name_map = _get_stock_name_map()
+
+        latest = close[active].iloc[-1]
+        prev = close[active].iloc[-2]
+        changes = ((latest - prev) / prev * 100).fillna(0)
+
+        industry_stats: Dict[str, Dict] = {}
+        for sid in active:
+            ind = industry_map.get(sid, "其他")
+            if ind not in industry_stats:
+                industry_stats[ind] = {"count": 0, "changes": []}
+            industry_stats[ind]["count"] += 1
+            chg = float(changes.get(sid, 0) or 0)
+            industry_stats[ind]["changes"].append(chg)
+
+        industries = []
+        for ind, stats in sorted(industry_stats.items()):
+            chgs = stats["changes"]
+            avg_chg = sum(chgs) / len(chgs) if chgs else 0
+            up_count = sum(1 for c in chgs if c > 0)
+            industries.append({
+                "industry": ind,
+                "stock_count": stats["count"],
+                "avg_change_pct": round(avg_chg, 2),
+                "up_count": up_count,
+                "down_count": stats["count"] - up_count,
+            })
+
+        return {
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "total_industries": len(industries),
+            "industries": industries,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ════════════════════════════════════════════════════════
+# 個股查詢（原有端點保持不變）
+# ════════════════════════════════════════════════════════
 
 @app.get("/stock/{stock_id}", tags=["個股"], dependencies=[Depends(verify_api_key)])
 async def stock_info(
@@ -209,13 +686,11 @@ async def stock_info(
     if stock_id not in close.columns:
         raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
 
-    # 價格
     price_data = close[stock_id].dropna().tail(days)
     latest_price = float(price_data.iloc[-1])
     prev_price = float(price_data.iloc[-2]) if len(price_data) >= 2 else latest_price
     change_pct = round((latest_price - prev_price) / prev_price * 100, 2)
 
-    # 本益比、殖利率
     pe = pb = dy = None
     try:
         pe_df = loader.get("pe_ratio")
@@ -236,7 +711,6 @@ async def stock_info(
     except Exception:
         pass
 
-    # 月營收
     rev_yoy = None
     try:
         yoy_df = loader.get("revenue_yoy")
@@ -245,8 +719,13 @@ async def stock_info(
     except Exception:
         pass
 
+    name_map = _get_stock_name_map()
+    industry_map = _get_industry_map()
+
     return {
         "stock_id": stock_id,
+        "name": name_map.get(stock_id, ""),
+        "industry": industry_map.get(stock_id, ""),
         "latest_price": round(latest_price, 2),
         "change_pct": change_pct,
         "date": price_data.index[-1].strftime("%Y-%m-%d"),
@@ -267,7 +746,7 @@ async def stock_info(
 @app.get("/stock/{stock_id}/technical", tags=["個股"], dependencies=[Depends(verify_api_key)])
 async def stock_technical(stock_id: str):
     """
-    個股技術指標：RSI、MACD、均線。
+    個股技術指標：RSI、MACD、均線（最新一筆快照）。
     範例: /stock/2330/technical
     """
     close = loader.get("close")
@@ -276,30 +755,25 @@ async def stock_technical(stock_id: str):
 
     series = close[stock_id].dropna()
 
-    # RSI
     rsi_14 = calculate_rsi(series, period=14)
     latest_rsi = _safe_json(rsi_14.iloc[-1]) if len(rsi_14) > 0 else None
 
-    # MACD
     macd_line, signal_line, histogram = calculate_macd(series)
     latest_macd = _safe_json(macd_line.iloc[-1]) if len(macd_line) > 0 else None
     latest_signal = _safe_json(signal_line.iloc[-1]) if len(signal_line) > 0 else None
 
-    # 均線
     sma_5 = calculate_sma(series, period=5)
     sma_20 = calculate_sma(series, period=20)
     sma_60 = calculate_sma(series, period=60)
 
     latest_price = float(series.iloc[-1])
 
-    # 趨勢判斷
     trend = "盤整"
     if sma_5.iloc[-1] > sma_20.iloc[-1] > sma_60.iloc[-1]:
         trend = "多頭排列"
     elif sma_5.iloc[-1] < sma_20.iloc[-1] < sma_60.iloc[-1]:
         trend = "空頭排列"
 
-    # RSI 訊號
     rsi_signal = "中性"
     if latest_rsi and latest_rsi > 70:
         rsi_signal = "超買"
@@ -332,7 +806,6 @@ async def stock_chip(
     """
     result = {"stock_id": stock_id}
 
-    # 三大法人
     for key, label in [
         ("foreign_investors", "外資"),
         ("investment_trust", "投信"),
@@ -353,7 +826,6 @@ async def stock_chip(
         except Exception:
             pass
 
-    # 外資持股比率
     try:
         fh = loader.get("foreign_holding")
         if stock_id in fh.columns:
@@ -362,7 +834,6 @@ async def stock_chip(
     except Exception:
         pass
 
-    # 融資融券
     try:
         mb = loader.get("margin_buy")
         ms = loader.get("margin_sell")
@@ -376,7 +847,365 @@ async def stock_chip(
     return result
 
 
-# ─── 選股策略 ───────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+# 第二批：個股擴充
+# ════════════════════════════════════════════════════════
+
+@app.get("/stock/{stock_id}/ohlcv", tags=["個股"], dependencies=[Depends(verify_api_key)])
+async def stock_ohlcv(
+    stock_id: str,
+    days: int = Query(default=120, ge=5, le=1260, description="最近 N 個交易日"),
+):
+    """
+    個股 OHLCV 時序資料。
+
+    回傳開高低收量的每日時序，供前端繪製 K 線圖。
+    範例: /stock/2330/ohlcv?days=120
+    """
+    try:
+        close = loader.get("close")
+        if stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+        close_s = close[stock_id].dropna().tail(days)
+        dates = close_s.index
+
+        open_s = high_s = low_s = vol_s = None
+        for key, attr in [("open", "open_s"), ("high", "high_s"), ("low", "low_s"), ("volume", "vol_s")]:
+            try:
+                df = loader.get(key)
+                if stock_id in df.columns:
+                    locals()[attr]  # force reference
+            except Exception:
+                pass
+
+        try:
+            open_df = loader.get("open")
+            open_s = open_df[stock_id].reindex(dates) if stock_id in open_df.columns else None
+        except Exception:
+            pass
+        try:
+            high_df = loader.get("high")
+            high_s = high_df[stock_id].reindex(dates) if stock_id in high_df.columns else None
+        except Exception:
+            pass
+        try:
+            low_df = loader.get("low")
+            low_s = low_df[stock_id].reindex(dates) if stock_id in low_df.columns else None
+        except Exception:
+            pass
+        try:
+            vol_df = loader.get("volume")
+            vol_s = vol_df[stock_id].reindex(dates) if stock_id in vol_df.columns else None
+        except Exception:
+            pass
+
+        records = []
+        for d in dates:
+            row = {
+                "date": d.strftime("%Y-%m-%d"),
+                "close": _safe_json(close_s.loc[d]),
+                "open": _safe_json(open_s.loc[d]) if open_s is not None else None,
+                "high": _safe_json(high_s.loc[d]) if high_s is not None else None,
+                "low": _safe_json(low_s.loc[d]) if low_s is not None else None,
+                "volume": _safe_json(vol_s.loc[d]) if vol_s is not None else None,
+            }
+            records.append(row)
+
+        return {
+            "stock_id": stock_id,
+            "days": len(records),
+            "data": records,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stock/{stock_id}/technical-chart", tags=["個股"], dependencies=[Depends(verify_api_key)])
+async def stock_technical_chart(
+    stock_id: str,
+    days: int = Query(default=120, ge=30, le=1260, description="最近 N 個交易日"),
+):
+    """
+    個股完整技術指標時序。
+
+    回傳含 SMA5/20/60、RSI14、MACD、BB 的每日時序，供前端繪製技術分析圖。
+    範例: /stock/2330/technical-chart?days=120
+    """
+    try:
+        close = loader.get("close")
+        if stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+        series = close[stock_id].dropna()
+        # 取末 days 筆，但計算指標需要更多歷史（額外取 60 筆緩衝）
+        full_series = series.tail(days + 80)
+        tail_dates = series.tail(days).index
+
+        sma5 = calculate_sma(full_series, 5)
+        sma20 = calculate_sma(full_series, 20)
+        sma60 = calculate_sma(full_series, 60)
+        rsi14 = calculate_rsi(full_series, 14)
+        macd_line, signal_line, histogram = calculate_macd(full_series)
+        bb_upper, bb_mid, bb_lower = calculate_bollinger_bands(full_series, 20)
+
+        high_s = low_s = None
+        try:
+            high_df = loader.get("high")
+            low_df = loader.get("low")
+            if stock_id in high_df.columns:
+                high_s = high_df[stock_id].dropna()
+            if stock_id in low_df.columns:
+                low_s = low_df[stock_id].dropna()
+        except Exception:
+            pass
+
+        kdj_k = kdj_d = kdj_j = None
+        if high_s is not None and low_s is not None:
+            try:
+                h_full = high_s.reindex(full_series.index)
+                l_full = low_s.reindex(full_series.index)
+                kdj_k, kdj_d, kdj_j = calculate_kdj(h_full, l_full, full_series)
+            except Exception:
+                pass
+
+        records = []
+        for d in tail_dates:
+            if d not in full_series.index:
+                continue
+            row = {
+                "date": d.strftime("%Y-%m-%d"),
+                "close": _safe_json(full_series.loc[d]),
+                "sma5": _safe_json(sma5.loc[d]) if d in sma5.index else None,
+                "sma20": _safe_json(sma20.loc[d]) if d in sma20.index else None,
+                "sma60": _safe_json(sma60.loc[d]) if d in sma60.index else None,
+                "rsi14": _safe_json(rsi14.loc[d]) if d in rsi14.index else None,
+                "macd": _safe_json(macd_line.loc[d]) if d in macd_line.index else None,
+                "macd_signal": _safe_json(signal_line.loc[d]) if d in signal_line.index else None,
+                "macd_hist": _safe_json(histogram.loc[d]) if d in histogram.index else None,
+                "bb_upper": _safe_json(bb_upper.loc[d]) if d in bb_upper.index else None,
+                "bb_mid": _safe_json(bb_mid.loc[d]) if d in bb_mid.index else None,
+                "bb_lower": _safe_json(bb_lower.loc[d]) if d in bb_lower.index else None,
+                "kdj_k": _safe_json(kdj_k.loc[d]) if kdj_k is not None and d in kdj_k.index else None,
+                "kdj_d": _safe_json(kdj_d.loc[d]) if kdj_d is not None and d in kdj_d.index else None,
+                "kdj_j": _safe_json(kdj_j.loc[d]) if kdj_j is not None and d in kdj_j.index else None,
+            }
+            records.append(row)
+
+        return {
+            "stock_id": stock_id,
+            "days": len(records),
+            "data": records,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stock/{stock_id}/financials", tags=["個股"], dependencies=[Depends(verify_api_key)])
+async def stock_financials(
+    stock_id: str,
+    months: int = Query(default=12, ge=3, le=60, description="最近 N 個月"),
+):
+    """
+    個股財報資料 - 月營收、本益比、股價淨值比、殖利率。
+
+    範例: /stock/2330/financials
+    """
+    try:
+        result: Dict[str, Any] = {"stock_id": stock_id, "months": months}
+
+        for key, label in [
+            ("monthly_revenue", "monthly_revenue"),
+            ("revenue_yoy", "revenue_yoy"),
+            ("revenue_mom", "revenue_mom"),
+            ("pe_ratio", "pe_ratio"),
+            ("pb_ratio", "pb_ratio"),
+            ("dividend_yield", "dividend_yield"),
+        ]:
+            try:
+                df = loader.get(key)
+                if stock_id in df.columns:
+                    series = df[stock_id].dropna().tail(months)
+                    result[label] = [
+                        {"date": d.strftime("%Y-%m-%d"), "value": _safe_json(v)}
+                        for d, v in series.items()
+                    ]
+                else:
+                    result[label] = []
+            except Exception:
+                result[label] = []
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stock/{stock_id}/chip/detail", tags=["個股"], dependencies=[Depends(verify_api_key)])
+async def stock_chip_detail(
+    stock_id: str,
+    days: int = Query(default=30, ge=5, le=120, description="最近 N 天"),
+):
+    """
+    個股詳細籌碼分析 - 含大戶持股分布時序。
+
+    範例: /stock/2330/chip/detail?days=30
+    """
+    try:
+        result: Dict[str, Any] = {"stock_id": stock_id, "days": days}
+
+        # 三大法人時序
+        for key, label in [
+            ("foreign_investors", "foreign"),
+            ("investment_trust", "investment_trust"),
+            ("dealer", "dealer"),
+        ]:
+            try:
+                df = loader.get(key)
+                if stock_id in df.columns:
+                    series = df[stock_id].dropna().tail(days)
+                    result[label] = {
+                        "latest": _safe_json(series.iloc[-1]) if len(series) > 0 else None,
+                        "total": _safe_json(series.sum()),
+                        "data": [
+                            {"date": d.strftime("%Y-%m-%d"), "value": _safe_json(v)}
+                            for d, v in series.items()
+                        ],
+                    }
+            except Exception:
+                result[label] = None
+
+        # 外資持股比率
+        try:
+            fh = loader.get("foreign_holding")
+            if stock_id in fh.columns:
+                series = fh[stock_id].dropna().tail(days)
+                result["foreign_holding"] = {
+                    "latest": _safe_json(series.iloc[-1]) if len(series) > 0 else None,
+                    "data": [
+                        {"date": d.strftime("%Y-%m-%d"), "value": _safe_json(v)}
+                        for d, v in series.items()
+                    ],
+                }
+        except Exception:
+            result["foreign_holding"] = None
+
+        # 融資融券時序
+        for key, label in [("margin_buy", "margin_buy"), ("margin_sell", "margin_sell")]:
+            try:
+                df = loader.get(key)
+                if stock_id in df.columns:
+                    series = df[stock_id].dropna().tail(days)
+                    result[label] = {
+                        "latest": _safe_json(series.iloc[-1]) if len(series) > 0 else None,
+                        "data": [
+                            {"date": d.strftime("%Y-%m-%d"), "value": _safe_json(v)}
+                            for d, v in series.items()
+                        ],
+                    }
+            except Exception:
+                result[label] = None
+
+        # 大戶持股分布（取最新一筆）
+        inventory_keys = [
+            "inventory_total_holders",
+            "inventory_over_1000_ratio",
+            "inventory_over_400_ratio",
+            "inventory_under_10_ratio",
+        ]
+        inventory_data = {}
+        for key in inventory_keys:
+            try:
+                df = loader.get(key)
+                if stock_id in df.columns:
+                    series = df[stock_id].dropna()
+                    if len(series) > 0:
+                        inventory_data[key] = _safe_json(series.iloc[-1])
+            except Exception:
+                pass
+        result["inventory"] = inventory_data
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stocks/compare", tags=["個股"], dependencies=[Depends(verify_api_key)])
+async def stocks_compare(
+    ids: str = Query(..., description="股票代號，逗號分隔，如 2330,2317"),
+    days: int = Query(default=60, ge=10, le=500, description="最近 N 個交易日"),
+):
+    """
+    多股比較 - 回傳多支股票的標準化價格序列（以第一天為基準 = 100）。
+
+    範例: /stocks/compare?ids=2330,2317&days=60
+    """
+    try:
+        stock_ids = [s.strip() for s in ids.split(",") if s.strip()]
+        if not stock_ids:
+            raise HTTPException(status_code=400, detail="請提供至少一個股票代號")
+        if len(stock_ids) > 10:
+            raise HTTPException(status_code=400, detail="最多比較 10 支股票")
+
+        close = loader.get("close")
+        name_map = _get_stock_name_map()
+
+        result_stocks = []
+        for sid in stock_ids:
+            if sid not in close.columns:
+                continue
+            series = close[sid].dropna().tail(days)
+            if len(series) == 0:
+                continue
+            base = float(series.iloc[0])
+            normalized = [(float(v) / base * 100) if base > 0 else 100 for v in series]
+            result_stocks.append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "base_price": round(base, 2),
+                "latest_price": round(float(series.iloc[-1]), 2),
+                "total_return_pct": round((float(series.iloc[-1]) / base - 1) * 100, 2) if base > 0 else 0,
+                "data": [
+                    {"date": d.strftime("%Y-%m-%d"), "price": round(float(p), 2), "normalized": round(n, 2)}
+                    for (d, p), n in zip(series.items(), normalized)
+                ],
+            })
+
+        return {
+            "days": days,
+            "stocks": result_stocks,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ════════════════════════════════════════════════════════
+# 策略端點（固定路徑優先於動態路徑）
+# ════════════════════════════════════════════════════════
+
+# 注意：/strategy/ai-pick 和 /strategy/composite 定義在
+# /strategy/{strategy_type} 之前，確保 FastAPI 路由匹配正確。
+
+@app.get("/strategy/ai-pick", tags=["策略"], dependencies=[Depends(verify_api_key)])
+async def strategy_ai_pick_early(
+    top_n: int = Query(default=10, ge=1, le=30, description="每策略回傳前 N 檔"),
+):
+    """AI 選股 - 整合三大策略，取各策略前 N 名並進行綜合評分。(路由前置版)"""
+    return await strategy_ai_pick(top_n=top_n)
+
+
+@app.get("/strategy/composite", tags=["策略"], dependencies=[Depends(verify_api_key)])
+async def strategy_composite_early(
+    top_n: int = Query(default=20, ge=1, le=50),
+):
+    """綜合策略選股 - 計算每支股票在三大策略的綜合排名分數。(路由前置版)"""
+    return await strategy_composite(top_n=top_n)
+
 
 @app.get("/strategy/{strategy_type}", tags=["策略"], dependencies=[Depends(verify_api_key)])
 async def run_strategy(
@@ -403,7 +1232,6 @@ async def run_strategy(
     close = loader.get("close")
     latest_prices = close[active].iloc[-1]
 
-    # 根據 preset 取得對應策略參數，並實例化 Strategy 類別
     preset_params = STRATEGY_PRESETS[strategy_type].get(
         preset, STRATEGY_PRESETS[strategy_type]["standard"]
     )["params"]
@@ -419,7 +1247,6 @@ async def run_strategy(
         data = {"pe_ratio": pe_df, "pb_ratio": pb_df, "dividend_yield": dy_df}
         matched = set(strategy.filter(data))
 
-        # 提取 API 回應所需的具體指標數值
         for sid in matched:
             try:
                 pe = pe_df[sid].dropna().iloc[-1] if sid in pe_df.columns else None
@@ -467,7 +1294,6 @@ async def run_strategy(
     elif strategy_type == "momentum":
         volume_df = loader.get("volume")
 
-        # MomentumStrategy 使用 volume_ratio_min 而非 volume_ratio，需做鍵名對應
         momentum_params = dict(preset_params)
         if "volume_ratio" in momentum_params and "volume_ratio_min" not in momentum_params:
             momentum_params["volume_ratio_min"] = momentum_params.pop("volume_ratio")
@@ -514,8 +1340,6 @@ async def run_strategy(
         "stocks": results[:top_n],
     }
 
-
-# ─── 自訂篩選 ───────────────────────────────────────────
 
 @app.get("/screener", tags=["策略"], dependencies=[Depends(verify_api_key)])
 async def screener(
@@ -582,7 +1406,6 @@ async def screener(
                 candidates.discard(sid)
 
     if rsi_max is not None or rsi_min is not None:
-        # 向量化：一次對所有候選股票計算 RSI，避免逐股迴圈
         valid_candidates = [sid for sid in candidates if sid in close.columns]
         if valid_candidates:
             rsi_all = calculate_rsi(close[valid_candidates], period=14)
@@ -599,7 +1422,6 @@ async def screener(
         else:
             candidates.clear()
 
-    # 組裝結果
     results = []
     for sid in list(candidates)[:top_n]:
         price = close[sid].dropna().iloc[-1] if sid in close.columns else 0
@@ -619,7 +1441,645 @@ async def screener(
     }
 
 
-# ─── 警報 ───────────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+# 第三批：策略與回測
+# ════════════════════════════════════════════════════════
+
+@app.post("/backtest/run", tags=["回測"], dependencies=[Depends(verify_api_key)])
+async def backtest_run(req: BacktestRequest):
+    """
+    執行策略回測。
+
+    支援 value / growth / momentum 三種策略，可自訂初始資金、換股頻率。
+    計算耗時較長（5-30 秒），請勿在高頻場景下呼叫。
+    """
+    try:
+        from config import STRATEGY_PRESETS
+        from core.backtest.engine import BacktestEngine
+        from core.strategies.value import ValueStrategy
+        from core.strategies.growth import GrowthStrategy
+        from core.strategies.momentum import MomentumStrategy
+
+        if req.strategy not in ("value", "growth", "momentum"):
+            raise HTTPException(status_code=400, detail="策略類型需為 value/growth/momentum")
+
+        preset_params = STRATEGY_PRESETS[req.strategy].get(
+            req.preset, STRATEGY_PRESETS[req.strategy]["standard"]
+        )["params"]
+
+        close = loader.get("close")
+        volume = loader.get("volume")
+        benchmark = loader.get_benchmark()
+
+        # 準備策略函數
+        def make_strategy_func(stype, params):
+            if stype == "value":
+                pe_df = loader.get("pe_ratio")
+                pb_df = loader.get("pb_ratio")
+                dy_df = loader.get("dividend_yield")
+                strat = ValueStrategy(params=params)
+                def func(data, date):
+                    return strat.filter({"pe_ratio": pe_df.loc[:date], "pb_ratio": pb_df.loc[:date], "dividend_yield": dy_df.loc[:date]})
+            elif stype == "growth":
+                yoy_df = loader.get("revenue_yoy")
+                mom_df = loader.get("revenue_mom")
+                strat = GrowthStrategy(params=params)
+                def func(data, date):
+                    return strat.filter({"revenue_yoy": yoy_df.loc[:date], "revenue_mom": mom_df.loc[:date]})
+            else:
+                mp = dict(params)
+                if "volume_ratio" in mp and "volume_ratio_min" not in mp:
+                    mp["volume_ratio_min"] = mp.pop("volume_ratio")
+                strat = MomentumStrategy(params=mp)
+                def func(data, date):
+                    return strat.filter({"close": close.loc[:date], "volume": volume.loc[:date]})
+            return func
+
+        engine = BacktestEngine(
+            initial_capital=req.initial_capital,
+        )
+
+        strategy_func = make_strategy_func(req.strategy, preset_params)
+
+        start_date = pd.Timestamp(req.start_date) if req.start_date else None
+        end_date = pd.Timestamp(req.end_date) if req.end_date else None
+
+        data = {
+            "close": close,
+            "volume": volume,
+        }
+        if req.strategy == "value":
+            data["pe_ratio"] = loader.get("pe_ratio")
+            data["pb_ratio"] = loader.get("pb_ratio")
+            data["dividend_yield"] = loader.get("dividend_yield")
+        elif req.strategy == "growth":
+            data["revenue_yoy"] = loader.get("revenue_yoy")
+            data["revenue_mom"] = loader.get("revenue_mom")
+
+        # 在 executor 中執行耗時計算
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: engine.run(
+                    strategy_func=strategy_func,
+                    data=data,
+                    start_date=start_date,
+                    end_date=end_date,
+                    rebalance_freq=req.rebalance_freq,
+                    max_stocks=req.max_stocks,
+                    weight_method=req.weight_method,
+                    benchmark=benchmark,
+                ),
+            ),
+            timeout=60,
+        )
+
+        m = result.metrics
+        pv = result.portfolio_values
+
+        return {
+            "strategy": req.strategy,
+            "preset": req.preset,
+            "config": {
+                "initial_capital": req.initial_capital,
+                "rebalance_freq": req.rebalance_freq,
+                "max_stocks": req.max_stocks,
+                "weight_method": req.weight_method,
+                "start_date": pv.index[0].strftime("%Y-%m-%d") if len(pv) > 0 else None,
+                "end_date": pv.index[-1].strftime("%Y-%m-%d") if len(pv) > 0 else None,
+            },
+            "metrics": {
+                "total_return": _safe_json(m.total_return),
+                "annualized_return": _safe_json(m.annualized_return),
+                "volatility": _safe_json(m.volatility),
+                "sharpe_ratio": _safe_json(m.sharpe_ratio),
+                "sortino_ratio": _safe_json(m.sortino_ratio),
+                "max_drawdown": _safe_json(m.max_drawdown),
+                "win_rate": _safe_json(m.win_rate),
+                "total_trades": m.total_trades,
+                "profit_factor": _safe_json(m.profit_factor),
+                "calmar_ratio": _safe_json(m.calmar_ratio),
+            },
+            "portfolio_values": [
+                {"date": d.strftime("%Y-%m-%d"), "value": round(float(v), 2)}
+                for d, v in pv.items()
+            ],
+            "benchmark_comparison": result.benchmark_comparison,
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="回測計算逾時（>60s），請縮小日期範圍")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def strategy_ai_pick(
+    top_n: int = Query(default=10, ge=1, le=30, description="每策略回傳前 N 檔"),
+):
+    """AI 選股核心邏輯（由前置路由包裝器呼叫）。"""
+    try:
+        name_map = _get_stock_name_map()
+        result = {}
+        for stype in ("value", "growth", "momentum"):
+            try:
+                resp = await run_strategy(stype, preset="standard", top_n=top_n)
+                stocks = resp["stocks"]
+                for s in stocks:
+                    s["name"] = name_map.get(s["stock_id"], "")
+                result[stype] = {
+                    "total": resp["total_matches"],
+                    "stocks": stocks,
+                }
+            except Exception as e:
+                result[stype] = {"total": 0, "stocks": [], "error": str(e)}
+
+        return {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "strategies": result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def strategy_composite(
+    top_n: int = Query(default=20, ge=1, le=50),
+):
+    """綜合策略選股核心邏輯（由前置路由包裝器呼叫）。"""
+    try:
+        name_map = _get_stock_name_map()
+        industry_map = _get_industry_map()
+        score_map: Dict[str, float] = {}
+
+        weights = {"value": 1.0, "growth": 1.0, "momentum": 1.0}
+        for stype, weight in weights.items():
+            try:
+                resp = await run_strategy(stype, preset="standard", top_n=50)
+                total = resp["total_matches"] or 1
+                for rank, s in enumerate(resp["stocks"]):
+                    sid = s["stock_id"]
+                    # 線性分數：排名越前分數越高
+                    rank_score = (total - rank) / total * 100 * weight
+                    score_map[sid] = score_map.get(sid, 0) + rank_score
+            except Exception:
+                pass
+
+        close = loader.get("close")
+        sorted_stocks = sorted(score_map.items(), key=lambda x: x[1], reverse=True)[:top_n]
+
+        results = []
+        for sid, score in sorted_stocks:
+            price = 0.0
+            try:
+                if sid in close.columns:
+                    price = round(float(close[sid].dropna().iloc[-1]), 2)
+            except Exception:
+                pass
+            results.append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "industry": industry_map.get(sid, ""),
+                "composite_score": round(score, 2),
+                "price": price,
+            })
+
+        return {
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "total": len(results),
+            "stocks": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ════════════════════════════════════════════════════════
+# 第四批：CRUD 端點
+# ════════════════════════════════════════════════════════
+
+# ─── 投資組合 ───────────────────────────────────────────
+
+@app.get("/portfolios", tags=["投資組合"], dependencies=[Depends(verify_api_key)])
+async def portfolios_list():
+    """取得所有投資組合列表。"""
+    try:
+        from app.components.portfolio_utils import load_portfolios
+        portfolios = load_portfolios()
+        result = []
+        for name, data in portfolios.items():
+            result.append({
+                "id": name,
+                "name": name,
+                "description": data.get("description", ""),
+                "created_at": data.get("created_at", ""),
+                "holdings_count": len(data.get("holdings", [])),
+            })
+        return {"total": len(result), "portfolios": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/portfolios", tags=["投資組合"], dependencies=[Depends(verify_api_key)])
+async def portfolio_create(req: PortfolioCreateRequest):
+    """建立新投資組合。"""
+    try:
+        from app.components.portfolio_utils import load_portfolios, save_portfolios
+        portfolios = load_portfolios()
+        if req.name in portfolios:
+            raise HTTPException(status_code=409, detail=f"投資組合 '{req.name}' 已存在")
+        portfolios[req.name] = {
+            "description": req.description or "",
+            "created_at": datetime.now().isoformat(),
+            "holdings": [],
+        }
+        save_portfolios(portfolios)
+        return {"message": "建立成功", "id": req.name, "name": req.name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/portfolios/{portfolio_id}", tags=["投資組合"], dependencies=[Depends(verify_api_key)])
+async def portfolio_get(portfolio_id: str):
+    """取得指定投資組合詳情，含各持股當前報酬率計算。"""
+    try:
+        from app.components.portfolio_utils import load_portfolios
+        portfolios = load_portfolios()
+        if portfolio_id not in portfolios:
+            raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+
+        data = portfolios[portfolio_id]
+        holdings = data.get("holdings", [])
+        close = loader.get("close")
+        name_map = _get_stock_name_map()
+
+        enriched_holdings = []
+        total_cost = 0.0
+        total_value = 0.0
+
+        for h in holdings:
+            sid = h.get("stock_id", "")
+            shares = h.get("shares", 0)
+            cost_price = h.get("cost_price", 0)
+            cost = shares * cost_price
+
+            current_price = cost_price
+            try:
+                if sid in close.columns:
+                    current_price = float(close[sid].dropna().iloc[-1])
+            except Exception:
+                pass
+
+            current_value = shares * current_price
+            pnl = current_value - cost
+            pnl_pct = (pnl / cost * 100) if cost > 0 else 0
+
+            total_cost += cost
+            total_value += current_value
+
+            enriched_holdings.append({
+                **h,
+                "name": name_map.get(sid, ""),
+                "current_price": round(current_price, 2),
+                "current_value": round(current_value, 2),
+                "cost_value": round(cost, 2),
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl_pct, 2),
+            })
+
+        total_pnl = total_value - total_cost
+        total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
+
+        return {
+            "id": portfolio_id,
+            "name": portfolio_id,
+            "description": data.get("description", ""),
+            "created_at": data.get("created_at", ""),
+            "holdings": enriched_holdings,
+            "summary": {
+                "total_cost": round(total_cost, 2),
+                "total_value": round(total_value, 2),
+                "total_pnl": round(total_pnl, 2),
+                "total_pnl_pct": round(total_pnl_pct, 2),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/portfolios/{portfolio_id}", tags=["投資組合"], dependencies=[Depends(verify_api_key)])
+async def portfolio_update(portfolio_id: str, req: PortfolioUpdateRequest):
+    """更新投資組合（描述或持股清單）。"""
+    try:
+        from app.components.portfolio_utils import load_portfolios, save_portfolios
+        portfolios = load_portfolios()
+        if portfolio_id not in portfolios:
+            raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+
+        if req.description is not None:
+            portfolios[portfolio_id]["description"] = req.description
+        if req.holdings is not None:
+            portfolios[portfolio_id]["holdings"] = [h.dict() for h in req.holdings]
+
+        save_portfolios(portfolios)
+        return {"message": "更新成功", "id": portfolio_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/portfolios/{portfolio_id}", tags=["投資組合"], dependencies=[Depends(verify_api_key)])
+async def portfolio_delete(portfolio_id: str):
+    """刪除投資組合。"""
+    try:
+        from app.components.portfolio_utils import load_portfolios, save_portfolios
+        portfolios = load_portfolios()
+        if portfolio_id not in portfolios:
+            raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+        del portfolios[portfolio_id]
+        save_portfolios(portfolios)
+        return {"message": "刪除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 自選股 ─────────────────────────────────────────────
+
+@app.get("/watchlists", tags=["自選股"], dependencies=[Depends(verify_api_key)])
+async def watchlists_list():
+    """取得所有自選股清單。"""
+    try:
+        from app.components.watchlist_utils import load_watchlists, get_watchlist_stocks
+        watchlists = load_watchlists()
+        result = []
+        for name, data in watchlists.items():
+            stocks = get_watchlist_stocks(name)
+            result.append({
+                "id": name,
+                "name": name,
+                "stocks_count": len(stocks),
+            })
+        return {"total": len(result), "watchlists": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/watchlists", tags=["自選股"], dependencies=[Depends(verify_api_key)])
+async def watchlist_create(req: WatchlistCreateRequest):
+    """建立新自選股清單。"""
+    try:
+        from app.components.watchlist_utils import load_watchlists, save_watchlists
+        watchlists = load_watchlists()
+        if req.name in watchlists:
+            raise HTTPException(status_code=409, detail=f"自選股清單 '{req.name}' 已存在")
+        watchlists[req.name] = {
+            "stocks": req.stocks or [],
+            "created_at": datetime.now().isoformat(),
+        }
+        save_watchlists(watchlists)
+        return {"message": "建立成功", "id": req.name, "name": req.name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/watchlists/{watchlist_id}", tags=["自選股"], dependencies=[Depends(verify_api_key)])
+async def watchlist_get(watchlist_id: str):
+    """取得指定自選股清單，含各股當前報價。"""
+    try:
+        from app.components.watchlist_utils import load_watchlists, get_watchlist_stocks
+        watchlists = load_watchlists()
+        if watchlist_id not in watchlists:
+            raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
+
+        stocks = get_watchlist_stocks(watchlist_id)
+        close = loader.get("close")
+        name_map = _get_stock_name_map()
+        industry_map = _get_industry_map()
+
+        result_stocks = []
+        for sid in stocks:
+            price = change_pct = None
+            try:
+                if sid in close.columns:
+                    s = close[sid].dropna()
+                    price = round(float(s.iloc[-1]), 2)
+                    if len(s) >= 2:
+                        change_pct = round((float(s.iloc[-1]) - float(s.iloc[-2])) / float(s.iloc[-2]) * 100, 2)
+            except Exception:
+                pass
+            result_stocks.append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "industry": industry_map.get(sid, ""),
+                "price": price,
+                "change_pct": change_pct,
+            })
+
+        return {
+            "id": watchlist_id,
+            "name": watchlist_id,
+            "stocks_count": len(stocks),
+            "stocks": result_stocks,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/watchlists/{watchlist_id}", tags=["自選股"], dependencies=[Depends(verify_api_key)])
+async def watchlist_update(watchlist_id: str, req: WatchlistUpdateRequest):
+    """更新自選股清單（可追加或覆蓋股票清單）。"""
+    try:
+        from app.components.watchlist_utils import load_watchlists, save_watchlists
+        watchlists = load_watchlists()
+        if watchlist_id not in watchlists:
+            raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
+
+        entry = watchlists[watchlist_id]
+        if isinstance(entry, list):
+            # 舊格式：升級為 dict
+            entry = {"stocks": entry}
+            watchlists[watchlist_id] = entry
+
+        if req.stocks is not None:
+            entry["stocks"] = req.stocks
+        if req.name is not None and req.name != watchlist_id:
+            watchlists[req.name] = watchlists.pop(watchlist_id)
+            watchlist_id = req.name
+
+        save_watchlists(watchlists)
+        return {"message": "更新成功", "id": watchlist_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/watchlists/{watchlist_id}", tags=["自選股"], dependencies=[Depends(verify_api_key)])
+async def watchlist_delete(watchlist_id: str):
+    """刪除自選股清單。"""
+    try:
+        from app.components.watchlist_utils import load_watchlists, save_watchlists
+        watchlists = load_watchlists()
+        if watchlist_id not in watchlists:
+            raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
+        del watchlists[watchlist_id]
+        save_watchlists(watchlists)
+        return {"message": "刪除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 交易日誌 ────────────────────────────────────────────
+
+JOURNAL_FILE = "trading_journal.json"
+
+
+@app.get("/journal", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
+async def journal_list(
+    stock_id: Optional[str] = Query(default=None, description="依股票代號篩選"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """取得交易日誌列表。"""
+    try:
+        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
+        entries = data.get("entries", [])
+        if stock_id:
+            entries = [e for e in entries if e.get("stock_id") == stock_id]
+        entries = sorted(entries, key=lambda x: x.get("date", ""), reverse=True)
+        return {"total": len(entries), "entries": entries[:limit]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/journal", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
+async def journal_create(req: JournalEntryRequest):
+    """新增交易日誌記錄。"""
+    try:
+        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
+        entry = {
+            "id": str(uuid.uuid4()),
+            "stock_id": req.stock_id,
+            "action": req.action,
+            "shares": req.shares,
+            "price": req.price,
+            "note": req.note or "",
+            "date": req.date or datetime.now().strftime("%Y-%m-%d"),
+            "created_at": datetime.now().isoformat(),
+        }
+        data["entries"].append(entry)
+        _save_json_file(JOURNAL_FILE, data)
+        return {"message": "新增成功", "entry": entry}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/journal/{entry_id}", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
+async def journal_update(entry_id: str, req: JournalEntryRequest):
+    """更新交易日誌記錄。"""
+    try:
+        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
+        entries = data.get("entries", [])
+        idx = next((i for i, e in enumerate(entries) if e.get("id") == entry_id), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"找不到日誌記錄: {entry_id}")
+        entries[idx].update({
+            "stock_id": req.stock_id,
+            "action": req.action,
+            "shares": req.shares,
+            "price": req.price,
+            "note": req.note or "",
+            "date": req.date or entries[idx].get("date", ""),
+            "updated_at": datetime.now().isoformat(),
+        })
+        _save_json_file(JOURNAL_FILE, data)
+        return {"message": "更新成功", "entry": entries[idx]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/journal/{entry_id}", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
+async def journal_delete(entry_id: str):
+    """刪除交易日誌記錄。"""
+    try:
+        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
+        entries = data.get("entries", [])
+        original_len = len(entries)
+        data["entries"] = [e for e in entries if e.get("id") != entry_id]
+        if len(data["entries"]) == original_len:
+            raise HTTPException(status_code=404, detail=f"找不到日誌記錄: {entry_id}")
+        _save_json_file(JOURNAL_FILE, data)
+        return {"message": "刪除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 警報 ─────────────────────────────────────────────────
+
+@app.get("/alerts", tags=["警報"], dependencies=[Depends(verify_api_key)])
+async def alerts_list():
+    """取得所有警報設定。"""
+    try:
+        engine = AlertEngine()
+        alerts = engine.alerts_data.get("alerts", [])
+        return {"total": len(alerts), "alerts": alerts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/alerts", tags=["警報"], dependencies=[Depends(verify_api_key)])
+async def alert_create(req: AlertCreateRequest):
+    """新增警報設定。"""
+    try:
+        engine = AlertEngine()
+        alert = {
+            "id": str(uuid.uuid4()),
+            "stock_id": req.stock_id,
+            "type": req.type,
+            "value": req.value,
+            "note": req.note or "",
+            "enabled": True,
+            "created_at": datetime.now().isoformat(),
+        }
+        engine.alerts_data.setdefault("alerts", []).append(alert)
+        engine._save_alerts()
+        return {"message": "新增成功", "alert": alert}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/alerts/{alert_id}", tags=["警報"], dependencies=[Depends(verify_api_key)])
+async def alert_delete(alert_id: str):
+    """刪除警報設定。"""
+    try:
+        engine = AlertEngine()
+        alerts = engine.alerts_data.get("alerts", [])
+        original_len = len(alerts)
+        engine.alerts_data["alerts"] = [a for a in alerts if a.get("id") != alert_id]
+        if len(engine.alerts_data["alerts"]) == original_len:
+            raise HTTPException(status_code=404, detail=f"找不到警報: {alert_id}")
+        engine._save_alerts()
+        return {"message": "刪除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/alerts/check", tags=["警報"], dependencies=[Depends(verify_api_key)])
 async def check_alerts():
@@ -630,7 +2090,6 @@ async def check_alerts():
         engine = AlertEngine()
         close = loader.get("close")
         volume = loader.get("volume")
-
         high = loader.get("high")
         low = loader.get("low")
         data = {"close": close, "volume": volume, "high": high, "low": low}
@@ -651,10 +2110,578 @@ async def check_alerts():
             ],
         }
     except Exception as e:
-        return {"checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "triggered_count": 0, "alerts": [], "note": str(e)}
+        return {
+            "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "triggered_count": 0,
+            "alerts": [],
+            "note": str(e),
+        }
 
 
-# ─── 晨報 ───────────────────────────────────────────────
+# ─── 預測 ─────────────────────────────────────────────────
+
+PREDICTIONS_FILE = "predictions.json"
+
+
+@app.get("/predictions", tags=["預測"], dependencies=[Depends(verify_api_key)])
+async def predictions_list(
+    stock_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """取得已儲存的預測記錄。"""
+    try:
+        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        preds = data.get("predictions", [])
+        if stock_id:
+            preds = [p for p in preds if p.get("stock_id") == stock_id]
+        preds = sorted(preds, key=lambda x: x.get("created_at", ""), reverse=True)
+        return {"total": len(preds), "predictions": preds[:limit]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/predictions", tags=["預測"], dependencies=[Depends(verify_api_key)])
+async def prediction_create(req: PredictionRequest):
+    """
+    建立個股價格預測（簡單技術面推估）。
+
+    支援 trend（趨勢延伸）與 mean_reversion（均值回歸）兩種方法。
+    注意：此為基礎統計推估，不構成投資建議。
+    """
+    try:
+        close = loader.get("close")
+        if req.stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {req.stock_id}")
+
+        series = close[req.stock_id].dropna().tail(120)
+        current_price = float(series.iloc[-1])
+
+        predicted_price = current_price
+        confidence = 0.0
+        method_detail = {}
+
+        if req.method == "trend":
+            # 線性回歸趨勢延伸
+            x = np.arange(len(series))
+            y = series.values
+            coeffs = np.polyfit(x, y, 1)
+            slope = coeffs[0]
+            # 外推 horizon_days 天
+            predicted_price = float(coeffs[0] * (len(series) + req.horizon_days - 1) + coeffs[1])
+            predicted_change_pct = (predicted_price - current_price) / current_price * 100
+            # 用 R² 作為信心度
+            y_fit = np.polyval(coeffs, x)
+            ss_res = np.sum((y - y_fit) ** 2)
+            ss_tot = np.sum((y - y.mean()) ** 2)
+            r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+            confidence = round(max(0, min(100, r2 * 100)), 1)
+            method_detail = {"slope": round(float(slope), 4), "r_squared": round(r2, 4)}
+        elif req.method == "mean_reversion":
+            # 均值回歸
+            sma20 = float(calculate_sma(series, 20).iloc[-1])
+            std20 = float(series.tail(20).std())
+            z = (current_price - sma20) / std20 if std20 > 0 else 0
+            # 預測往均值靠攏
+            reversion_speed = 0.1  # 每天回歸 10%
+            predicted_price = current_price + (sma20 - current_price) * reversion_speed * req.horizon_days
+            predicted_change_pct = (predicted_price - current_price) / current_price * 100
+            confidence = round(min(100, abs(z) * 20), 1)
+            method_detail = {"z_score": round(float(z), 4), "sma20": round(sma20, 2)}
+        else:
+            raise HTTPException(status_code=400, detail="method 需為 trend | mean_reversion")
+
+        predicted_change_pct = (predicted_price - current_price) / current_price * 100
+
+        prediction = {
+            "id": str(uuid.uuid4()),
+            "stock_id": req.stock_id,
+            "method": req.method,
+            "horizon_days": req.horizon_days,
+            "current_price": round(current_price, 2),
+            "predicted_price": round(predicted_price, 2),
+            "predicted_change_pct": round(predicted_change_pct, 2),
+            "confidence": confidence,
+            "method_detail": method_detail,
+            "created_at": datetime.now().isoformat(),
+            "disclaimer": "此為基礎統計推估，不構成任何投資建議。",
+        }
+
+        # 儲存記錄
+        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        data["predictions"].append(prediction)
+        # 只保留最近 500 筆
+        data["predictions"] = data["predictions"][-500:]
+        _save_json_file(PREDICTIONS_FILE, data)
+
+        return prediction
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 策略管理 ─────────────────────────────────────────────
+
+STRATEGIES_FILE = "saved_strategies.json"
+
+
+@app.get("/strategies/saved", tags=["策略"], dependencies=[Depends(verify_api_key)])
+async def strategies_list():
+    """取得所有已儲存的自訂策略。"""
+    try:
+        data = _load_json_file(STRATEGIES_FILE, default={"strategies": []})
+        return {"total": len(data["strategies"]), "strategies": data["strategies"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/strategies/saved", tags=["策略"], dependencies=[Depends(verify_api_key)])
+async def strategy_save(req: StrategyCreateRequest):
+    """儲存自訂策略設定。"""
+    try:
+        data = _load_json_file(STRATEGIES_FILE, default={"strategies": []})
+        strategy = {
+            "id": str(uuid.uuid4()),
+            "name": req.name,
+            "strategy_type": req.strategy_type,
+            "preset": req.preset,
+            "description": req.description or "",
+            "params": req.params or {},
+            "created_at": datetime.now().isoformat(),
+        }
+        data["strategies"].append(strategy)
+        _save_json_file(STRATEGIES_FILE, data)
+        return {"message": "儲存成功", "strategy": strategy}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/strategies/saved/{strategy_id}", tags=["策略"], dependencies=[Depends(verify_api_key)])
+async def strategy_update(strategy_id: str, req: StrategyCreateRequest):
+    """更新已儲存的策略。"""
+    try:
+        data = _load_json_file(STRATEGIES_FILE, default={"strategies": []})
+        idx = next((i for i, s in enumerate(data["strategies"]) if s.get("id") == strategy_id), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"找不到策略: {strategy_id}")
+        data["strategies"][idx].update({
+            "name": req.name,
+            "strategy_type": req.strategy_type,
+            "preset": req.preset,
+            "description": req.description or "",
+            "params": req.params or {},
+            "updated_at": datetime.now().isoformat(),
+        })
+        _save_json_file(STRATEGIES_FILE, data)
+        return {"message": "更新成功", "strategy": data["strategies"][idx]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/strategies/saved/{strategy_id}", tags=["策略"], dependencies=[Depends(verify_api_key)])
+async def strategy_delete(strategy_id: str):
+    """刪除已儲存的策略。"""
+    try:
+        data = _load_json_file(STRATEGIES_FILE, default={"strategies": []})
+        original_len = len(data["strategies"])
+        data["strategies"] = [s for s in data["strategies"] if s.get("id") != strategy_id]
+        if len(data["strategies"]) == original_len:
+            raise HTTPException(status_code=404, detail=f"找不到策略: {strategy_id}")
+        _save_json_file(STRATEGIES_FILE, data)
+        return {"message": "刪除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 系統設定 ─────────────────────────────────────────────
+
+SETTINGS_FILE = "settings.json"
+
+
+@app.get("/settings", tags=["設定"], dependencies=[Depends(verify_api_key)])
+async def settings_get():
+    """取得系統設定。"""
+    try:
+        defaults = {
+            "theme": "light",
+            "language": "zh-TW",
+            "notifications_enabled": True,
+            "default_days": 60,
+        }
+        data = _load_json_file(SETTINGS_FILE, default=defaults)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/settings", tags=["設定"], dependencies=[Depends(verify_api_key)])
+async def settings_update(req: SettingsUpdateRequest):
+    """更新系統設定。"""
+    try:
+        defaults = {"theme": "light", "language": "zh-TW", "notifications_enabled": True, "default_days": 60}
+        data = _load_json_file(SETTINGS_FILE, default=defaults)
+        if req.theme is not None:
+            data["theme"] = req.theme
+        if req.language is not None:
+            data["language"] = req.language
+        if req.notifications_enabled is not None:
+            data["notifications_enabled"] = req.notifications_enabled
+        if req.default_days is not None:
+            data["default_days"] = req.default_days
+        if req.extra:
+            data.update(req.extra)
+        _save_json_file(SETTINGS_FILE, data)
+        return {"message": "更新成功", "settings": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ════════════════════════════════════════════════════════
+# 第五批：即時與社群
+# ════════════════════════════════════════════════════════
+
+@app.get("/quote/realtime/{stock_id}", tags=["報價"], dependencies=[Depends(verify_api_key)])
+async def quote_realtime(stock_id: str):
+    """
+    個股即時報價（以最新收盤價模擬，無法取得真實盤中資料時的 fallback）。
+
+    範例: /quote/realtime/2330
+    """
+    try:
+        close = loader.get("close")
+        if stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+        series = close[stock_id].dropna()
+        latest = float(series.iloc[-1])
+        prev = float(series.iloc[-2]) if len(series) >= 2 else latest
+        change = latest - prev
+        change_pct = (change / prev * 100) if prev > 0 else 0
+
+        name_map = _get_stock_name_map()
+
+        # 嘗試取當日高低（如果有資料）
+        high_price = low_price = None
+        try:
+            high_df = loader.get("high")
+            low_df = loader.get("low")
+            if stock_id in high_df.columns:
+                high_price = round(float(high_df[stock_id].dropna().iloc[-1]), 2)
+            if stock_id in low_df.columns:
+                low_price = round(float(low_df[stock_id].dropna().iloc[-1]), 2)
+        except Exception:
+            pass
+
+        volume = None
+        try:
+            vol_df = loader.get("volume")
+            if stock_id in vol_df.columns:
+                volume = int(vol_df[stock_id].dropna().iloc[-1])
+        except Exception:
+            pass
+
+        return {
+            "stock_id": stock_id,
+            "name": name_map.get(stock_id, ""),
+            "price": round(latest, 2),
+            "prev_close": round(prev, 2),
+            "change": round(change, 2),
+            "change_pct": round(change_pct, 2),
+            "high": high_price,
+            "low": low_price,
+            "volume": volume,
+            "date": series.index[-1].strftime("%Y-%m-%d"),
+            "is_realtime": False,
+            "note": "資料為最新交易日收盤價",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BatchQuoteRequest(BaseModel):
+    stock_ids: List[str] = Field(..., description="股票代號列表", max_items=50)
+
+
+@app.post("/quote/realtime/batch", tags=["報價"], dependencies=[Depends(verify_api_key)])
+async def quote_realtime_batch(req: BatchQuoteRequest):
+    """
+    批次取得多股即時報價。
+
+    一次最多 50 支，使用向量化計算提升效能。
+    """
+    try:
+        close = loader.get("close")
+        name_map = _get_stock_name_map()
+        valid_ids = [sid for sid in req.stock_ids if sid in close.columns]
+
+        if not valid_ids:
+            return {"total": 0, "quotes": []}
+
+        latest = close[valid_ids].iloc[-1]
+        prev = close[valid_ids].iloc[-2]
+        changes = ((latest - prev) / prev * 100).fillna(0)
+
+        quotes = []
+        for sid in valid_ids:
+            quotes.append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "price": round(float(latest.get(sid, 0) or 0), 2),
+                "change_pct": round(float(changes.get(sid, 0) or 0), 2),
+            })
+
+        return {
+            "total": len(quotes),
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "quotes": quotes,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/news/latest", tags=["新聞"], dependencies=[Depends(verify_api_key)])
+async def news_latest(
+    limit: int = Query(default=20, ge=1, le=100),
+    stock_id: Optional[str] = Query(default=None, description="依股票代號篩選"),
+):
+    """
+    取得最新股市新聞（從本地快取讀取）。
+
+    若快取過舊或不存在，回傳空列表。
+    """
+    try:
+        cache_path = DATA_DIR / "news_cache.json"
+        if not cache_path.exists():
+            return {"total": 0, "news": [], "note": "新聞快取不存在，請先執行新聞掃描"}
+
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cache = json.load(f)
+
+        items = cache if isinstance(cache, list) else cache.get("items", cache.get("news", []))
+
+        if stock_id:
+            items = [n for n in items if stock_id in n.get("stocks", [])]
+
+        return {
+            "total": len(items),
+            "news": items[:limit],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/social/hot-stocks", tags=["社群"], dependencies=[Depends(verify_api_key)])
+async def social_hot_stocks(
+    top_n: int = Query(default=20, ge=1, le=50),
+):
+    """
+    社群熱門股票 - 結合新聞熱度、成交量異常、價格動能的熱門排行。
+
+    使用 HotStockAnalyzer 計算綜合熱門分數。
+    """
+    try:
+        from core.hot_stocks import HotStockAnalyzer
+        analyzer = HotStockAnalyzer()
+        hot_stocks = analyzer.get_hot_stocks(top_n=top_n)
+        return {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "total": len(hot_stocks),
+            "hot_stocks": [
+                {
+                    "stock_id": s.stock_id,
+                    "name": s.name,
+                    "industry": s.industry,
+                    "total_score": round(s.total_score, 2),
+                    "news_score": round(s.news_score, 2),
+                    "volume_score": round(s.volume_score, 2),
+                    "momentum_score": round(s.momentum_score, 2),
+                    "volume_ratio": round(s.volume_ratio, 2),
+                    "price_change_5d": round(s.price_change_5d, 2),
+                    "current_price": round(s.current_price, 2),
+                    "tags": s.tags,
+                }
+                for s in hot_stocks
+            ],
+        }
+    except Exception as e:
+        # 降級：使用成交量異常排行
+        try:
+            active = get_active_stocks()
+            close = loader.get("close")
+            vol_df = loader.get("volume")
+            name_map = _get_stock_name_map()
+
+            vol_latest = vol_df[active].iloc[-1]
+            vol_avg = vol_df[active].tail(21).iloc[:-1].mean()
+            vol_ratio = (vol_latest / vol_avg.replace(0, np.nan)).fillna(0)
+            top = vol_ratio.nlargest(top_n)
+
+            latest = close[active].iloc[-1]
+            prev = close[active].iloc[-2]
+            changes = ((latest - prev) / prev * 100).fillna(0)
+
+            return {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "total": len(top),
+                "hot_stocks": [
+                    {
+                        "stock_id": sid,
+                        "name": name_map.get(sid, ""),
+                        "volume_ratio": round(float(ratio), 2),
+                        "change_pct": round(float(changes.get(sid, 0) or 0), 2),
+                        "total_score": round(float(ratio) * 10, 2),
+                    }
+                    for sid, ratio in top.items()
+                ],
+                "note": "HotStockAnalyzer 不可用，以成交量倍數替代",
+            }
+        except Exception as e2:
+            raise HTTPException(status_code=500, detail=str(e2))
+
+
+# ════════════════════════════════════════════════════════
+# 第六批：風險
+# ════════════════════════════════════════════════════════
+
+@app.get("/risk/stock/{stock_id}", tags=["風險"], dependencies=[Depends(verify_api_key)])
+async def risk_stock(
+    stock_id: str,
+    days: int = Query(default=252, ge=60, le=1260, description="計算用歷史天數"),
+):
+    """
+    個股風險指標 - VaR、CVaR、波動率、最大回撤、Beta。
+
+    範例: /risk/stock/2330?days=252
+    """
+    try:
+        from core.risk import RiskAnalyzer
+        close = loader.get("close")
+        if stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+        series = close[stock_id].dropna().tail(days)
+        benchmark = loader.get_benchmark().reindex(series.index).dropna()
+
+        analyzer = RiskAnalyzer()
+        metrics = analyzer.analyze(series, benchmark_prices=benchmark if len(benchmark) > 10 else None)
+
+        return {
+            "stock_id": stock_id,
+            "days": len(series),
+            "date_range": {
+                "start": series.index[0].strftime("%Y-%m-%d"),
+                "end": series.index[-1].strftime("%Y-%m-%d"),
+            },
+            "risk_metrics": {
+                "var_95": _safe_json(metrics.var_95),
+                "var_99": _safe_json(metrics.var_99),
+                "cvar_95": _safe_json(metrics.cvar_95),
+                "cvar_99": _safe_json(metrics.cvar_99),
+                "volatility": _safe_json(metrics.volatility),
+                "downside_volatility": _safe_json(metrics.downside_volatility),
+                "max_drawdown": _safe_json(metrics.max_drawdown),
+                "beta": _safe_json(metrics.beta),
+                "tracking_error": _safe_json(metrics.tracking_error),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/risk/portfolio", tags=["風險"], dependencies=[Depends(verify_api_key)])
+async def risk_portfolio(req: PortfolioRiskRequest):
+    """
+    投資組合風險分析 - 計算加權 VaR 及組合波動率。
+
+    請求格式:
+    ```json
+    {
+      "holdings": [{"stock_id": "2330", "weight": 0.5}, {"stock_id": "2317", "weight": 0.5}],
+      "days": 252
+    }
+    ```
+    """
+    try:
+        from core.risk import RiskAnalyzer, calculate_portfolio_var
+
+        if not req.holdings:
+            raise HTTPException(status_code=400, detail="請提供至少一個持股")
+
+        close = loader.get("close")
+
+        # 正規化權重
+        total_weight = sum(h.get("weight", 1) for h in req.holdings)
+        weights = {
+            h["stock_id"]: h.get("weight", 1) / total_weight
+            for h in req.holdings
+            if h.get("stock_id") in close.columns
+        }
+
+        if not weights:
+            raise HTTPException(status_code=400, detail="所有股票代號均找不到")
+
+        # 取報酬率
+        valid_ids = list(weights.keys())
+        returns_df = close[valid_ids].tail(req.days).pct_change().dropna()
+
+        portfolio_var_95 = calculate_portfolio_var(weights, returns_df, 0.95) * 100
+        portfolio_var_99 = calculate_portfolio_var(weights, returns_df, 0.99) * 100
+
+        # 加權波動率
+        analyzer = RiskAnalyzer()
+        weighted_vol = sum(
+            weights[sid] * analyzer.calculate_volatility(returns_df[sid].dropna())
+            for sid in valid_ids if sid in returns_df.columns
+        )
+
+        # 組合每日報酬
+        weighted_returns = sum(
+            returns_df[sid] * weights[sid] for sid in valid_ids if sid in returns_df.columns
+        )
+
+        portfolio_prices = (1 + weighted_returns).cumprod()
+        max_dd, peak_date, trough_date = analyzer.calculate_max_drawdown(portfolio_prices)
+
+        # 個股風險概要
+        stock_risks = []
+        for sid in valid_ids:
+            if sid not in returns_df.columns:
+                continue
+            m = analyzer.analyze(close[sid].dropna().tail(req.days))
+            stock_risks.append({
+                "stock_id": sid,
+                "weight": round(weights[sid], 4),
+                "volatility": _safe_json(m.volatility),
+                "var_95": _safe_json(m.var_95),
+                "max_drawdown": _safe_json(m.max_drawdown),
+            })
+
+        return {
+            "days": req.days,
+            "holdings": len(weights),
+            "portfolio_risk": {
+                "var_95": round(float(portfolio_var_95), 4) if portfolio_var_95 else None,
+                "var_99": round(float(portfolio_var_99), 4) if portfolio_var_99 else None,
+                "weighted_volatility": round(weighted_vol * 100, 4) if weighted_vol else None,
+                "max_drawdown": round(float(max_dd) * 100, 4) if max_dd else None,
+                "peak_date": peak_date.strftime("%Y-%m-%d") if peak_date else None,
+                "trough_date": trough_date.strftime("%Y-%m-%d") if trough_date else None,
+            },
+            "stock_risks": stock_risks,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/morning-report", tags=["報告"], dependencies=[Depends(verify_api_key)])
 async def morning_report():
@@ -665,7 +2692,6 @@ async def morning_report():
     close = loader.get("close")
     active = get_active_stocks()
 
-    # 漲跌排行
     latest = close[active].iloc[-1]
     prev = close[active].iloc[-2]
     changes = ((latest - prev) / prev * 100).dropna()
@@ -673,7 +2699,6 @@ async def morning_report():
     top_gainers = changes.nlargest(5)
     top_losers = changes.nsmallest(5)
 
-    # 快速跑三個策略
     strategies_summary = {}
     for stype in ("value", "growth", "momentum"):
         try:
@@ -718,10 +2743,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    print(f"🚀 台股戰情中心 API 啟動中...")
-    print(f"📡 http://{args.host}:{args.port}")
-    print(f"📖 API 文件: http://{args.host}:{args.port}/docs")
-    print(f"🔑 API Key: {'已設定' if API_KEY else '未設定 (開放存取)'}")
+    print("台股戰情中心 API 啟動中...")
+    print(f"    http://{args.host}:{args.port}")
+    print(f"    API 文件: http://{args.host}:{args.port}/docs")
+    print(f"    API Key: {'已設定' if API_KEY else '未設定 (開放存取)'}")
 
     uvicorn.run(
         "api_server:app",
