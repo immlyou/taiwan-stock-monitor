@@ -18,10 +18,11 @@ from datetime import datetime
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.twse_api import get_taiex
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.theme import create_kpi_card, create_section_header, inject_professional_theme
 
 # 頁面設定
 st.set_page_config(
@@ -30,8 +31,11 @@ st.set_page_config(
     layout='wide',
 )
 
+# 注入專業主題
+inject_professional_theme()
+
 # 渲染側邊欄
-render_sidebar(current_page='after_hours')
+render_sidebar_mini(current_page='after_hours')
 
 # 標題
 render_page_header('盤後總覽', icon='📊')
@@ -242,7 +246,7 @@ st.caption(f'📅 資料日期: {data_date}')
 
 # ===== 大盤總覽 =====
 st.markdown('---')
-st.subheader('📊 大盤總覽')
+st.markdown(create_section_header('大盤總覽', '📊'), unsafe_allow_html=True)
 
 # 加權指數
 taiex_index, taiex_change, taiex_date = get_taiex()
@@ -253,35 +257,35 @@ idx_col1, idx_col2, idx_col3, idx_col4, idx_col5 = st.columns(5)
 
 with idx_col1:
     if taiex_index:
-        delta_color = 'normal' if taiex_change and taiex_change >= 0 else 'inverse'
-        st.metric(
+        delta_color = 'up' if taiex_change and taiex_change >= 0 else 'down'
+        st.markdown(create_kpi_card(
             '加權指數',
             f'{taiex_index:,.2f}',
             f'{taiex_change:+.2f}%' if taiex_change else None,
-            delta_color=delta_color,
-        )
+            delta_color,
+        ), unsafe_allow_html=True)
     else:
-        st.metric('加權指數', '載入中...')
+        st.markdown(create_kpi_card('加權指數', '載入中...'), unsafe_allow_html=True)
 
 with idx_col2:
     if market_summary:
-        st.metric('📈 上漲家數', f"{market_summary['up_count']:,}")
+        st.markdown(create_kpi_card('上漲家數', f"{market_summary['up_count']:,}"), unsafe_allow_html=True)
 
 with idx_col3:
     if market_summary:
-        st.metric('📉 下跌家數', f"{market_summary['down_count']:,}")
+        st.markdown(create_kpi_card('下跌家數', f"{market_summary['down_count']:,}"), unsafe_allow_html=True)
 
 with idx_col4:
     if market_summary:
-        st.metric('🔴 漲停', f"{market_summary['limit_up']:,}")
+        st.markdown(create_kpi_card('漲停', f"{market_summary['limit_up']:,}"), unsafe_allow_html=True)
 
 with idx_col5:
     if market_summary:
-        st.metric('🟢 跌停', f"{market_summary['limit_down']:,}")
+        st.markdown(create_kpi_card('跌停', f"{market_summary['limit_down']:,}"), unsafe_allow_html=True)
 
 # ===== 三大法人買賣超 =====
 st.markdown('---')
-st.subheader('💰 三大法人買賣超')
+st.markdown(create_section_header('三大法人買賣超', '💰'), unsafe_allow_html=True)
 
 # 計算三大法人總買賣超
 total_foreign = 0
@@ -302,23 +306,43 @@ total_all = total_foreign + total_trust + total_dealer
 inst_col1, inst_col2, inst_col3, inst_col4 = st.columns(4)
 
 with inst_col1:
-    delta_color = 'normal' if total_foreign >= 0 else 'inverse'
-    st.metric('🌍 外資', f'{total_foreign:+,.0f} 張', delta_color=delta_color)
+    inst_color = 'up' if total_foreign >= 0 else 'down'
+    st.markdown(create_kpi_card(
+        '外資',
+        f'{total_foreign:+,.0f} 張',
+        '買超' if total_foreign >= 0 else '賣超',
+        inst_color,
+    ), unsafe_allow_html=True)
 
 with inst_col2:
-    delta_color = 'normal' if total_trust >= 0 else 'inverse'
-    st.metric('🏦 投信', f'{total_trust:+,.0f} 張', delta_color=delta_color)
+    inst_color = 'up' if total_trust >= 0 else 'down'
+    st.markdown(create_kpi_card(
+        '投信',
+        f'{total_trust:+,.0f} 張',
+        '買超' if total_trust >= 0 else '賣超',
+        inst_color,
+    ), unsafe_allow_html=True)
 
 with inst_col3:
-    delta_color = 'normal' if total_dealer >= 0 else 'inverse'
-    st.metric('🏢 自營商', f'{total_dealer:+,.0f} 張', delta_color=delta_color)
+    inst_color = 'up' if total_dealer >= 0 else 'down'
+    st.markdown(create_kpi_card(
+        '自營商',
+        f'{total_dealer:+,.0f} 張',
+        '買超' if total_dealer >= 0 else '賣超',
+        inst_color,
+    ), unsafe_allow_html=True)
 
 with inst_col4:
-    delta_color = 'normal' if total_all >= 0 else 'inverse'
-    st.metric('📊 合計', f'{total_all:+,.0f} 張', delta_color=delta_color)
+    inst_color = 'up' if total_all >= 0 else 'down'
+    st.markdown(create_kpi_card(
+        '合計',
+        f'{total_all:+,.0f} 張',
+        '買超' if total_all >= 0 else '賣超',
+        inst_color,
+    ), unsafe_allow_html=True)
 
 # 買賣超排行
-st.markdown('### 法人買賣超排行')
+st.markdown(create_section_header('法人買賣超排行'), unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(['🌍 外資', '🏦 投信', '🏢 自營商'])
 
@@ -378,7 +402,7 @@ with tab3:
 
 # ===== 融資融券變化 =====
 st.markdown('---')
-st.subheader('📈 融資融券變化')
+st.markdown(create_section_header('融資融券變化', '📈'), unsafe_allow_html=True)
 
 margin_col1, margin_col2 = st.columns(2)
 
@@ -400,7 +424,7 @@ with margin_col2:
 
 # ===== 自選股籌碼追蹤 =====
 st.markdown('---')
-st.subheader('⭐ 自選股籌碼追蹤')
+st.markdown(create_section_header('自選股籌碼追蹤', '⭐'), unsafe_allow_html=True)
 
 watchlists = load_watchlist()
 
@@ -422,7 +446,7 @@ else:
     show_empty_state('尚未建立自選股清單', icon='⭐', suggestion='請至「自選股」頁面建立您的第一個清單')
 
     # 顯示範例
-    st.markdown('### 範例：熱門股票籌碼')
+    st.markdown(create_section_header('範例：熱門股票籌碼'), unsafe_allow_html=True)
     example_stocks = ['2330', '2317', '2454', '2881', '0050']
     df = get_watchlist_summary(data, example_stocks)
     if len(df) > 0:
@@ -430,7 +454,7 @@ else:
 
 # ===== AI 策略選股建議 =====
 st.markdown('---')
-st.header('🤖 AI 策略選股建議')
+st.markdown(create_section_header('AI 策略選股建議', '🤖'), unsafe_allow_html=True)
 st.caption('根據今日盤後數據，AI 自動篩選推薦標的（僅供參考，非投資建議）')
 
 # 股票類型篩選切換

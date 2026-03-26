@@ -18,7 +18,7 @@ from core.data_loader import get_loader, get_active_stocks, reset_all_caches
 from core.indicators import sma, rsi, macd, bollinger_bands, resample_ohlcv, get_timeframe_label, get_ma_periods_for_timeframe
 from app.components.charts import create_price_chart, create_technical_chart, apply_dark_theme
 from app.components.theme import DEFAULT_PLOTLY_LAYOUT, COLORS
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys,
     get_stock_to_analyze
@@ -45,7 +45,7 @@ st.set_page_config(page_title='個股分析', page_icon='📈', layout='wide')
 # 初始化 Session State
 init_session_state()
 
-render_sidebar(current_page='stock')
+render_sidebar_mini(current_page='stock')
 
 # ==================== 資料載入 ====================
 @st.cache_data(ttl=CACHE_TTL['daily'], show_spinner="載入股票數據中...")

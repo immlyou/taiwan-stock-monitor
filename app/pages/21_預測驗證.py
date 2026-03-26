@@ -13,13 +13,13 @@ from core.data_loader import get_loader, get_active_stocks
 from core.prediction_tracker import (
     get_tracker, PredictionType, PredictionStatus
 )
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
 
 st.set_page_config(page_title='預測驗證', page_icon='🎯', layout='wide')
-render_sidebar(current_page='prediction')
+render_sidebar_mini(current_page='prediction')
 
 # ==================== 標題 ====================
 render_page_header('預測驗證', icon='🎯')

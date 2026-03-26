@@ -373,6 +373,15 @@ def inject_professional_theme():
         position: fixed;
     }}
 
+    /* ===== 響應式排版 ===== */
+    @media (max-width: 768px) {{
+      [data-testid="stHorizontalBlock"] > div {{ flex: 1 0 48% !important; min-width: 140px; }}
+      .main .block-container {{ padding: 1rem !important; }}
+    }}
+    @media (max-width: 480px) {{
+      [data-testid="stHorizontalBlock"] > div {{ flex: 1 0 100% !important; }}
+    }}
+
     </style>
     """, unsafe_allow_html=True)
 

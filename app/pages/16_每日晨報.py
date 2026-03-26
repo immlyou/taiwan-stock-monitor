@@ -17,7 +17,7 @@ from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.news_scanner import NewsScanner, RSS_FEEDS
 from core.hot_stocks import HotStockAnalyzer, get_hot_stocks_integrated
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
@@ -30,7 +30,7 @@ st.set_page_config(
 )
 
 # 渲染側邊欄
-render_sidebar(current_page='morning_report')
+render_sidebar_mini(current_page='morning_report')
 
 
 # ========== 資料載入 ==========

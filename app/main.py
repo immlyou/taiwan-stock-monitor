@@ -451,7 +451,9 @@ with row2_col2:
 with row2_col3:
     st.markdown(create_section_header('熱門股即時報價', '💹'), unsafe_allow_html=True)
 
-    hot_stocks = ['2330', '2317', '2454', '2881', '0050', '2303']
+    from app.components.watchlist_utils import get_all_watched_stocks
+    _watched = get_all_watched_stocks()
+    hot_stocks = _watched[:6] if _watched else ['2330', '2317', '2454', '2881', '0050', '2303']
 
     try:
         quotes = fetch_realtime_quotes(hot_stocks, use_cache=True)

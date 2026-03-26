@@ -15,7 +15,7 @@ from datetime import datetime
 
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
@@ -29,7 +29,7 @@ st.set_page_config(
 )
 
 # 渲染側邊欄
-render_sidebar(current_page='heatmap')
+render_sidebar_mini(current_page='heatmap')
 
 
 @st.cache_data(ttl=CACHE_TTL['intraday'])

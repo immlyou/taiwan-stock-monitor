@@ -9,14 +9,14 @@ from pathlib import Path
 
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
 from config import STRATEGY_PARAMS
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.session_manager import set_state, StateKeys
 
 st.set_page_config(page_title='策略管理', page_icon='⚙️', layout='wide')
-render_sidebar(current_page='strategy')
+render_sidebar_mini(current_page='strategy')
 
 render_page_header("策略管理", icon="🎯")
 st.markdown('---')

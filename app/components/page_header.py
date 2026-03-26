@@ -7,6 +7,19 @@ from datetime import datetime
 from app.components.theme import COLORS
 
 
+def _get_latest_data_date() -> str:
+    """嘗試從 DataLoader 取最新資料日期，失敗時 fallback 到 now()"""
+    try:
+        from core.data_loader import get_data_summary
+        summary = get_data_summary()
+        date_range = summary.get('date_range', '')
+        if '~' in date_range:
+            return date_range.split(' ~ ')[1].strip()
+    except Exception:
+        pass
+    return datetime.now().strftime('%Y-%m-%d %H:%M')
+
+
 def render_page_header(title: str, icon: str = "", show_refresh: bool = True, show_date: bool = True):
     """
     渲染統一頁首
@@ -39,13 +52,14 @@ def render_page_header(title: str, icon: str = "", show_refresh: bool = True, sh
 
     with cols[1]:
         if show_date:
+            display_date = _get_latest_data_date()
             st.markdown(f'''
             <div style="
                 text-align:right;
                 padding-top:0.8rem;
                 color:{COLORS['text_muted']};
                 font-size:0.8rem;
-            ">{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+            ">{display_date}</div>
             ''', unsafe_allow_html=True)
 
     if show_refresh and len(cols) > 2:

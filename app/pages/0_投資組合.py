@@ -19,11 +19,12 @@ import plotly.graph_objects as go
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader, get_data_summary
 from core.cache_warmer import warmup_on_startup, is_cache_warm
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
 from app.components.session_manager import init_session_state
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
+from app.components.theme import create_kpi_card, inject_professional_theme, COLORS
 
 st.set_page_config(
     page_title=f"{STREAMLIT_CONFIG['page_title']} - 投資組合",
@@ -38,8 +39,11 @@ init_session_state()
 if not is_cache_warm():
     warmup_on_startup(show_progress=True)
 
+# 注入專業主題
+inject_professional_theme()
+
 # 渲染側邊欄
-render_sidebar(current_page='dashboard')
+render_sidebar_mini(current_page='dashboard')
 
 
 # 資料載入函數
@@ -133,27 +137,37 @@ for portfolio_name, portfolio in portfolios.items():
 # KPI 卡片
 kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5 = st.columns(5)
 
+total_pnl = total_portfolio_value - total_portfolio_cost
+
 with kpi_col1:
-    st.metric('💰 總市值', f'{total_portfolio_value:,.0f}')
+    st.markdown(create_kpi_card('總市值', f'{total_portfolio_value:,.0f}'), unsafe_allow_html=True)
 
 with kpi_col2:
-    st.metric('💵 總成本', f'{total_portfolio_cost:,.0f}')
+    st.markdown(create_kpi_card('總成本', f'{total_portfolio_cost:,.0f}'), unsafe_allow_html=True)
 
 with kpi_col3:
-    total_pnl = total_portfolio_value - total_portfolio_cost
-    delta_color = 'normal' if total_pnl >= 0 else 'inverse'
-    st.metric('📊 總損益', f'{total_pnl:+,.0f}', delta_color=delta_color)
+    pnl_color = 'up' if total_pnl >= 0 else 'down'
+    st.markdown(create_kpi_card(
+        '總損益',
+        f'{total_pnl:+,.0f}',
+        '獲利' if total_pnl >= 0 else '虧損',
+        pnl_color,
+    ), unsafe_allow_html=True)
 
 with kpi_col4:
     if total_portfolio_cost > 0:
         total_pnl_pct = (total_portfolio_value / total_portfolio_cost - 1) * 100
-        delta_color = 'normal' if total_pnl_pct >= 0 else 'inverse'
-        st.metric('📈 報酬率', f'{total_pnl_pct:+.2f}%', delta_color=delta_color)
+        pct_color = 'up' if total_pnl_pct >= 0 else 'down'
+        st.markdown(create_kpi_card(
+            '報酬率',
+            f'{total_pnl_pct:+.2f}%',
+            delta_color=pct_color,
+        ), unsafe_allow_html=True)
     else:
-        st.metric('📈 報酬率', '-')
+        st.markdown(create_kpi_card('報酬率', '-'), unsafe_allow_html=True)
 
 with kpi_col5:
-    st.metric('📋 持股檔數', f'{len(all_holdings)}')
+    st.markdown(create_kpi_card('持股檔數', f'{len(all_holdings)}'), unsafe_allow_html=True)
 
 # ========== 持股明細 + 損益排行 ==========
 st.markdown('---')
@@ -179,7 +193,7 @@ if all_holdings:
         st.markdown('##### 🔥 獲利 Top 5')
         sorted_holdings = sorted(all_holdings, key=lambda x: x['pnl'], reverse=True)
         for h in sorted_holdings[:5]:
-            color = '#ef4444' if h['pnl'] >= 0 else '#22c55e'
+            color = COLORS['up'] if h['pnl'] >= 0 else COLORS['down']
             st.markdown(
                 f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
                 f"<span>{h['stock_id']} {h['name'][:4]}</span>"
@@ -193,7 +207,7 @@ if all_holdings:
         # 虧損排行
         st.markdown('##### 💧 虧損 Top 5')
         for h in sorted_holdings[-5:][::-1]:
-            color = '#ef4444' if h['pnl'] >= 0 else '#22c55e'
+            color = COLORS['up'] if h['pnl'] >= 0 else COLORS['down']
             st.markdown(
                 f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
                 f"<span>{h['stock_id']} {h['name'][:4]}</span>"
@@ -250,20 +264,20 @@ if latest_screening and latest_screening.get('stocks'):
                 current = prices.iloc[-1]
                 prev = prices.iloc[-2]
                 change_pct = (current / prev - 1) * 100
-                color = '#ef4444' if change_pct >= 0 else '#22c55e'
+                color = COLORS['up'] if change_pct >= 0 else COLORS['down']
             else:
                 current = prices.iloc[-1] if len(prices) > 0 else 0
                 change_pct = 0
-                color = '#6b7280'
+                color = COLORS['flat']
         else:
             current = 0
             change_pct = 0
-            color = '#6b7280'
+            color = COLORS['flat']
 
         with cols[i % 4]:
             st.markdown(
-                f"<div class='kpi-card' style='background:#252b3d;border:1px solid #374151;padding:10px 12px;border-radius:8px;margin-bottom:8px'>"
-                f"<div style='font-size:0.75rem;color:#94a3b8'>{stock_id} {name[:4]}</div>"
+                f"<div class='kpi-card' style='background:{COLORS['secondary']};border:1px solid {COLORS['border']};padding:10px 12px;border-radius:8px;margin-bottom:8px'>"
+                f"<div style='font-size:0.75rem;color:{COLORS['text_secondary']}'>{stock_id} {name[:4]}</div>"
                 f"<div style='font-size:1.1rem;font-weight:700;color:{color};margin-top:4px'>{current:,.2f}</div>"
                 f"<div style='font-size:0.7rem;color:{color}'>{change_pct:+.2f}%</div>"
                 f"</div>",

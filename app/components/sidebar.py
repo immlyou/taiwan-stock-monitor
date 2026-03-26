@@ -366,7 +366,7 @@ PAGE_GROUPS = {
         'title': '市場動態',
         'icon': '📡',
         'pages': [
-            {'id': 'dashboard', 'icon': '📊', 'title': '儀表板', 'page': 'pages/0_儀表板.py'},
+            {'id': 'dashboard', 'icon': '📊', 'title': '投資組合', 'page': 'pages/0_投資組合.py'},
             {'id': 'realtime_quote', 'icon': '💹', 'title': '即時報價', 'page': 'pages/17_即時報價.py'},
             {'id': 'morning_report', 'icon': '📰', 'title': '每日晨報', 'page': 'pages/16_每日晨報.py'},
             {'id': 'heatmap', 'icon': '🗺️', 'title': '市場熱力圖', 'page': 'pages/18_市場熱力圖.py'},
@@ -624,8 +624,15 @@ def render_sidebar(current_page: str = None):
         # 功能導覽 - 分組顯示
         st.markdown('<div class="nav-group-title">功能導覽</div>', unsafe_allow_html=True)
 
+        # 找出當前頁面所屬的群組
+        active_group = None
+        for gk, g in PAGE_GROUPS.items():
+            if any(p['id'] == current_page for p in g['pages']):
+                active_group = gk
+                break
+
         for group_key, group in PAGE_GROUPS.items():
-            with st.expander(f"{group['icon']} {group['title']}", expanded=(group_key in ['market', 'research'])):
+            with st.expander(f"{group['icon']} {group['title']}", expanded=(group_key == active_group)):
                 for page in group['pages']:
                     is_active = current_page == page['id']
                     btn_type = 'primary' if is_active else 'secondary'
@@ -791,7 +798,7 @@ def render_sidebar_mini(current_page: str = None):
                 st.rerun()
         with col2:
             if st.button('🏠 首頁', use_container_width=True, key='mini_home'):
-                st.switch_page("pages/0_儀表板.py")
+                st.switch_page("pages/0_投資組合.py")
 
         # 版本資訊
         st.markdown(f'''

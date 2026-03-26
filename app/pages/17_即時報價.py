@@ -20,7 +20,7 @@ from core.realtime_quote import (
 )
 from core.twse_api import get_taiex, fetch_taiex_realtime
 from core.data_loader import get_loader
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 
@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 # 渲染側邊欄
-render_sidebar(current_page='realtime_quote')
+render_sidebar_mini(current_page='realtime_quote')
 
 # 取得股票資訊
 try:

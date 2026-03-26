@@ -23,7 +23,7 @@ from core.money_flow import (
     calculate_flow_trend,
     get_continuous_buy_stocks,
 )
-from app.components.sidebar import render_sidebar
+from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
@@ -37,7 +37,7 @@ st.set_page_config(
 )
 
 # 渲染側邊欄
-render_sidebar(current_page='money_flow')
+render_sidebar_mini(current_page='money_flow')
 
 # 標題
 render_page_header('資金流向', icon='💰')
