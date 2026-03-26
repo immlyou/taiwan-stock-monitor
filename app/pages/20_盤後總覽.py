@@ -433,9 +433,34 @@ st.markdown('---')
 st.header('🤖 AI 策略選股建議')
 st.caption('根據今日盤後數據，AI 自動篩選推薦標的（僅供參考，非投資建議）')
 
+# 股票類型篩選切換
+filter_col1, filter_col2 = st.columns([2, 3])
+with filter_col1:
+    stock_filter = st.radio(
+        '篩選範圍',
+        ['僅個股', '個股 + ETF', '全部（含金融）'],
+        index=0,
+        horizontal=True,
+        key='ai_stock_filter',
+    )
+
+
+def _filter_stock_type(index, mode):
+    """根據模式過濾股票代號"""
+    filtered = index
+    if mode == '僅個股':
+        # 排除 ETF（00開頭）和金融股（28xx, 58xx 證券/金控）
+        filtered = filtered[~filtered.str.startswith('00')]
+        filtered = filtered[~filtered.str.match(r'^(28|58)\d{2}$')]
+    elif mode == '個股 + ETF':
+        # 排除金融股
+        filtered = filtered[~filtered.str.match(r'^(28|58)\d{2}$')]
+    # '全部' 不過濾
+    return filtered
+
 
 @st.cache_data(ttl=3600)
-def compute_ai_stock_picks():
+def compute_ai_stock_picks(filter_mode='僅個股'):
     """計算三大策略選股結果"""
     from core.indicators import rsi as calc_rsi, sma as calc_sma
 
@@ -477,6 +502,7 @@ def compute_ai_stock_picks():
             .intersection(pb_last.dropna().index) \
             .intersection(dy_last.dropna().index) \
             .intersection(rev_yoy_last.dropna().index)
+        common = _filter_stock_type(common, filter_mode)
 
         mask = (
             (pe_last[common] > 0) & (pe_last[common] < 15) &
@@ -535,6 +561,7 @@ def compute_ai_stock_picks():
             .intersection(vol_sma20_last.dropna().index) \
             .intersection(sma20_last.dropna().index) \
             .intersection(change_5d.dropna().index)
+        common_m = _filter_stock_type(common_m, filter_mode)
 
         mask_m = (
             (rsi_last[common_m] >= 50) & (rsi_last[common_m] <= 70) &
@@ -583,6 +610,7 @@ def compute_ai_stock_picks():
             .intersection(dy_last.dropna().index) \
             .intersection(rev_yoy_last.dropna().index) \
             .intersection(mv_valid.index)
+        common_s = _filter_stock_type(common_s, filter_mode)
 
         mask_s = (
             (dy_last[common_s] > 5) &
@@ -615,7 +643,7 @@ def compute_ai_stock_picks():
     return results
 
 
-ai_picks = compute_ai_stock_picks()
+ai_picks = compute_ai_stock_picks(filter_mode=stock_filter)
 
 if isinstance(ai_picks, dict) and 'error' in ai_picks:
     show_error(Exception(ai_picks['error']), title='AI 選股資料載入失敗', suggestion='請確認資料已下載完成')
