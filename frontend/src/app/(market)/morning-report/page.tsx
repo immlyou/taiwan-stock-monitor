@@ -22,12 +22,32 @@ interface NewsItem {
   category: string
 }
 
+interface NewsApiResponse {
+  total: number
+  news: NewsItem[]
+}
+
 interface HotStock {
   code: string
   name: string
   mentionCount: number
   sentiment: 'positive' | 'negative' | 'neutral'
   changePercent: number
+}
+
+interface HotStockRaw {
+  stock_id: string
+  name: string
+  total_score?: number
+  news_score?: number
+  sentiment?: 'positive' | 'negative' | 'neutral'
+  change_pct?: number
+  volume_ratio?: number
+}
+
+interface HotStocksApiResponse {
+  total: number
+  hot_stocks: HotStockRaw[]
 }
 
 function useMorningReport() {
@@ -40,21 +60,28 @@ function useMorningReport() {
 }
 
 function useLatestNews() {
-  const { data, error, isLoading } = useSWR<NewsItem[]>(
+  const { data, error, isLoading } = useSWR<NewsApiResponse>(
     '/news/latest',
-    (path: string) => fetchAPI<NewsItem[]>(path),
+    (path: string) => fetchAPI<NewsApiResponse>(path),
     { refreshInterval: 60000 }
   )
-  return { news: data, isLoading, isError: !!error }
+  return { news: data?.news ?? [], isLoading, isError: !!error }
 }
 
 function useHotStocks() {
-  const { data, isLoading } = useSWR<HotStock[]>(
+  const { data, isLoading } = useSWR<HotStocksApiResponse>(
     '/social/hot-stocks',
-    (path: string) => fetchAPI<HotStock[]>(path),
+    (path: string) => fetchAPI<HotStocksApiResponse>(path),
     { refreshInterval: 120000 }
   )
-  return { hotStocks: data, isLoading }
+  const hotStocks: HotStock[] = (data?.hot_stocks ?? []).map((s) => ({
+    code: s.stock_id,
+    name: s.name,
+    mentionCount: Math.round((s.news_score ?? s.total_score ?? 0) * 10),
+    sentiment: s.sentiment ?? 'neutral',
+    changePercent: s.change_pct ?? 0,
+  }))
+  return { hotStocks, isLoading }
 }
 
 function SentimentBadge({ sentiment }: { sentiment: HotStock['sentiment'] }) {

@@ -1264,10 +1264,224 @@ async def stocks_compare(
 
 
 # ════════════════════════════════════════════════════════
+# Claude AI 個股分析端點
+# ════════════════════════════════════════════════════════
+
+_claude_analyzer = None
+
+
+def _get_claude_analyzer():
+    """Lazy init ClaudeStockAnalyzer。"""
+    global _claude_analyzer
+    if _claude_analyzer is None:
+        from core.ai_models import ClaudeStockAnalyzer
+        _claude_analyzer = ClaudeStockAnalyzer()
+    return _claude_analyzer
+
+
+@app.get("/strategy/ai-claude/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=3600)
+async def strategy_ai_claude(stock_id: str):
+    """使用 Claude API 對個股進行智慧分析，回傳綜合分析摘要、投資建議與關鍵因素。
+
+    - 結果快取 1 小時，降低 API 費用。
+    - 需要設定環境變數 ANTHROPIC_API_KEY。
+    - 若未設定，回傳 {"error": "ANTHROPIC_API_KEY 未設定"}。
+    """
+    import asyncio as _asyncio
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return {"error": "ANTHROPIC_API_KEY 未設定"}
+
+    # 驗證股票是否存在
+    try:
+        close = loader.get("close")
+        if close is None or stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 取得股票名稱（供回應使用）
+    name = stock_id
+    try:
+        name_map = _get_stock_name_map()
+        name = name_map.get(stock_id, stock_id)
+    except Exception:
+        pass
+
+    # 在執行緒中執行同步的 Claude API 呼叫，不阻塞 event loop
+    loop = _asyncio.get_event_loop()
+    analyzer = _get_claude_analyzer()
+    try:
+        result = await loop.run_in_executor(None, analyzer.analyze, stock_id, loader)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Claude 分析失敗: {e}")
+
+    if result.get("error"):
+        return {"stock_id": stock_id, "name": name, **result}
+
+    return {
+        "stock_id": stock_id,
+        "name": name,
+        "summary": result.get("summary", ""),
+        "recommendation": result.get("recommendation", ""),
+        "risk_level": result.get("risk_assessment", ""),
+        "key_factors": result.get("key_factors", []),
+        "analyzed_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+# ─── LSTM 趨勢預測端點 ─────────────────────────────────
+
+_lstm_predictor = None
+
+
+def _get_lstm_predictor():
+    """Lazy init LSTMTrendPredictor（避免 import 時初始化）"""
+    global _lstm_predictor
+    if _lstm_predictor is None:
+        from core.ai_models import LSTMTrendPredictor
+        _lstm_predictor = LSTMTrendPredictor()
+    return _lstm_predictor
+
+
+@app.get("/strategy/ai-lstm/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=1800)
+async def strategy_ai_lstm(stock_id: str):
+    """LSTM 價格趨勢預測 — 預測個股未來 5 日趨勢方向與估計價格。
+
+    - PyTorch 可用時使用 LSTM 深度學習模型（即時訓練，無需預訓練權重）。
+    - PyTorch 不可用時自動降級為 EWMA 趨勢偵測 fallback。
+    - 結果快取 30 分鐘（1800 秒）。
+    - 不支援大型預訓練模型，適合記憶體受限的部署環境（如 Railway）。
+
+    回傳欄位：
+    - direction: 上漲 / 下跌 / 盤整
+    - confidence: 預測信心度 (0.0–1.0)
+    - predicted_prices: 未來 5 天估計價格列表
+    - trend_strength: 趨勢強度 (0.0–1.0)
+    """
+    import asyncio as _asyncio
+
+    # 驗證股票存在
+    try:
+        close = loader.get("close")
+        if close is None or stock_id not in close.columns:
+            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 取得股票名稱
+    name = stock_id
+    try:
+        name_map = _get_stock_name_map()
+        name = name_map.get(stock_id, stock_id)
+    except Exception:
+        pass
+
+    predictor = _get_lstm_predictor()
+    loop = _asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, predictor.predict, stock_id, loader)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LSTM 預測失敗: {e}")
+
+    return {
+        "stock_id": stock_id,
+        "name": name,
+        "direction": result["direction"],
+        "confidence": result["confidence"],
+        "predicted_prices": result["predicted_prices"],
+        "trend_strength": result["trend_strength"],
+        "predicted_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+# ─── XGBoost 因子選股端點 ──────────────────────────────
+
+_xgboost_picker = None
+
+
+def _get_xgboost_picker():
+    """Lazy init XGBoostStockPicker（避免 import 時觸發 xgboost 相依性）。"""
+    global _xgboost_picker
+    if _xgboost_picker is None:
+        from core.ai_models import XGBoostStockPicker
+        _xgboost_picker = XGBoostStockPicker()
+    return _xgboost_picker
+
+
+@app.get("/strategy/ai-xgboost", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=3600)
+async def strategy_ai_xgboost(
+    top_n: int = Query(default=20, ge=1, le=50, description="回傳預測報酬前 N 名股票"),
+):
+    """XGBoost 因子選股 — 以多因子模型預測未來 20 日報酬率後排名選股。
+
+    特徵包含：PE/PB/殖利率、RSI/MACD/均線位置、成交量比、
+    月營收年增/月增率、外資近 5 日買賣超、近 5/20/60 日報酬率。
+
+    - 訓練集：最近 252 個交易日（約 1 年）
+    - 目標：未來 20 交易日報酬率
+    - 結果快取 1 小時（模型訓練開銷較大）
+    - 需要安裝 xgboost 和 scikit-learn
+
+    回傳欄位：
+    - stocks: 排名後的股票清單（含 predicted_return、confidence、factors）
+    - feature_importance: 各因子對模型的重要性分數
+    """
+    import asyncio as _asyncio
+
+    name_map = _get_stock_name_map()
+
+    try:
+        picker = _get_xgboost_picker()
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"XGBoost 模型不可用：{exc}，請確認 xgboost 與 scikit-learn 已安裝",
+        )
+
+    loop = _asyncio.get_event_loop()
+    try:
+        all_results = await loop.run_in_executor(None, picker.predict, loader)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"XGBoost 選股失敗: {exc}")
+
+    # 取出 feature_importance（每筆都帶同一份，取第一筆即可）
+    feature_importance: Dict[str, Any] = {}
+    if all_results:
+        feature_importance = all_results[0].pop("__feature_importance__", {})
+        for item in all_results[1:]:
+            item.pop("__feature_importance__", None)
+
+    # 取前 top_n，補上股票名稱
+    top_results = all_results[:top_n]
+    for item in top_results:
+        item["name"] = name_map.get(item["stock_id"], "")
+
+    return {
+        "date":               datetime.now().strftime("%Y-%m-%d"),
+        "total_candidates":   len(all_results),
+        "stocks":             top_results,
+        "feature_importance": feature_importance,
+    }
+
+
+# ════════════════════════════════════════════════════════
 # 策略端點（固定路徑優先於動態路徑）
 # ════════════════════════════════════════════════════════
 
-# 注意：/strategy/ai-pick 和 /strategy/composite 定義在
+# 注意：/strategy/ai-pick、/strategy/composite、/strategy/ai-claude/{stock_id}
+# /strategy/ai-lstm/{stock_id}、/strategy/ai-xgboost 均定義在
 # /strategy/{strategy_type} 之前，確保 FastAPI 路由匹配正確。
 
 @app.get("/strategy/ai-pick", tags=["策略"], dependencies=[Depends(verify_api_key)])
@@ -2532,26 +2746,77 @@ async def news_latest(
     stock_id: Optional[str] = Query(default=None, description="依股票代號篩選"),
 ):
     """
-    取得最新股市新聞（從本地快取讀取）。
+    取得最新股市新聞。
 
-    若快取過舊或不存在，回傳空列表。
+    快取存在且在 10 分鐘內則直接回傳；否則即時觸發 RSS 掃描後回傳。
+    回傳格式已對應前端欄位（url、publishedAt、id）。
     """
     try:
         cache_path = DATA_DIR / "news_cache.json"
+        CACHE_TTL_SECONDS = 600  # 10 分鐘
+
+        # 檢查快取是否存在且未過期
+        cache_valid = False
+        if cache_path.exists():
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    cache = json.load(f)
+                updated_at_str = cache.get("updated_at") if isinstance(cache, dict) else None
+                if updated_at_str:
+                    updated_at = datetime.fromisoformat(updated_at_str)
+                    if (datetime.now() - updated_at).total_seconds() < CACHE_TTL_SECONDS:
+                        cache_valid = True
+            except Exception:
+                cache_valid = False
+
+        # 快取無效則即時掃描
+        if not cache_valid:
+            try:
+                from core.news_scanner import NewsScanner
+                scanner = NewsScanner()
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None, scanner.fetch_all_feeds
+                    ),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("新聞掃描超時（30s），使用現有快取")
+            except Exception as e:
+                logger.error(f"新聞掃描失敗: {e}")
+
+        # 讀取（可能剛更新的）快取
         if not cache_path.exists():
-            return {"total": 0, "news": [], "note": "新聞快取不存在，請先執行新聞掃描"}
+            return {"total": 0, "news": []}
 
         with open(cache_path, "r", encoding="utf-8") as f:
             cache = json.load(f)
 
-        items = cache if isinstance(cache, list) else cache.get("items", cache.get("news", []))
+        raw_items = cache if isinstance(cache, list) else cache.get("news", cache.get("items", []))
 
         if stock_id:
-            items = [n for n in items if stock_id in n.get("stocks", [])]
+            raw_items = [n for n in raw_items if stock_id in n.get("stocks", [])]
+
+        # 轉換欄位名以符合前端介面（url、publishedAt、id）
+        def _normalize_news_item(n: dict) -> dict:
+            return {
+                "id": n.get("content_hash") or n.get("id") or "",
+                "title": n.get("title", ""),
+                "source": n.get("source", ""),
+                "url": n.get("url") or n.get("link", ""),
+                "publishedAt": n.get("publishedAt") or n.get("published", ""),
+                "category": n.get("category", ""),
+                "summary": n.get("summary", ""),
+                "stocks": n.get("stocks", []),
+                "sentiment": n.get("sentiment", "neutral"),
+                "keywords": n.get("keywords", []),
+            }
+
+        items = [_normalize_news_item(n) for n in raw_items[:limit]]
 
         return {
-            "total": len(items),
-            "news": items[:limit],
+            "total": len(raw_items),
+            "news": items,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2769,8 +3034,10 @@ async def risk_portfolio(req: PortfolioRiskRequest):
 @cached_response(ttl_seconds=600)
 async def morning_report():
     """
-    產生每日晨報摘要，包含市場概況、漲跌排行、策略選股結果。
+    產生每日晨報摘要，包含市場概況、漲跌排行、策略選股結果、新聞摘要。
     OpenClaw 可每日早上自動呼叫此端點取得晨報。
+
+    回傳欄位包含前端所需的 summary、keyPoints、marketOutlook。
     """
     close = loader.get("close")
     active = get_active_stocks()
@@ -2795,13 +3062,93 @@ async def morning_report():
 
     summary = get_data_summary()
 
+    # ── 新聞摘要 ──────────────────────────────────────────
+    news_summary = []
+    news_key_points = []
+    market_outlook = ""
+
+    try:
+        from core.news_scanner import NewsScanner
+        cache_path = DATA_DIR / "news_cache.json"
+        CACHE_TTL_SECONDS = 600
+
+        cache_valid = False
+        if cache_path.exists():
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    news_cache = json.load(f)
+                updated_at_str = news_cache.get("updated_at") if isinstance(news_cache, dict) else None
+                if updated_at_str:
+                    updated_at = datetime.fromisoformat(updated_at_str)
+                    if (datetime.now() - updated_at).total_seconds() < CACHE_TTL_SECONDS:
+                        cache_valid = True
+            except Exception:
+                cache_valid = False
+
+        if not cache_valid:
+            try:
+                scanner = NewsScanner()
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, scanner.fetch_all_feeds),
+                    timeout=25.0,
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"晨報新聞掃描失敗: {e}")
+
+        if cache_path.exists():
+            with open(cache_path, "r", encoding="utf-8") as f:
+                news_cache = json.load(f)
+            raw_news = news_cache.get("news", []) if isinstance(news_cache, dict) else []
+
+            # 取最新 5 則新聞作為重點
+            for item in raw_news[:5]:
+                title = item.get("title", "")
+                if title:
+                    news_key_points.append(title)
+
+            # 統計情緒分佈作為展望
+            pos_count = sum(1 for n in raw_news if n.get("sentiment") == "positive")
+            neg_count = sum(1 for n in raw_news if n.get("sentiment") == "negative")
+            total_news = len(raw_news)
+
+            if total_news > 0:
+                if pos_count > neg_count * 1.5:
+                    market_outlook = f"今日新聞偏多（{pos_count}/{total_news} 則正面），市場情緒樂觀。"
+                elif neg_count > pos_count * 1.5:
+                    market_outlook = f"今日新聞偏空（{neg_count}/{total_news} 則負面），留意下行風險。"
+                else:
+                    market_outlook = f"今日新聞情緒中性（共 {total_news} 則），觀望為宜。"
+
+    except Exception as e:
+        logger.error(f"晨報新聞整合失敗: {e}")
+
+    # ── 組合摘要文字 ──────────────────────────────────────
+    taiex_index = _safe_json(summary.get("taiex_index"))
+    taiex_change = _safe_json(summary.get("taiex_change"))
+    up_count = int((changes > 0).sum())
+    down_count = int((changes < 0).sum())
+
+    if taiex_index and taiex_change is not None:
+        direction = "上漲" if taiex_change >= 0 else "下跌"
+        summary_text = (
+            f"台股加權指數 {taiex_index:,.0f} 點，{direction} {abs(taiex_change):.2f}%。"
+            f"上漲家數 {up_count}，下跌家數 {down_count}。"
+        )
+    else:
+        summary_text = f"上漲家數 {up_count}，下跌家數 {down_count}。"
+
     return {
         "date": summary.get("latest_date"),
-        "taiex_index": _safe_json(summary.get("taiex_index")),
-        "taiex_change": _safe_json(summary.get("taiex_change")),
+        # 前端晨報摘要區塊所需欄位
+        "summary": summary_text,
+        "keyPoints": news_key_points,
+        "marketOutlook": market_outlook,
+        # 市場數據
+        "taiex_index": taiex_index,
+        "taiex_change": taiex_change,
         "market": {
-            "up": int((changes > 0).sum()),
-            "down": int((changes < 0).sum()),
+            "up": up_count,
+            "down": down_count,
             "flat": int((changes == 0).sum()),
         },
         "top_gainers": [
