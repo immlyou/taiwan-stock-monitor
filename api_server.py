@@ -1279,7 +1279,7 @@ def _get_claude_analyzer():
     return _claude_analyzer
 
 
-@app.get("/strategy/ai-claude/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@app.get("/ai/claude/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
 @cached_response(ttl_seconds=3600)
 async def strategy_ai_claude(stock_id: str):
     """使用 Claude API 對個股進行智慧分析，回傳綜合分析摘要、投資建議與關鍵因素。
@@ -1347,7 +1347,7 @@ def _get_lstm_predictor():
     return _lstm_predictor
 
 
-@app.get("/strategy/ai-lstm/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@app.get("/ai/lstm/{stock_id}", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
 @cached_response(ttl_seconds=1800)
 async def strategy_ai_lstm(stock_id: str):
     """LSTM 價格趨勢預測 — 預測個股未來 5 日趨勢方向與估計價格。
@@ -1417,7 +1417,7 @@ def _get_xgboost_picker():
     return _xgboost_picker
 
 
-@app.get("/strategy/ai-xgboost", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
+@app.get("/ai/xgboost", tags=["策略", "AI 分析"], dependencies=[Depends(verify_api_key)])
 @cached_response(ttl_seconds=3600)
 async def strategy_ai_xgboost(
     top_n: int = Query(default=20, ge=1, le=50, description="回傳預測報酬前 N 名股票"),
