@@ -1571,6 +1571,7 @@ async def run_strategy(
     active = get_active_stocks()
     close = loader.get("close")
     latest_prices = close[active].iloc[-1]
+    name_map = _get_stock_name_map()
 
     preset_params = STRATEGY_PRESETS[strategy_type].get(
         preset, STRATEGY_PRESETS[strategy_type]["standard"]
@@ -1671,6 +1672,10 @@ async def run_strategy(
                 continue
 
         results.sort(key=lambda x: x["volume_ratio"], reverse=True)
+
+    # 補上股票名稱
+    for item in results:
+        item["name"] = name_map.get(item["stock_id"], "")
 
     return {
         "strategy": strategy_type,
