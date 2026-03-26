@@ -1,6 +1,7 @@
 """
 系統設定檔
 """
+import os
 from pathlib import Path
 
 # 資料夾路徑
@@ -216,24 +217,24 @@ STRATEGY_PRESETS = {
     },
 }
 
-# 通知設定
+# 通知設定 — 敏感憑證從環境變數讀取
 NOTIFICATION_CONFIG = {
     'line_notify': {
         'enabled': False,
-        'token': '',  # LINE Notify Token
+        'token': os.getenv('LINE_NOTIFY_TOKEN', ''),  # LINE Notify Token
     },
     'telegram': {
         'enabled': False,
-        'token': '',     # Telegram Bot Token (從 @BotFather 取得)
-        'chat_id': '',   # 目標 Chat ID (從 @userinfobot 取得)
+        'token': os.getenv('TELEGRAM_BOT_TOKEN', ''),     # Telegram Bot Token (從 @BotFather 取得)
+        'chat_id': os.getenv('TELEGRAM_CHAT_ID', ''),     # 目標 Chat ID (從 @userinfobot 取得)
     },
     'email': {
         'enabled': False,
-        'smtp_server': 'smtp.gmail.com',
-        'smtp_port': 587,
-        'sender': '',
-        'password': '',
-        'recipients': [],
+        'smtp_server': os.getenv('EMAIL_SMTP_SERVER', 'smtp.gmail.com'),
+        'smtp_port': int(os.getenv('EMAIL_SMTP_PORT', '587')),
+        'sender': os.getenv('EMAIL_SENDER', ''),
+        'password': os.getenv('EMAIL_PASSWORD', ''),
+        'recipients': os.getenv('EMAIL_RECIPIENTS', '').split(',') if os.getenv('EMAIL_RECIPIENTS') else [],
     },
 }
 

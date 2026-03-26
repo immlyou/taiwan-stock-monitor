@@ -7,11 +7,6 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 import pandas as pd
 from functools import lru_cache
-import urllib3
-
-# 抑制 SSL 警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 # 證交所 API 設定
 TWSE_INDEX_URL = "https://www.twse.com.tw/exchangeReport/FMTQIK"
 TWSE_DAILY_URL = "https://www.twse.com.tw/exchangeReport/MI_INDEX"
@@ -78,7 +73,7 @@ def fetch_taiex_monthly(year: int = None, month: int = None) -> Optional[pd.Data
                 'Accept': 'application/json',
             },
             timeout=10,
-            verify=False,  # 跳過 SSL 驗證
+            verify=True,
         )
         response.raise_for_status()
         data = response.json()
@@ -201,7 +196,7 @@ def fetch_taiex_realtime() -> Optional[Dict]:
                 'Accept': 'application/json',
             },
             timeout=10,
-            verify=False,  # 跳過 SSL 驗證
+            verify=True,
         )
         response.raise_for_status()
         data = response.json()
@@ -329,7 +324,7 @@ def _fetch_stock_margin_for_date(stock_id: str, date: str) -> Optional[Dict]:
                 'Accept': 'application/json',
             },
             timeout=15,
-            verify=False,
+            verify=True,
         )
         response.raise_for_status()
         data = response.json()

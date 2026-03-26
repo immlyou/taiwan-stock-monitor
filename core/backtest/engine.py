@@ -289,13 +289,17 @@ class BacktestEngine:
         total_cost = cost + transaction_cost
 
         if total_cost > self.cash:
-            # 資金不足，調整股數
-            shares = int((self.cash - transaction_cost) / price)
+            # 資金不足，用精確公式重新計算可買股數
+            max_amount = self.cash / (1 + self.commission_rate * self.commission_discount)
+            shares = int(max_amount / price)
             if shares <= 0:
                 return
             cost = shares * price
             transaction_cost = self._calculate_transaction_cost(cost, is_sell=False)
             total_cost = cost + transaction_cost
+            # 最終安全檢查：確保不會超出現金
+            if total_cost > self.cash:
+                return
 
         # 更新現金
         self.cash -= total_cost

@@ -116,17 +116,20 @@ class DataCache:
                     cls._instance = super().__new__(cls)
                     cls._instance._cache = {}
                     cls._instance._load_times = {}  # 記錄載入時間
+                    cls._instance._rw_lock = Lock()  # 讀寫操作專用鎖
         return cls._instance
 
     def get(self, key: str) -> Optional[pd.DataFrame]:
         """取得快取數據"""
-        return self._cache.get(key)
+        with self._rw_lock:
+            return self._cache.get(key)
 
     def set(self, key: str, value: pd.DataFrame):
         """設定快取數據"""
         import time
-        self._cache[key] = value
-        self._load_times[key] = time.time()
+        with self._rw_lock:
+            self._cache[key] = value
+            self._load_times[key] = time.time()
 
     def has(self, key: str, max_age: int = 3600) -> bool:
         """檢查是否有快取且未過期
@@ -138,31 +141,35 @@ class DataCache:
         max_age : int
             最大存活秒數，預設 3600（1 小時）。設為 0 表示不檢查過期。
         """
-        if key not in self._cache:
-            return False
-        if max_age <= 0:
-            return True
         import time as _time
-        load_time = self._load_times.get(key, 0)
-        return (_time.time() - load_time) < max_age
+        with self._rw_lock:
+            if key not in self._cache:
+                return False
+            if max_age <= 0:
+                return True
+            load_time = self._load_times.get(key, 0)
+            return (_time.time() - load_time) < max_age
 
     def clear(self):
         """清除所有快取"""
-        self._cache.clear()
-        self._load_times.clear()
+        with self._rw_lock:
+            self._cache.clear()
+            self._load_times.clear()
 
     def clear_key(self, key: str):
         """清除特定快取"""
-        self._cache.pop(key, None)
-        self._load_times.pop(key, None)
+        with self._rw_lock:
+            self._cache.pop(key, None)
+            self._load_times.pop(key, None)
 
     def get_stats(self) -> Dict:
         """取得快取統計資訊"""
-        return {
-            'cached_keys': list(self._cache.keys()),
-            'total_items': len(self._cache),
-            'load_times': self._load_times.copy(),
-        }
+        with self._rw_lock:
+            return {
+                'cached_keys': list(self._cache.keys()),
+                'total_items': len(self._cache),
+                'load_times': self._load_times.copy(),
+            }
 
 
 # 策略所需數據的映射

@@ -422,3 +422,182 @@ def monte_carlo_simulation(returns: pd.Series,
     simulated_values = initial_value * cumulative_returns
 
     return pd.DataFrame(simulated_values.T)
+
+
+# ============== 模組層級包裝函數 ==============
+# 方便直接 import 使用，內部 delegate 到 RiskAnalyzer
+
+def calculate_sharpe_ratio(returns: pd.DataFrame, risk_free_rate: float = 0.0) -> pd.Series:
+    """
+    計算夏普比率
+
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        報酬率 DataFrame，每列為一檔股票
+    risk_free_rate : float
+        年化無風險利率
+
+    Returns:
+    --------
+    pd.Series
+        各股票的夏普比率
+    """
+    # 將年化無風險利率轉為日化
+    daily_rf = risk_free_rate / 252
+    excess_returns = returns - daily_rf
+    mean_excess = excess_returns.mean()
+    std = returns.std()
+    sharpe = mean_excess / std.replace(0, np.nan) * np.sqrt(252)
+    return sharpe
+
+
+def calculate_sortino_ratio(returns: pd.DataFrame, risk_free_rate: float = 0.0) -> pd.Series:
+    """
+    計算 Sortino 比率
+
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        報酬率 DataFrame
+    risk_free_rate : float
+        年化無風險利率
+
+    Returns:
+    --------
+    pd.Series
+        各股票的 Sortino 比率
+    """
+    daily_rf = risk_free_rate / 252
+    excess_returns = returns - daily_rf
+    mean_excess = excess_returns.mean()
+
+    analyzer = RiskAnalyzer()
+    downside_vols = returns.apply(
+        lambda col: analyzer.calculate_downside_volatility(col.dropna())
+    )
+
+    sortino = mean_excess * np.sqrt(252) / pd.Series(downside_vols).replace(0, np.nan)
+    return sortino
+
+
+def calculate_max_drawdown(returns: pd.DataFrame) -> pd.Series:
+    """
+    計算最大回撤
+
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        報酬率 DataFrame
+
+    Returns:
+    --------
+    pd.Series
+        各股票的最大回撤 (0 到 -1 之間)
+    """
+    # 從報酬率重建累積價格序列，再計算最大回撤
+    prices = (1 + returns).cumprod()
+    analyzer = RiskAnalyzer()
+
+    results = {}
+    for col in prices.columns:
+        max_dd, _, _ = analyzer.calculate_max_drawdown(prices[col].dropna())
+        results[col] = max_dd
+
+    return pd.Series(results)
+
+
+def calculate_var(returns: pd.DataFrame, confidence: float = 0.95) -> pd.Series:
+    """
+    計算 VaR (歷史模擬法)
+
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        報酬率 DataFrame
+    confidence : float
+        信心水準
+
+    Returns:
+    --------
+    pd.Series
+        各股票的 VaR
+    """
+    analyzer = RiskAnalyzer()
+    results = returns.apply(
+        lambda col: analyzer.calculate_var_historical(col.dropna(), confidence)
+    )
+    return results
+
+
+def calculate_cvar(returns: pd.DataFrame, confidence: float = 0.95) -> pd.Series:
+    """
+    計算 CVaR (條件風險值)
+
+    Parameters:
+    -----------
+    returns : pd.DataFrame
+        報酬率 DataFrame
+    confidence : float
+        信心水準
+
+    Returns:
+    --------
+    pd.Series
+        各股票的 CVaR
+    """
+    analyzer = RiskAnalyzer()
+    results = returns.apply(
+        lambda col: analyzer.calculate_cvar(col.dropna(), confidence)
+    )
+    return results
+
+
+def calculate_beta(portfolio_returns: pd.Series, benchmark_returns: pd.Series) -> float:
+    """
+    計算 Beta 值
+
+    Parameters:
+    -----------
+    portfolio_returns : pd.Series
+        投資組合報酬率
+    benchmark_returns : pd.Series
+        基準報酬率
+
+    Returns:
+    --------
+    float
+        Beta 值
+    """
+    analyzer = RiskAnalyzer()
+    return analyzer.calculate_beta(portfolio_returns, benchmark_returns)
+
+
+def calculate_alpha(portfolio_returns: pd.Series, benchmark_returns: pd.Series,
+                    risk_free_rate: float = 0.0) -> float:
+    """
+    計算 Alpha 值 (Jensen's Alpha)
+
+    Parameters:
+    -----------
+    portfolio_returns : pd.Series
+        投資組合報酬率
+    benchmark_returns : pd.Series
+        基準報酬率
+    risk_free_rate : float
+        年化無風險利率
+
+    Returns:
+    --------
+    float
+        Alpha 值
+    """
+    daily_rf = risk_free_rate / 252
+    beta = calculate_beta(portfolio_returns, benchmark_returns)
+
+    # Jensen's Alpha = E[Rp] - (Rf + Beta * (E[Rm] - Rf))
+    mean_portfolio = portfolio_returns.mean()
+    mean_benchmark = benchmark_returns.mean()
+
+    alpha = mean_portfolio - (daily_rf + beta * (mean_benchmark - daily_rf))
+    return float(alpha)

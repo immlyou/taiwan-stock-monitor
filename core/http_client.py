@@ -57,6 +57,7 @@ def retry_with_exponential_backoff(config: Optional[RetryConfig] = None):
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
+            last_response = None
 
             for attempt in range(config.max_retries + 1):
                 try:
@@ -65,6 +66,7 @@ def retry_with_exponential_backoff(config: Optional[RetryConfig] = None):
                     # 檢查是否需要重試
                     if hasattr(response, 'status_code'):
                         if response.status_code in config.retry_on_status:
+                            last_response = response
                             if attempt < config.max_retries:
                                 delay = min(
                                     config.initial_delay * (config.exponential_base ** attempt),
@@ -76,6 +78,16 @@ def retry_with_exponential_backoff(config: Optional[RetryConfig] = None):
                                 )
                                 time.sleep(delay)
                                 continue
+                            else:
+                                # 所有重試耗盡，最後一次仍是失敗狀態碼
+                                logger.error(
+                                    f'請求失敗，已達最大重試次數 ({config.max_retries})，'
+                                    f'最終狀態碼: HTTP {response.status_code}'
+                                )
+                                raise requests.HTTPError(
+                                    f'HTTP {response.status_code} 錯誤，已重試 {config.max_retries} 次仍失敗',
+                                    response=response
+                                )
 
                     return response
 

@@ -86,11 +86,10 @@ class CacheWarmer:
         Dict
             預熱結果統計
         """
-        if self._is_warming:
-            logger.warning("預熱已在進行中")
-            return {}
-
         with self._lock:
+            if self._is_warming:
+                logger.warning("預熱已在進行中")
+                return {}
             self._is_warming = True
             self._progress = 0.0
 

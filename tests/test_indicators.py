@@ -24,7 +24,8 @@ class TestMovingAverages:
 
         assert isinstance(result, pd.DataFrame)
         assert result.shape == sample_close.shape
-        assert result.iloc[:19].isna().all().all()  # 前 19 天應為 NaN
+        # sma 使用 min_periods=1，從第 1 天起就有值，前 19 天不為 NaN
+        assert result.iloc[:19].notna().all().all()
         assert not result.iloc[19:].isna().all().all()
 
     def test_sma_window_sizes(self, sample_close):
@@ -98,23 +99,21 @@ class TestVolatilityIndicators:
         """布林通道測試"""
         upper, middle, lower = bollinger_bands(sample_close, 20, 2)
 
-        # 上軌應該大於中軌，中軌應該大於下軌
-        valid_idx = ~(upper.isna() | middle.isna() | lower.isna())
-
-        assert (upper[valid_idx] >= middle[valid_idx]).all().all()
-        assert (middle[valid_idx] >= lower[valid_idx]).all().all()
+        # 上軌應該大於中軌，中軌應該大於下軌（跳過前 period-1 行，樣本不足時 std≈0）
+        stable = upper.iloc[20:]
+        assert (stable >= middle.iloc[20:]).all().all()
+        assert (middle.iloc[20:] >= lower.iloc[20:]).all().all()
 
     def test_bollinger_bands_width(self, sample_close):
         """布林通道寬度隨標準差倍數變化"""
         upper1, middle1, lower1 = bollinger_bands(sample_close, 20, 1)
         upper2, middle2, lower2 = bollinger_bands(sample_close, 20, 2)
 
-        # 2 倍標準差的通道應該更寬
+        # 2 倍標準差的通道應該更寬（跳過前 period-1 行，樣本不足時 std≈0）
         width1 = upper1 - lower1
         width2 = upper2 - lower2
 
-        valid_idx = ~(width1.isna() | width2.isna())
-        assert (width2[valid_idx] > width1[valid_idx]).all().all()
+        assert (width2.iloc[20:] > width1.iloc[20:]).all().all()
 
     def test_atr_positive(self, sample_close):
         """ATR 應該為正值"""

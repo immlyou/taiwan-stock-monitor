@@ -5,12 +5,24 @@ Telegram 通知模組
 發送台股戰情中心更新通知到 Telegram
 """
 
+import os
 import requests
 from datetime import datetime
 
-# Telegram 設定
-TELEGRAM_BOT_TOKEN = "8495322209:AAFQzbqEVqAvwsupEFWQRFBoca1C3tZN1oQ"
-TELEGRAM_CHAT_ID = "423759068"
+# Telegram 設定 — 從環境變數讀取，禁止硬編碼憑證
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+if not TELEGRAM_BOT_TOKEN:
+    raise EnvironmentError(
+        "環境變數 TELEGRAM_BOT_TOKEN 未設定。"
+        "請在 .env 或執行環境中設定此變數，格式：TELEGRAM_BOT_TOKEN=<your_token>"
+    )
+if not TELEGRAM_CHAT_ID:
+    raise EnvironmentError(
+        "環境變數 TELEGRAM_CHAT_ID 未設定。"
+        "請在 .env 或執行環境中設定此變數，格式：TELEGRAM_CHAT_ID=<your_chat_id>"
+    )
 
 # 應用連結
 CLOUD_URL = "https://taiwan-stock-monitor-rznlwkup7qvanohmtksqd4.streamlit.app/"

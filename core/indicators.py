@@ -232,7 +232,7 @@ def bollinger_bands(data: pd.DataFrame,
     Returns:
     --------
     tuple
-        (中軌, 上軌, 下軌)
+        (上軌, 中軌, 下軌)
     """
     middle = sma(data, period)
     rolling_std = data.rolling(window=period, min_periods=1).std()
@@ -240,7 +240,7 @@ def bollinger_bands(data: pd.DataFrame,
     upper = middle + (rolling_std * std_dev)
     lower = middle - (rolling_std * std_dev)
 
-    return middle, upper, lower
+    return upper, middle, lower
 
 
 def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
@@ -790,3 +790,32 @@ calculate_cci = cci
 calculate_adx = adx
 calculate_mfi = mfi
 calculate_psar = psar
+
+
+def stochastic(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
+               n: int = 9, m1: int = 3, m2: int = 3) -> tuple:
+    """
+    隨機指標 (Stochastic Oscillator) - kdj 的包裝函數，只返回 K 和 D 值
+
+    Parameters:
+    -----------
+    high : pd.DataFrame
+        最高價
+    low : pd.DataFrame
+        最低價
+    close : pd.DataFrame
+        收盤價
+    n : int
+        RSV 週期 (預設 9)
+    m1 : int
+        K 值平滑週期 (預設 3)
+    m2 : int
+        D 值平滑週期 (預設 3)
+
+    Returns:
+    --------
+    tuple
+        (K值, D值)
+    """
+    k, d, _ = kdj(high, low, close, n, m1, m2)
+    return k, d
