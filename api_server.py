@@ -141,8 +141,10 @@ async def _startup_security_check():
 async def _preload_data():
     """啟動時預先載入最常用的 pickle 資料，降低首次請求延遲。"""
     preload_keys = [
-        'close', 'pe_ratio', 'pb_ratio', 'dividend_yield',
-        'revenue_yoy', 'volume', 'market_value', 'categories',
+        'close', 'open', 'high', 'low', 'volume',
+        'pe_ratio', 'pb_ratio', 'dividend_yield',
+        'revenue_yoy', 'market_value', 'categories',
+        'foreign_investors', 'investment_trust', 'dealer',
     ]
     loop = asyncio.get_event_loop()
 
@@ -942,6 +944,7 @@ async def stock_chip(
 # ════════════════════════════════════════════════════════
 
 @app.get("/stock/{stock_id}/ohlcv", tags=["個股"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def stock_ohlcv(
     stock_id: str,
     days: int = Query(default=120, ge=5, le=1260, description="最近 N 個交易日"),
@@ -960,35 +963,19 @@ async def stock_ohlcv(
         close_s = close[stock_id].dropna().tail(days)
         dates = close_s.index
 
+        # 一次載入所需的 DataFrame，避免重複讀取 pickle
         open_s = high_s = low_s = vol_s = None
-        for key, attr in [("open", "open_s"), ("high", "high_s"), ("low", "low_s"), ("volume", "vol_s")]:
+        for key, name in [("open", "open_s"), ("high", "high_s"), ("low", "low_s"), ("volume", "vol_s")]:
             try:
                 df = loader.get(key)
                 if stock_id in df.columns:
-                    locals()[attr]  # force reference
+                    series = df[stock_id].reindex(dates)
+                    if name == "open_s": open_s = series
+                    elif name == "high_s": high_s = series
+                    elif name == "low_s": low_s = series
+                    elif name == "vol_s": vol_s = series
             except Exception:
                 pass
-
-        try:
-            open_df = loader.get("open")
-            open_s = open_df[stock_id].reindex(dates) if stock_id in open_df.columns else None
-        except Exception:
-            pass
-        try:
-            high_df = loader.get("high")
-            high_s = high_df[stock_id].reindex(dates) if stock_id in high_df.columns else None
-        except Exception:
-            pass
-        try:
-            low_df = loader.get("low")
-            low_s = low_df[stock_id].reindex(dates) if stock_id in low_df.columns else None
-        except Exception:
-            pass
-        try:
-            vol_df = loader.get("volume")
-            vol_s = vol_df[stock_id].reindex(dates) if stock_id in vol_df.columns else None
-        except Exception:
-            pass
 
         records = []
         for d in dates:
@@ -1014,6 +1001,7 @@ async def stock_ohlcv(
 
 
 @app.get("/stock/{stock_id}/technical-chart", tags=["個股"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def stock_technical_chart(
     stock_id: str,
     days: int = Query(default=120, ge=30, le=1260, description="最近 N 個交易日"),
@@ -1135,6 +1123,7 @@ async def stock_financials(
 
 
 @app.get("/stock/{stock_id}/chip/detail", tags=["個股"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=300)
 async def stock_chip_detail(
     stock_id: str,
     days: int = Query(default=30, ge=5, le=120, description="最近 N 天"),
