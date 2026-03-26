@@ -347,7 +347,184 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+        {/* 版本記錄 */}
+        <div
+          className="rounded-lg p-4"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>版本記錄</h3>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>系統更新歷程與變化</p>
+            </div>
+            <span
+              className="px-3 py-1 rounded-full text-xs font-bold"
+              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            >
+              v3.0.0
+            </span>
+          </div>
+
+          <div className="space-y-0" style={{ maxHeight: 500, overflowY: 'auto' }}>
+            {CHANGELOG.map((release, i) => (
+              <div key={release.version} style={{ position: 'relative', paddingLeft: 24, paddingBottom: i < CHANGELOG.length - 1 ? 16 : 0 }}>
+                {/* Timeline line */}
+                {i < CHANGELOG.length - 1 && (
+                  <div style={{ position: 'absolute', left: 7, top: 8, bottom: 0, width: 2, background: 'var(--border)' }} />
+                )}
+                {/* Timeline dot */}
+                <div style={{
+                  position: 'absolute', left: 2, top: 6,
+                  width: 12, height: 12, borderRadius: '50%',
+                  background: i === 0 ? 'var(--primary)' : 'var(--secondary)',
+                  border: i === 0 ? 'none' : '2px solid var(--border)',
+                }} />
+                {/* Content */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-bold" style={{ color: i === 0 ? 'var(--primary)' : 'var(--foreground)' }}>
+                      {release.version}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      {release.date}
+                    </span>
+                    {release.tag && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded"
+                        style={{
+                          background: release.tag === 'Major' ? 'rgba(59,130,246,0.15)' : release.tag === 'Feature' ? 'rgba(34,197,94,0.15)' : 'rgba(107,114,128,0.15)',
+                          color: release.tag === 'Major' ? '#3b82f6' : release.tag === 'Feature' ? '#22c55e' : '#6b7280',
+                        }}
+                      >
+                        {release.tag}
+                      </span>
+                    )}
+                  </div>
+                  <ul className="space-y-0.5">
+                    {release.changes.map((change, j) => (
+                      <li key={j} className="text-xs flex items-start gap-1.5" style={{ color: 'var(--muted-foreground)' }}>
+                        <span style={{ color: 'var(--primary)', flexShrink: 0 }}>•</span>
+                        {change}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/*  Changelog Data                                                     */
+/* ------------------------------------------------------------------ */
+
+const CHANGELOG = [
+  {
+    version: 'v3.0.0',
+    date: '2026-03-27',
+    tag: 'Major' as const,
+    changes: [
+      '全新 Next.js + React + Tailwind CSS 前端（取代 Streamlit）',
+      '部署至 Vercel（前端）+ Railway（API 後端）',
+      '新增 3 個 AI 模型：XGBoost 因子選股、LSTM 趨勢預測、Claude 智慧分析',
+      '全站股票搜尋支援代號 + 中文名稱',
+      'Bloomberg 風格層級式市場熱力圖',
+      'API 擴充至 60+ 端點，含 SafeJSONResponse 防崩機制',
+      'SWR 即時資料 + API 快取 + Gzip 壓縮優化載入速度',
+    ],
+  },
+  {
+    version: 'v2.5.0',
+    date: '2026-03-26',
+    tag: 'Feature' as const,
+    changes: [
+      '盤後總覽新增 AI 策略選股（獲利優先 / 短期動能 / 長期存股）',
+      '股票類型篩選切換（僅個股 / 含 ETF / 全部）',
+      '移除社群輿情頁面',
+      'UI/UX 全面翻新：統一 KPI 卡片、響應式 CSS、sidebar 智能展開',
+      '儀表板重命名為「持倉總覽」消除導航混淆',
+    ],
+  },
+  {
+    version: 'v2.0.0',
+    date: '2026-03-26',
+    tag: 'Major' as const,
+    changes: [
+      'FastAPI REST API Server（57 個新端點）',
+      '功能斷點串接：選股→警報、回測→投資組合、交易日誌→持倉同步',
+      'Telegram Bot 通知（取代已停用的 LINE Notify）',
+      '警報自動觸發整合至 launchd 排程',
+      'API 策略重構：消除 api_server.py 邏輯重複',
+      '統一三份資料映射表為 DATA_REGISTRY',
+      '/screener RSI 向量化計算（30 秒→0.1 秒）',
+      '快取統一為 DataCache 單例 + st.cache_data.clear()',
+    ],
+  },
+  {
+    version: 'v1.5.0',
+    date: '2026-03-26',
+    tag: 'Feature' as const,
+    changes: [
+      '第一輪 PM/SA/RD/QA 團隊 Code Review',
+      '修復 3 個 Critical 安全問題（Token 洩漏、SSL、API 認證）',
+      '修復布林通道返回值順序 Bug',
+      '修復回測引擎資金計算缺陷',
+      '修復 HTTP Client 重試靜默返回 None',
+      '修復 cache_warmer 競態條件',
+      '測試覆蓋率 15/41 → 41/41（100%）',
+    ],
+  },
+  {
+    version: 'v1.2.0',
+    date: '2026-03-26',
+    tag: 'Feature' as const,
+    changes: [
+      '第二輪 Review：修復 pandas 頻率相容性（M→ME）',
+      '修復回測最後持倉永遠為空的問題',
+      'Telegram 設定 UI 與通知引擎橋接',
+      'DataCache Lock 改為 RLock 防止死鎖',
+      'GrowthStrategy preset 補齊 use_consecutive',
+      '移除全專案 47 處 sys.path.insert',
+      '新增 pyproject.toml 支援 pip install -e .',
+    ],
+  },
+  {
+    version: 'v1.0.0',
+    date: '2025-12-01',
+    tag: 'Major' as const,
+    changes: [
+      '初始版本：Streamlit 台股監控系統',
+      '25 個功能頁面（儀表板、選股、回測、技術分析等）',
+      '核心引擎：策略篩選、回測引擎、風險分析',
+      '資料來源：FinLab API + pickle 本地快取',
+      '通知系統：LINE Notify / Email',
+      'macOS launchd 排程自動更新',
+      'Railway.app 雲端部署',
+    ],
+  },
+  {
+    version: 'v0.5.0',
+    date: '2025-08-01',
+    tag: 'Feature' as const,
+    changes: [
+      'AI 智慧選股（多因子量化評分）',
+      '社群輿情分析（PTT Stock 版爬蟲）',
+      '預測驗證系統',
+      '每日晨報自動生成',
+    ],
+  },
+  {
+    version: 'v0.1.0',
+    date: '2025-05-01',
+    tag: null,
+    changes: [
+      '專案啟動',
+      '基礎架構：Streamlit + pandas + FinLab API',
+      '個股分析、技術指標計算',
+    ],
+  },
+]
