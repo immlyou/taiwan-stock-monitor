@@ -17,6 +17,9 @@ from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.portfolio_utils import (
+    get_portfolio_names, load_portfolios, save_portfolios
+)
 
 st.set_page_config(page_title='交易日誌', page_icon='📝', layout='wide')
 
@@ -114,6 +117,32 @@ with tab1:
         height=80
     )
 
+    # ========== 同步投資組合選項 ==========
+    sync_to_portfolio = False
+    sync_portfolio_name = None
+
+    is_trade_type = entry_type in ['買入', '賣出', '加碼', '減碼']
+    entry_stock_id = entry_stock.split(' ')[0] if entry_stock else None
+
+    if is_trade_type and entry_stock_id:
+        portfolio_names = get_portfolio_names()
+        if portfolio_names:
+            st.markdown('---')
+            sync_col1, sync_col2 = st.columns([1, 2])
+            with sync_col1:
+                sync_to_portfolio = st.checkbox(
+                    '同步更新投資組合',
+                    value=False,
+                    help='儲存日誌時同時更新對應投資組合的持股'
+                )
+            if sync_to_portfolio:
+                with sync_col2:
+                    sync_portfolio_name = st.selectbox(
+                        '選擇要同步的投資組合',
+                        portfolio_names,
+                        key='journal_sync_portfolio'
+                    )
+
     if st.button('💾 儲存日誌', type='primary', use_container_width=True):
         if entry_title:
             new_entry = {
@@ -134,6 +163,58 @@ with tab1:
             journal_data['entries'].insert(0, new_entry)  # 新的放最前面
             save_journal(journal_data)
             st.success('日誌已儲存！')
+
+            # ========== 同步更新投資組合 ==========
+            if sync_to_portfolio and sync_portfolio_name and entry_stock_id:
+                try:
+                    portfolios = load_portfolios()
+                    if sync_portfolio_name not in portfolios:
+                        st.warning(f'找不到投資組合「{sync_portfolio_name}」，同步失敗。')
+                    else:
+                        holdings = portfolios[sync_portfolio_name]['holdings']
+                        cost = float(entry_price) if entry_price > 0 else 0.0
+                        qty = int(entry_shares) if entry_shares > 0 else 0
+
+                        if entry_type in ['買入', '加碼']:
+                            # 買入 / 加碼：新增或增加持股
+                            existing = next((h for h in holdings if h['stock_id'] == entry_stock_id), None)
+                            if existing:
+                                # 加碼：更新加權平均成本與股數
+                                old_shares = existing['shares']
+                                old_cost = existing['cost_price']
+                                new_shares = old_shares + qty
+                                if new_shares > 0:
+                                    existing['cost_price'] = round(
+                                        (old_cost * old_shares + cost * qty) / new_shares, 2
+                                    )
+                                existing['shares'] = new_shares
+                                st.success(f'✅ 已更新「{sync_portfolio_name}」中 {entry_stock_id} 的持股（加碼至 {new_shares} 股）')
+                            else:
+                                holdings.append({
+                                    'stock_id': entry_stock_id,
+                                    'shares': qty,
+                                    'cost_price': cost,
+                                    'buy_date': entry_date.isoformat(),
+                                })
+                                st.success(f'✅ 已將 {entry_stock_id}（{qty} 股）加入「{sync_portfolio_name}」')
+
+                        elif entry_type in ['賣出', '減碼']:
+                            # 賣出 / 減碼：減少持股
+                            existing = next((h for h in holdings if h['stock_id'] == entry_stock_id), None)
+                            if existing:
+                                if qty >= existing['shares']:
+                                    holdings.remove(existing)
+                                    st.success(f'✅ 已從「{sync_portfolio_name}」移除 {entry_stock_id}（全部出清）')
+                                else:
+                                    existing['shares'] -= qty
+                                    st.success(f'✅ 已減少「{sync_portfolio_name}」中 {entry_stock_id} 的持股（剩 {existing["shares"]} 股）')
+                            else:
+                                st.warning(f'「{sync_portfolio_name}」中找不到 {entry_stock_id}，無法執行減碼。')
+
+                        save_portfolios(portfolios)
+                except Exception as e:
+                    st.error(f'同步投資組合失敗：{e}')
+
             st.rerun()
         else:
             st.warning('請輸入標題')

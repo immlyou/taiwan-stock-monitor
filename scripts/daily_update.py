@@ -28,7 +28,7 @@ if env_path.exists():
         import finlab
         finlab.login(os.getenv('FINLAB_API_TOKEN'))
 
-from config import DATA_DIR, DATA_FILES
+from config import DATA_DIR, DATA_FILES, DATA_REGISTRY
 
 # 設定 logging
 logging.basicConfig(
@@ -51,36 +51,18 @@ def update_data():
 
         logger.info('開始更新數據...')
 
-        # 數據對應表: FinLab API 名稱 -> 本地檔案名
-        data_mapping = {
-            'price:收盤價': 'price#收盤價.pickle',
-            'price:開盤價': 'price#開盤價.pickle',
-            'price:最高價': 'price#最高價.pickle',
-            'price:最低價': 'price#最低價.pickle',
-            'price:成交股數': 'price#成交股數.pickle',
-            'etl:adj_close': 'etl#adj_close.pickle',
-            'etl:market_value': 'etl#market_value.pickle',
-            'etl:is_flagged_stock': 'etl#is_flagged_stock.pickle',
-            'price_earning_ratio:本益比': 'price_earning_ratio#本益比.pickle',
-            'price_earning_ratio:股價淨值比': 'price_earning_ratio#股價淨值比.pickle',
-            'price_earning_ratio:殖利率(%)': 'price_earning_ratio#殖利率(%).pickle',
-            'monthly_revenue:當月營收': 'monthly_revenue#當月營收.pickle',
-            'monthly_revenue:去年同月增減(%)': 'monthly_revenue#去年同月增減(%).pickle',
-            'monthly_revenue:上月比較增減(%)': 'monthly_revenue#上月比較增減(%).pickle',
-            'benchmark_return:發行量加權股價報酬指數': 'benchmark_return#發行量加權股價報酬指數.pickle',
-        }
-
         updated_count = 0
         error_count = 0
 
-        for api_name, filename in data_mapping.items():
+        # 從 DATA_REGISTRY 衍生更新清單，避免重複維護映射表
+        for data_key, entry in DATA_REGISTRY.items():
+            api_name = entry['finlab_key']
+            filename = entry['file']
             try:
                 logger.info(f'正在更新: {api_name}')
 
-                # 使用 FinLab API 取得數據
                 df = data.get(api_name)
 
-                # 儲存到本地
                 filepath = DATA_DIR / filename
                 with open(filepath, 'wb') as f:
                     pickle.dump(df, f)
@@ -91,18 +73,6 @@ def update_data():
             except Exception as e:
                 logger.error(f'  ✗ 更新失敗 {api_name}: {e}')
                 error_count += 1
-
-        # 更新股票分類
-        try:
-            logger.info('正在更新: 股票分類')
-            categories = data.get('security_categories')
-            with open(DATA_DIR / 'security_categories.pickle', 'wb') as f:
-                pickle.dump(categories, f)
-            logger.info('  ✓ 已更新: security_categories.pickle')
-            updated_count += 1
-        except Exception as e:
-            logger.error(f'  ✗ 更新失敗 security_categories: {e}')
-            error_count += 1
 
         # 更新到期資訊
         expiry_info = {

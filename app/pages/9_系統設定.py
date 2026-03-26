@@ -33,6 +33,7 @@ def load_settings():
             return json.load(f)
     return {
         'line_notify': {'enabled': False, 'token': ''},
+        'telegram': {'enabled': False, 'token': '', 'chat_id': ''},
         'email': {'enabled': False, 'sender': '', 'password': '', 'recipients': []},
         'auto_update': {'enabled': False, 'time': '08:00'},
     }
@@ -43,8 +44,86 @@ def save_settings(settings):
 
 settings = load_settings()
 
+# ========== Telegram 設定 ==========
+st.subheader('✈️ Telegram Bot 設定')
+
+st.warning('LINE Notify 已於 2025/04 停止服務，建議改用 Telegram Bot')
+
+st.markdown('''
+Telegram Bot 可以讓系統自動推送選股結果和警報到您的 Telegram。
+
+**如何設定 Telegram Bot：**
+1. 在 Telegram 搜尋 [@BotFather](https://t.me/BotFather) 並傳送 `/newbot`
+2. 依指示設定 Bot 名稱，取得 **Bot Token**
+3. 搜尋 [@userinfobot](https://t.me/userinfobot) 傳送任意訊息取得 **Chat ID**
+4. 也可將 Bot 加入群組，再用 `https://api.telegram.org/bot<TOKEN>/getUpdates` 取得群組 Chat ID
+''')
+
+tg_col1, tg_col2 = st.columns([3, 1])
+
+with tg_col1:
+    tg_token = st.text_input(
+        'Telegram Bot Token',
+        value=settings.get('telegram', {}).get('token', ''),
+        type='password',
+        placeholder='123456789:AABBccDDeeFFggHH...',
+        help='從 @BotFather 取得的 Bot Token',
+    )
+
+with tg_col2:
+    tg_enabled = st.checkbox(
+        '啟用 Telegram 通知',
+        value=settings.get('telegram', {}).get('enabled', False),
+    )
+
+tg_chat_id = st.text_input(
+    'Chat ID',
+    value=settings.get('telegram', {}).get('chat_id', ''),
+    placeholder='123456789 或 -100123456789（群組）',
+    help='您的 Telegram User ID 或群組 Chat ID',
+)
+
+if st.button('💾 儲存 Telegram 設定'):
+    settings['telegram'] = {
+        'enabled': tg_enabled,
+        'token': tg_token,
+        'chat_id': tg_chat_id,
+    }
+    save_settings(settings)
+    # 同步寫入環境變數提示（實際生效需在 .env 設定）
+    st.success('Telegram 設定已儲存！')
+    if tg_token and tg_chat_id:
+        st.info('提示：若使用排程執行，請同時將 TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID 加入 .env 檔案')
+
+# 測試 Telegram 通知
+if tg_token and tg_chat_id and st.button('🔔 測試 Telegram 通知'):
+    try:
+        import requests
+
+        url = f'https://api.telegram.org/bot{tg_token}/sendMessage'
+        payload = {
+            'chat_id': tg_chat_id,
+            'text': f'*台股分析系統 - 測試通知*\n{"─" * 20}\n這是一則測試通知。\n時間: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+            'parse_mode': 'Markdown',
+        }
+
+        response = requests.post(url, data=payload, timeout=10)
+        result = response.json()
+
+        if response.status_code == 200 and result.get('ok'):
+            st.success('✅ 測試通知發送成功！請檢查您的 Telegram。')
+        else:
+            st.error(f'❌ 發送失敗: {result.get("description", response.text)}')
+
+    except Exception as e:
+        show_error(e, title='發送通知失敗', suggestion='請確認 Bot Token 和 Chat ID 是否正確')
+
+st.markdown('---')
+
 # ========== LINE Notify 設定 ==========
 st.subheader('📱 LINE Notify 設定')
+
+st.warning('LINE Notify 已於 2025/04 停止服務，建議改用 Telegram Bot')
 
 st.markdown('''
 LINE Notify 可以讓系統自動推送選股結果和警報到您的 LINE。

@@ -30,7 +30,7 @@ except ImportError:
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import DATA_DIR, DATA_FILES
+from config import DATA_DIR, DATA_FILES, DATA_REGISTRY
 
 # 判斷是否在 Streamlit Cloud 環境
 def is_streamlit_cloud() -> bool:
@@ -40,31 +40,8 @@ def is_streamlit_cloud() -> bool:
            os.getenv('STREAMLIT_SERVER_HEADLESS') == 'true' or \
            not (DATA_DIR / 'price#收盤價.pickle').exists()
 
-# FinLab API 數據名稱對應
-FINLAB_DATA_MAPPING = {
-    'close': 'price:收盤價',
-    'open': 'price:開盤價',
-    'high': 'price:最高價',
-    'low': 'price:最低價',
-    'volume': 'price:成交股數',
-    'adj_close': 'etl:adj_close',
-    'market_value': 'etl:market_value',
-    'is_flagged': 'etl:is_flagged_stock',
-    'pe_ratio': 'price_earning_ratio:本益比',
-    'pb_ratio': 'price_earning_ratio:股價淨值比',
-    'dividend_yield': 'price_earning_ratio:殖利率(%)',
-    'monthly_revenue': 'monthly_revenue:當月營收',
-    'revenue_yoy': 'monthly_revenue:去年同月增減(%)',
-    'revenue_mom': 'monthly_revenue:上月比較增減(%)',
-    'benchmark': 'benchmark_return:發行量加權股價報酬指數',
-    'categories': 'security_categories',
-    'foreign_investors': 'institutional_investors_trading_summary:外陸資買賣超股數(不含外資自營商)',
-    'investment_trust': 'institutional_investors_trading_summary:投信買賣超股數',
-    'dealer': 'institutional_investors_trading_summary:自營商買賣超股數(自行買賣)',
-    'foreign_holding': 'foreign_investors_shareholding:全體外資及陸資持股比率',
-    'margin_buy': 'margin_transactions:融資今日餘額',
-    'margin_sell': 'margin_transactions:融券今日餘額',
-}
+# FinLab API 數據名稱對應 - 從 DATA_REGISTRY 衍生，不再重複定義
+FINLAB_DATA_MAPPING = {key: entry['finlab_key'] for key, entry in DATA_REGISTRY.items()}
 
 # 初始化 FinLab API（如果在雲端環境）
 _finlab_initialized = False
@@ -406,10 +383,6 @@ def load_benchmark() -> pd.Series:
     return loader.get_benchmark()
 
 
-# 活躍股票快取
-_active_stocks_cache: Optional[Dict] = None
-
-
 def get_active_stocks(days_threshold: int = 30, use_cache: bool = True) -> List[str]:
     """
     取得仍在交易的股票列表 (排除已下市股票)
@@ -426,14 +399,12 @@ def get_active_stocks(days_threshold: int = 30, use_cache: bool = True) -> List[
     List[str]
         活躍股票代號列表
     """
-    global _active_stocks_cache
+    cache = DataCache()
+    cache_key = f'_active_stocks_{days_threshold}'
 
-    cache_key = f'active_{days_threshold}'
-
-    # 檢查快取
-    if use_cache and _active_stocks_cache is not None:
-        if cache_key in _active_stocks_cache:
-            return _active_stocks_cache[cache_key]
+    # 檢查 DataCache 快取
+    if use_cache and cache.has(cache_key, max_age=0):
+        return cache.get(cache_key)
 
     loader = DataLoader()
     close = loader.get('close')
@@ -448,18 +419,21 @@ def get_active_stocks(days_threshold: int = 30, use_cache: bool = True) -> List[
         if len(stock_data) > 0 and stock_data.index.max() >= cutoff_date:
             active_stocks.append(col)
 
-    # 存入快取
-    if _active_stocks_cache is None:
-        _active_stocks_cache = {}
-    _active_stocks_cache[cache_key] = active_stocks
+    # 存入 DataCache
+    cache.set(cache_key, active_stocks)
 
     return active_stocks
 
 
 def clear_active_stocks_cache():
     """清除活躍股票快取"""
-    global _active_stocks_cache
-    _active_stocks_cache = None
+    cache = DataCache()
+    # 清除所有 _active_stocks_* 開頭的快取鍵
+    with cache._rw_lock:
+        keys_to_delete = [k for k in cache._cache if k.startswith('_active_stocks_')]
+        for k in keys_to_delete:
+            cache._cache.pop(k, None)
+            cache._load_times.pop(k, None)
 
 
 def is_stock_active(stock_id: str, days_threshold: int = 30) -> bool:
@@ -553,19 +527,23 @@ def reset_all_caches() -> None:
 
     這個函數會清除：
     1. DataLoader 單例
-    2. DataCache 全域快取
-    3. 活躍股票快取
+    2. DataCache 全域快取（含活躍股票快取）
+    3. Streamlit @st.cache_data 快取（若在 Streamlit 環境）
     """
-    global _loader_instance, _active_stocks_cache
+    global _loader_instance
 
     # 清除 DataLoader 單例
     if _loader_instance is not None:
         _loader_instance.clear_cache()
     _loader_instance = None
 
-    # 清除 DataCache 全域快取
+    # 清除 DataCache 全域快取（_active_stocks_* 也一併清除）
     cache = DataCache()
     cache.clear()
 
-    # 清除活躍股票快取
-    _active_stocks_cache = None
+    # 清除 Streamlit @st.cache_data 快取
+    try:
+        import streamlit as st
+        st.cache_data.clear()
+    except Exception:
+        pass  # 非 Streamlit 環境（如 API server）正常跳過

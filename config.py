@@ -8,46 +8,62 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR  # pickle 檔案在根目錄
 
-# 數據檔案對應
-DATA_FILES = {
+# 統一數據登錄表 - 單一來源，同時描述本地 pickle 檔名與 FinLab API 鍵名
+# 所有數據映射都應從此處衍生，不應在其他模組重複定義
+DATA_REGISTRY = {
     # 價格數據
-    'close': 'price#收盤價.pickle',
-    'open': 'price#開盤價.pickle',
-    'high': 'price#最高價.pickle',
-    'low': 'price#最低價.pickle',
-    'volume': 'price#成交股數.pickle',
+    'close':          {'file': 'price#收盤價.pickle',                                                                'finlab_key': 'price:收盤價'},
+    'open':           {'file': 'price#開盤價.pickle',                                                                'finlab_key': 'price:開盤價'},
+    'high':           {'file': 'price#最高價.pickle',                                                                'finlab_key': 'price:最高價'},
+    'low':            {'file': 'price#最低價.pickle',                                                                'finlab_key': 'price:最低價'},
+    'volume':         {'file': 'price#成交股數.pickle',                                                              'finlab_key': 'price:成交股數'},
 
     # ETL 處理後數據
-    'adj_close': 'etl#adj_close.pickle',
-    'market_value': 'etl#market_value.pickle',
-    'is_flagged': 'etl#is_flagged_stock.pickle',
+    'adj_close':      {'file': 'etl#adj_close.pickle',                                                              'finlab_key': 'etl:adj_close'},
+    'market_value':   {'file': 'etl#market_value.pickle',                                                           'finlab_key': 'etl:market_value'},
+    'is_flagged':     {'file': 'etl#is_flagged_stock.pickle',                                                       'finlab_key': 'etl:is_flagged_stock'},
 
     # 本益比相關
-    'pe_ratio': 'price_earning_ratio#本益比.pickle',
-    'pb_ratio': 'price_earning_ratio#股價淨值比.pickle',
-    'dividend_yield': 'price_earning_ratio#殖利率(%).pickle',
+    'pe_ratio':       {'file': 'price_earning_ratio#本益比.pickle',                                                 'finlab_key': 'price_earning_ratio:本益比'},
+    'pb_ratio':       {'file': 'price_earning_ratio#股價淨值比.pickle',                                             'finlab_key': 'price_earning_ratio:股價淨值比'},
+    'dividend_yield': {'file': 'price_earning_ratio#殖利率(%).pickle',                                              'finlab_key': 'price_earning_ratio:殖利率(%)'},
 
     # 月營收
-    'monthly_revenue': 'monthly_revenue#當月營收.pickle',
-    'revenue_yoy': 'monthly_revenue#去年同月增減(%).pickle',
-    'revenue_mom': 'monthly_revenue#上月比較增減(%).pickle',
+    'monthly_revenue':   {'file': 'monthly_revenue#當月營收.pickle',                                                'finlab_key': 'monthly_revenue:當月營收'},
+    'revenue_yoy':       {'file': 'monthly_revenue#去年同月增減(%).pickle',                                        'finlab_key': 'monthly_revenue:去年同月增減(%)'},
+    'revenue_mom':       {'file': 'monthly_revenue#上月比較增減(%).pickle',                                        'finlab_key': 'monthly_revenue:上月比較增減(%)'},
 
     # 其他
-    'benchmark': 'benchmark_return#發行量加權股價報酬指數.pickle',
-    'categories': 'security_categories.pickle',
+    'benchmark':      {'file': 'benchmark_return#發行量加權股價報酬指數.pickle',                                    'finlab_key': 'benchmark_return:發行量加權股價報酬指數'},
+    'categories':     {'file': 'security_categories.pickle',                                                         'finlab_key': 'security_categories'},
 
     # 三大法人買賣超
-    'foreign_investors': 'institutional_investors_trading_summary#外陸資買賣超股數(不含外資自營商).pickle',
-    'investment_trust': 'institutional_investors_trading_summary#投信買賣超股數.pickle',
-    'dealer': 'institutional_investors_trading_summary#自營商買賣超股數(自行買賣).pickle',
+    'foreign_investors': {'file': 'institutional_investors_trading_summary#外陸資買賣超股數(不含外資自營商).pickle', 'finlab_key': 'institutional_investors_trading_summary:外陸資買賣超股數(不含外資自營商)'},
+    'investment_trust':  {'file': 'institutional_investors_trading_summary#投信買賣超股數.pickle',                   'finlab_key': 'institutional_investors_trading_summary:投信買賣超股數'},
+    'dealer':            {'file': 'institutional_investors_trading_summary#自營商買賣超股數(自行買賣).pickle',       'finlab_key': 'institutional_investors_trading_summary:自營商買賣超股數(自行買賣)'},
 
     # 外資持股
-    'foreign_holding': 'foreign_investors_shareholding#全體外資及陸資持股比率.pickle',
+    'foreign_holding':   {'file': 'foreign_investors_shareholding#全體外資及陸資持股比率.pickle',                   'finlab_key': 'foreign_investors_shareholding:全體外資及陸資持股比率'},
 
     # 融資融券
-    'margin_buy': 'margin_transactions#融資今日餘額.pickle',
-    'margin_sell': 'margin_transactions#融券今日餘額.pickle',
+    'margin_buy':        {'file': 'margin_transactions#融資今日餘額.pickle',                                        'finlab_key': 'margin_transactions:融資今日餘額'},
+    'margin_sell':       {'file': 'margin_transactions#融券今日餘額.pickle',                                        'finlab_key': 'margin_transactions:融券今日餘額'},
+
+    # 大戶持股分布（籌碼分析用）
+    'inventory_total_holders':   {'file': 'etl#inventory#全部人數.pickle',          'finlab_key': 'etl:inventory:全部人數'},
+    'inventory_over_1000_ratio': {'file': 'etl#inventory#大於一千張佔比.pickle',    'finlab_key': 'etl:inventory:大於一千張佔比'},
+    'inventory_over_1000_shares':{'file': 'etl#inventory#大於一千張股數.pickle',    'finlab_key': 'etl:inventory:大於一千張股數'},
+    'inventory_over_100_ratio':  {'file': 'etl#inventory#大於一百張佔比.pickle',    'finlab_key': 'etl:inventory:大於一百張佔比'},
+    'inventory_over_400_holders':{'file': 'etl#inventory#大於四百張人數.pickle',    'finlab_key': 'etl:inventory:大於四百張人數'},
+    'inventory_over_400_ratio':  {'file': 'etl#inventory#大於四百張佔比.pickle',    'finlab_key': 'etl:inventory:大於四百張佔比'},
+    'inventory_over_400_shares': {'file': 'etl#inventory#大於四百張股數.pickle',    'finlab_key': 'etl:inventory:大於四百張股數'},
+    'inventory_under_10_holders':{'file': 'etl#inventory#小於十張人數.pickle',      'finlab_key': 'etl:inventory:小於十張人數'},
+    'inventory_under_10_ratio':  {'file': 'etl#inventory#小於十張佔比.pickle',      'finlab_key': 'etl:inventory:小於十張佔比'},
+    'inventory_under_10_shares': {'file': 'etl#inventory#小於十張股數.pickle',      'finlab_key': 'etl:inventory:小於十張股數'},
 }
+
+# 向後相容：從 DATA_REGISTRY 自動衍生的 DATA_FILES 字典（維持舊介面）
+DATA_FILES = {key: entry['file'] for key, entry in DATA_REGISTRY.items()}
 
 # 交易成本設定
 TRADING_COSTS = {

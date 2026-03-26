@@ -26,6 +26,9 @@ from app.components.empty_state import show_empty_state
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys
 )
+from app.components.portfolio_utils import (
+    get_portfolio_names, create_portfolio, add_holdings_batch, load_portfolios, save_portfolios
+)
 
 st.set_page_config(page_title='回測分析', page_icon='📊', layout='wide')
 
@@ -402,6 +405,111 @@ if get_state(StateKeys.BACKTEST_RESULT) is not None:
         )
     else:
         show_empty_state('無交易記錄', icon='📋')
+
+    # ========== 以最後持倉建立投資組合 ==========
+    st.markdown('---')
+    st.markdown('#### 💼 以最後持倉建立投資組合')
+
+    # 從交易記錄取得「尚未賣出」的持倉（exit_date 為 NaT 的記錄即為最後持倉）
+    last_positions = []
+    if len(result.trades) > 0:
+        open_trades = result.trades[result.trades['exit_date'].isna()]
+        if len(open_trades) > 0:
+            for _, row in open_trades.iterrows():
+                last_positions.append({
+                    'stock_id': row['stock_id'],
+                    'shares': int(row['shares']),
+                    'cost_price': round(float(row['entry_price']), 2),
+                })
+
+    if last_positions:
+        st.caption(f'回測結束時持有 {len(last_positions)} 檔股票，可將其匯入投資組合進行追蹤。')
+
+        portfolio_col1, portfolio_col2 = st.columns([3, 1])
+
+        with portfolio_col1:
+            create_mode = st.radio(
+                '建立方式',
+                ['建立新投資組合', '加入現有投資組合'],
+                horizontal=True,
+                key='bt_portfolio_mode'
+            )
+
+        if create_mode == '建立新投資組合':
+            with portfolio_col1:
+                new_portfolio_name = st.text_input(
+                    '新投資組合名稱',
+                    value=f'回測_{strategy_name}_{pd.Timestamp.now().strftime("%Y%m%d")}',
+                    key='bt_new_portfolio_name'
+                )
+            if st.button('💼 建立投資組合並匯入持倉', type='primary', key='bt_create_portfolio'):
+                if new_portfolio_name:
+                    try:
+                        created = create_portfolio(new_portfolio_name)
+                        if not created:
+                            st.warning(f'投資組合「{new_portfolio_name}」已存在，將直接加入持股。')
+
+                        prices = {p['stock_id']: p['cost_price'] for p in last_positions}
+                        stocks = [p['stock_id'] for p in last_positions]
+
+                        # 使用各自股數加入（需逐筆呼叫 add_holding）
+                        portfolios = load_portfolios()
+                        existing_stocks = [h['stock_id'] for h in portfolios[new_portfolio_name]['holdings']]
+                        added = 0
+                        for pos in last_positions:
+                            if pos['stock_id'] not in existing_stocks:
+                                portfolios[new_portfolio_name]['holdings'].append({
+                                    'stock_id': pos['stock_id'],
+                                    'shares': pos['shares'],
+                                    'cost_price': pos['cost_price'],
+                                    'buy_date': pd.Timestamp.now().strftime('%Y-%m-%d'),
+                                })
+                                added += 1
+                        save_portfolios(portfolios)
+
+                        st.success(f'✅ 已建立投資組合「{new_portfolio_name}」並匯入 {added} 檔持股')
+                    except Exception as e:
+                        st.error(f'建立投資組合失敗：{e}')
+                else:
+                    st.warning('請輸入投資組合名稱')
+
+        else:  # 加入現有投資組合
+            portfolio_names = get_portfolio_names()
+            if portfolio_names:
+                with portfolio_col1:
+                    target_portfolio = st.selectbox('選擇投資組合', portfolio_names, key='bt_target_portfolio')
+                if st.button('➕ 匯入持倉到投資組合', type='primary', key='bt_add_to_portfolio'):
+                    try:
+                        portfolios = load_portfolios()
+                        existing_stocks = [h['stock_id'] for h in portfolios[target_portfolio]['holdings']]
+                        added = 0
+                        for pos in last_positions:
+                            if pos['stock_id'] not in existing_stocks:
+                                portfolios[target_portfolio]['holdings'].append({
+                                    'stock_id': pos['stock_id'],
+                                    'shares': pos['shares'],
+                                    'cost_price': pos['cost_price'],
+                                    'buy_date': pd.Timestamp.now().strftime('%Y-%m-%d'),
+                                })
+                                added += 1
+                        save_portfolios(portfolios)
+                        skipped = len(last_positions) - added
+                        msg = f'✅ 已將 {added} 檔持股加入「{target_portfolio}」'
+                        if skipped > 0:
+                            msg += f'（{skipped} 檔已存在，略過）'
+                        st.success(msg)
+                    except Exception as e:
+                        st.error(f'匯入持倉失敗：{e}')
+            else:
+                show_empty_state('尚未建立投資組合', icon='💼', suggestion='請選擇「建立新投資組合」')
+
+        # 預覽最後持倉
+        with st.expander('預覽最後持倉清單'):
+            preview_df = pd.DataFrame(last_positions)
+            preview_df.columns = ['股票代號', '股數', '成本價']
+            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+    else:
+        st.info('回測結束時無未平倉持倉，無法匯入投資組合。（提示：若所有股票在回測結束前均已賣出，最後持倉為空。）')
 
 # ========== 說明 ==========
 with st.expander('📖 回測說明'):

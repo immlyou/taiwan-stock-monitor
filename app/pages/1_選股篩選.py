@@ -595,6 +595,108 @@ if get_state(StateKeys.SELECTION_RESULT) is not None:
             if st.button('前往建立投資組合'):
                 st.switch_page('pages/8_投資組合.py')
 
+        # ========== 批次設定警報功能 ==========
+        st.markdown('---')
+        st.markdown('#### 🔔 批次設定警報')
+
+        ALERT_TYPES = {
+            'price_above': {'name': '價格突破上方', 'icon': '📈'},
+            'price_below': {'name': '價格跌破下方', 'icon': '📉'},
+            'rsi_above':   {'name': 'RSI 超買',     'icon': '🔥'},
+            'rsi_below':   {'name': 'RSI 超賣',     'icon': '❄️'},
+            'volume_spike':{'name': '成交量爆量',   'icon': '💥'},
+            'new_high':    {'name': '創新高',       'icon': '🏆'},
+            'new_low':     {'name': '創新低',       'icon': '📊'},
+        }
+
+        ALERTS_FILE = Path(__file__).parent.parent.parent / 'data' / 'alerts.json'
+        ALERTS_FILE.parent.mkdir(exist_ok=True)
+
+        alert_col1, alert_col2, alert_col3 = st.columns([2, 1, 1])
+
+        with alert_col1:
+            batch_alert_type = st.selectbox(
+                '警報類型',
+                list(ALERT_TYPES.keys()),
+                format_func=lambda x: f"{ALERT_TYPES[x]['icon']} {ALERT_TYPES[x]['name']}",
+                key='batch_alert_type'
+            )
+
+        with alert_col2:
+            if batch_alert_type in ['price_above', 'price_below']:
+                batch_alert_value = st.number_input('偏移 (%)', -20.0, 20.0, 5.0, 1.0,
+                    help='以當前股價為基準，設定觸發價格的偏移百分比', key='batch_alert_offset')
+                alert_value_mode = 'price_pct'
+            elif batch_alert_type in ['rsi_above', 'rsi_below']:
+                default_rsi = 70 if batch_alert_type == 'rsi_above' else 30
+                batch_alert_value = st.number_input('RSI 門檻', 0, 100, default_rsi, 5, key='batch_alert_rsi')
+                alert_value_mode = 'fixed'
+            elif batch_alert_type == 'volume_spike':
+                batch_alert_value = st.number_input('量能倍數', 1.0, 10.0, 2.0, 0.5, key='batch_alert_vol')
+                alert_value_mode = 'fixed'
+            else:  # new_high / new_low
+                batch_alert_value = st.number_input('天數範圍', 5, 252, 20, 5, key='batch_alert_days')
+                alert_value_mode = 'fixed'
+
+        with alert_col3:
+            batch_alert_note = st.text_input('備註', placeholder='選股警報', key='batch_alert_note')
+
+        stocks_for_alert = st.multiselect(
+            '選擇要設定警報的股票',
+            result.stocks,
+            default=result.stocks[:10] if len(result.stocks) > 10 else result.stocks,
+            format_func=lambda x: f"{x} - {stock_info[stock_info['stock_id']==x]['name'].values[0] if len(stock_info[stock_info['stock_id']==x]) > 0 else ''}",
+            key='batch_alert_stocks'
+        )
+
+        if st.button('🔔 批次設定警報', type='secondary', key='batch_set_alerts'):
+            if stocks_for_alert:
+                try:
+                    import uuid as _uuid
+                    if ALERTS_FILE.exists():
+                        with open(ALERTS_FILE, 'r', encoding='utf-8') as f:
+                            alerts_data = json.load(f)
+                    else:
+                        alerts_data = {'alerts': []}
+
+                    added_alerts = 0
+                    for stock_id in stocks_for_alert:
+                        # 計算觸發價格
+                        if alert_value_mode == 'price_pct':
+                            if stock_id in close.columns:
+                                current_price = float(close[stock_id].dropna().iloc[-1])
+                            else:
+                                current_price = 0
+                            if batch_alert_type == 'price_above':
+                                trigger_value = round(current_price * (1 + batch_alert_value / 100), 2)
+                            else:
+                                trigger_value = round(current_price * (1 - batch_alert_value / 100), 2)
+                        else:
+                            trigger_value = batch_alert_value
+
+                        new_alert = {
+                            'id': str(_uuid.uuid4())[:8],
+                            'stock_id': stock_id,
+                            'type': batch_alert_type,
+                            'value': trigger_value,
+                            'note': batch_alert_note or f'選股篩選 - {result_strategy}',
+                            'enabled': True,
+                            'triggered': False,
+                            'created_at': datetime.now().isoformat(),
+                            'triggered_at': None,
+                        }
+                        alerts_data['alerts'].append(new_alert)
+                        added_alerts += 1
+
+                    with open(ALERTS_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(alerts_data, f, ensure_ascii=False, indent=2, default=str)
+
+                    st.success(f'✅ 已為 {added_alerts} 檔股票設定「{ALERT_TYPES[batch_alert_type]["name"]}」警報')
+                except Exception as e:
+                    st.error(f'設定警報失敗：{e}')
+            else:
+                st.warning('請選擇要設定警報的股票')
+
         # 儲存最新選股結果
         SCREENING_FILE = Path(__file__).parent.parent.parent / 'data' / 'latest_screening.json'
         SCREENING_FILE.parent.mkdir(exist_ok=True)

@@ -32,6 +32,9 @@ from config import STRATEGY_PARAMS, TRADING_COSTS
 from core.data_loader import DataLoader, get_data_summary, get_active_stocks
 from core.indicators import calculate_rsi, calculate_macd, calculate_sma
 from core.alerts import AlertEngine
+from core.strategies.value import ValueStrategy
+from core.strategies.growth import GrowthStrategy
+from core.strategies.momentum import MomentumStrategy
 
 # ─── 初始化 ─────────────────────────────────────────────
 app = FastAPI(
@@ -397,9 +400,16 @@ async def run_strategy(
     if strategy_type not in ("value", "growth", "momentum"):
         raise HTTPException(status_code=400, detail="策略類型需為 value/growth/momentum")
 
+    from config import STRATEGY_PRESETS
+
     active = get_active_stocks()
     close = loader.get("close")
     latest_prices = close[active].iloc[-1]
+
+    # 根據 preset 取得對應策略參數，並實例化 Strategy 類別
+    preset_params = STRATEGY_PRESETS[strategy_type].get(
+        preset, STRATEGY_PRESETS[strategy_type]["standard"]
+    )["params"]
 
     results = []
 
@@ -408,58 +418,50 @@ async def run_strategy(
         pb_df = loader.get("pb_ratio")
         dy_df = loader.get("dividend_yield")
 
-        from config import STRATEGY_PRESETS
-        params = STRATEGY_PRESETS["value"].get(preset, STRATEGY_PRESETS["value"]["standard"])["params"]
+        strategy = ValueStrategy(params=preset_params)
+        data = {"pe_ratio": pe_df, "pb_ratio": pb_df, "dividend_yield": dy_df}
+        matched = set(strategy.filter(data))
 
-        for sid in active:
+        # 提取 API 回應所需的具體指標數值
+        for sid in matched:
             try:
                 pe = pe_df[sid].dropna().iloc[-1] if sid in pe_df.columns else None
                 pb = pb_df[sid].dropna().iloc[-1] if sid in pb_df.columns else None
                 dy = dy_df[sid].dropna().iloc[-1] if sid in dy_df.columns else None
-
                 if pe is None or pb is None or dy is None:
                     continue
-                if np.isnan(pe) or np.isnan(pb) or np.isnan(dy):
-                    continue
-
-                if pe > 0 and pe <= params["pe_max"] and pb <= params["pb_max"] and dy >= params["dividend_yield_min"]:
-                    results.append({
-                        "stock_id": sid,
-                        "price": round(float(latest_prices.get(sid, 0)), 2),
-                        "pe_ratio": round(float(pe), 2),
-                        "pb_ratio": round(float(pb), 2),
-                        "dividend_yield": round(float(dy), 2),
-                    })
+                results.append({
+                    "stock_id": sid,
+                    "price": round(float(latest_prices.get(sid, 0)), 2),
+                    "pe_ratio": round(float(pe), 2),
+                    "pb_ratio": round(float(pb), 2),
+                    "dividend_yield": round(float(dy), 2),
+                })
             except (IndexError, KeyError):
                 continue
 
-        # 依殖利率排序
         results.sort(key=lambda x: x["dividend_yield"], reverse=True)
 
     elif strategy_type == "growth":
         yoy_df = loader.get("revenue_yoy")
         mom_df = loader.get("revenue_mom")
 
-        from config import STRATEGY_PRESETS
-        params = STRATEGY_PRESETS["growth"].get(preset, STRATEGY_PRESETS["growth"]["standard"])["params"]
+        strategy = GrowthStrategy(params=preset_params)
+        data = {"revenue_yoy": yoy_df, "revenue_mom": mom_df}
+        matched = set(strategy.filter(data))
 
-        for sid in active:
+        for sid in matched:
             try:
                 yoy = yoy_df[sid].dropna().iloc[-1] if sid in yoy_df.columns else None
                 mom = mom_df[sid].dropna().iloc[-1] if sid in mom_df.columns else None
-
                 if yoy is None or mom is None:
                     continue
-                if np.isnan(yoy) or np.isnan(mom):
-                    continue
-
-                if yoy >= params["revenue_yoy_min"] and mom >= params["revenue_mom_min"]:
-                    results.append({
-                        "stock_id": sid,
-                        "price": round(float(latest_prices.get(sid, 0)), 2),
-                        "revenue_yoy": round(float(yoy), 2),
-                        "revenue_mom": round(float(mom), 2),
-                    })
+                results.append({
+                    "stock_id": sid,
+                    "price": round(float(latest_prices.get(sid, 0)), 2),
+                    "revenue_yoy": round(float(yoy), 2),
+                    "revenue_mom": round(float(mom), 2),
+                })
             except (IndexError, KeyError):
                 continue
 
@@ -467,22 +469,22 @@ async def run_strategy(
 
     elif strategy_type == "momentum":
         volume_df = loader.get("volume")
-        high_df = loader.get("high")
 
-        from config import STRATEGY_PRESETS
-        params = STRATEGY_PRESETS["momentum"].get(preset, STRATEGY_PRESETS["momentum"]["standard"])["params"]
+        # MomentumStrategy 使用 volume_ratio_min 而非 volume_ratio，需做鍵名對應
+        momentum_params = dict(preset_params)
+        if "volume_ratio" in momentum_params and "volume_ratio_min" not in momentum_params:
+            momentum_params["volume_ratio_min"] = momentum_params.pop("volume_ratio")
 
-        breakout_days = params["breakout_days"]
-        volume_ratio_threshold = params["volume_ratio"]
+        strategy = MomentumStrategy(params=momentum_params)
+        data = {"close": close, "volume": volume_df}
+        matched = set(strategy.filter(data))
 
-        for sid in active:
+        breakout_days = momentum_params.get("breakout_days", 20)
+
+        for sid in matched:
             try:
-                if sid not in close.columns or sid not in volume_df.columns:
-                    continue
-
                 price_series = close[sid].dropna()
                 vol_series = volume_df[sid].dropna()
-
                 if len(price_series) < breakout_days + 1 or len(vol_series) < 21:
                     continue
 
@@ -490,25 +492,18 @@ async def run_strategy(
                 high_n = float(price_series.tail(breakout_days + 1).iloc[:-1].max())
                 avg_vol = float(vol_series.tail(21).iloc[:-1].mean())
                 latest_vol = float(vol_series.iloc[-1])
-
                 vol_ratio = latest_vol / avg_vol if avg_vol > 0 else 0
 
-                # RSI
-                rsi = calculate_rsi(price_series, period=14)
-                latest_rsi = float(rsi.iloc[-1]) if len(rsi) > 0 else 50
+                rsi_series = calculate_rsi(price_series, period=14)
+                latest_rsi = float(rsi_series.iloc[-1]) if len(rsi_series) > 0 else 50
 
-                is_breakout = latest_price >= high_n
-                is_volume = vol_ratio >= volume_ratio_threshold
-                is_rsi_ok = params["rsi_min"] <= latest_rsi <= params["rsi_max"]
-
-                if is_breakout and is_volume and is_rsi_ok:
-                    results.append({
-                        "stock_id": sid,
-                        "price": round(latest_price, 2),
-                        "volume_ratio": round(vol_ratio, 2),
-                        "rsi": round(latest_rsi, 2),
-                        "breakout_high": round(high_n, 2),
-                    })
+                results.append({
+                    "stock_id": sid,
+                    "price": round(latest_price, 2),
+                    "volume_ratio": round(vol_ratio, 2),
+                    "rsi": round(latest_rsi, 2),
+                    "breakout_high": round(high_n, 2),
+                })
             except (IndexError, KeyError):
                 continue
 
@@ -590,19 +585,22 @@ async def screener(
                 candidates.discard(sid)
 
     if rsi_max is not None or rsi_min is not None:
-        for sid in list(candidates):
-            if sid not in close.columns:
-                candidates.discard(sid)
-                continue
-            rsi = calculate_rsi(close[sid].dropna(), period=14)
-            if rsi.empty:
-                candidates.discard(sid)
-                continue
-            val = float(rsi.iloc[-1])
-            if rsi_max is not None and val > rsi_max:
-                candidates.discard(sid)
-            if rsi_min is not None and val < rsi_min:
-                candidates.discard(sid)
+        # 向量化：一次對所有候選股票計算 RSI，避免逐股迴圈
+        valid_candidates = [sid for sid in candidates if sid in close.columns]
+        if valid_candidates:
+            rsi_all = calculate_rsi(close[valid_candidates], period=14)
+            latest_rsi = rsi_all.iloc[-1]
+            for sid in list(candidates):
+                if sid not in latest_rsi.index or pd.isna(latest_rsi[sid]):
+                    candidates.discard(sid)
+                    continue
+                val = float(latest_rsi[sid])
+                if rsi_max is not None and val > rsi_max:
+                    candidates.discard(sid)
+                if rsi_min is not None and val < rsi_min:
+                    candidates.discard(sid)
+        else:
+            candidates.clear()
 
     # 組裝結果
     results = []
