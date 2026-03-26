@@ -437,7 +437,7 @@ async def stocks_active():
 
         latest = close[active].iloc[-1]
         prev = close[active].iloc[-2]
-        changes = ((latest - prev) / prev * 100).fillna(0)
+        changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
 
         stocks = []
         for sid in active:
@@ -518,7 +518,7 @@ async def market_heatmap():
 
         latest = close[active].iloc[-1]
         prev = close[active].iloc[-2]
-        changes = ((latest - prev) / prev * 100).fillna(0)
+        changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
 
         # 依產業分組
         industry_groups: Dict[str, list] = {}
@@ -694,7 +694,7 @@ async def market_industries():
 
         latest = close[active].iloc[-1]
         prev = close[active].iloc[-2]
-        changes = ((latest - prev) / prev * 100).fillna(0)
+        changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
 
         industry_stats: Dict[str, Dict] = {}
         for sid in active:
@@ -2485,7 +2485,7 @@ async def quote_realtime_batch(req: BatchQuoteRequest):
 
         latest = close[valid_ids].iloc[-1]
         prev = close[valid_ids].iloc[-2]
-        changes = ((latest - prev) / prev * 100).fillna(0)
+        changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
 
         quotes = []
         for sid in valid_ids:
@@ -2585,7 +2585,7 @@ async def social_hot_stocks(
 
             latest = close[active].iloc[-1]
             prev = close[active].iloc[-2]
-            changes = ((latest - prev) / prev * 100).fillna(0)
+            changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
 
             return {
                 "date": datetime.now().strftime("%Y-%m-%d"),
