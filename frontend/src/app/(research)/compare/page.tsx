@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar } from '@/lib/utils/format'
+import { StockInput } from '@/components/shared/StockInput'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
@@ -45,7 +46,7 @@ const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6']
 const MAX_STOCKS = 5
 
 export default function ComparePage() {
-  const [inputCode, setInputCode] = useState('')
+  const [pendingCode, setPendingCode] = useState('')
   const [selectedCodes, setSelectedCodes] = useState<string[]>([])
   const [submitted, setSubmitted] = useState<string[]>([])
 
@@ -54,11 +55,11 @@ export default function ComparePage() {
     fetchAPI
   )
 
-  const addCode = () => {
-    const code = inputCode.trim().toUpperCase()
-    if (!code || selectedCodes.includes(code) || selectedCodes.length >= MAX_STOCKS) return
-    setSelectedCodes(prev => [...prev, code])
-    setInputCode('')
+  const addCode = (code?: string) => {
+    const c = (code ?? pendingCode).trim().toUpperCase()
+    if (!c || selectedCodes.includes(c) || selectedCodes.length >= MAX_STOCKS) return
+    setSelectedCodes(prev => [...prev, c])
+    setPendingCode('')
   }
 
   const removeCode = (code: string) => {
@@ -86,24 +87,17 @@ export default function ComparePage() {
         style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
       >
         <div className="flex flex-wrap gap-2 items-end">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputCode}
-              onChange={(e) => setInputCode(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addCode()}
-              placeholder="輸入股票代號"
-              className="h-9 w-36 rounded-md border px-3 text-sm"
-              style={{
-                background: 'var(--background)',
-                border: '1px solid var(--border)',
-                color: 'var(--foreground)',
-              }}
+          <div className="flex gap-2 items-end">
+            <StockInput
+              value={pendingCode}
+              onChange={(id) => addCode(id)}
+              placeholder="輸入代號或中文名稱"
+              className="w-64"
             />
             <button
-              onClick={addCode}
+              onClick={() => addCode()}
               disabled={selectedCodes.length >= MAX_STOCKS}
-              className="h-9 px-4 rounded-md text-sm font-medium disabled:opacity-50"
+              className="h-9 px-4 rounded-md text-sm font-medium disabled:opacity-50 shrink-0"
               style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
             >
               新增

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { StockInput } from '@/components/shared/StockInput'
 import {
   ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
@@ -49,7 +50,6 @@ const INDICATORS: { key: Indicator; label: string }[] = [
 
 export default function TechnicalPage() {
   const [stockCode, setStockCode] = useState('')
-  const [inputCode, setInputCode] = useState('')
   const [period, setPeriod] = useState('3m')
   const [activeIndicators, setActiveIndicators] = useState<Indicator[]>(['macd'])
 
@@ -70,12 +70,6 @@ export default function TechnicalPage() {
     )
   }
 
-  const handleSearch = () => {
-    if (inputCode.trim()) {
-      setStockCode(inputCode.trim().toUpperCase())
-    }
-  }
-
   return (
     <div>
       <div className="mb-6">
@@ -89,29 +83,12 @@ export default function TechnicalPage() {
         style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
       >
         <div className="flex-1 min-w-48">
-          <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputCode}
-              onChange={(e) => setInputCode(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="例：2330"
-              className="flex-1 h-9 rounded-md border px-3 text-sm"
-              style={{
-                background: 'var(--background)',
-                border: '1px solid var(--border)',
-                color: 'var(--foreground)',
-              }}
-            />
-            <button
-              onClick={handleSearch}
-              className="h-9 px-4 rounded-md text-sm font-medium"
-              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-            >
-              查詢
-            </button>
-          </div>
+          <StockInput
+            value={stockCode}
+            onChange={setStockCode}
+            label="股票代號"
+            placeholder="例：2330 或 台積電"
+          />
         </div>
 
         <div>

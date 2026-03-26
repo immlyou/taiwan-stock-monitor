@@ -6,8 +6,11 @@ import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
 interface SearchResult {
-  code: string
+  // API 可能回傳 stock_id 或 code（相容兩種格式）
+  stock_id?: string
+  code?: string
   name: string
+  industry?: string
 }
 
 export function StockSearch() {
@@ -29,11 +32,13 @@ export function StockSearch() {
     }
     setIsLoading(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const res = await fetch(`${apiUrl}/stocks/search?q=${encodeURIComponent(q)}`)
+      const apiBase = typeof window !== 'undefined' ? '/api' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+      const res = await fetch(`${apiBase}/stocks/search?q=${encodeURIComponent(q)}`)
       if (res.ok) {
         const data = await res.json()
-        setResults(Array.isArray(data) ? data.slice(0, 8) : [])
+        // 相容 {stocks: [...]} 格式及直接陣列格式
+        const list = Array.isArray(data) ? data : (data.stocks ?? [])
+        setResults(list.slice(0, 8))
         setIsOpen(true)
       }
     } catch {
@@ -56,9 +61,10 @@ export function StockSearch() {
 
   const handleSelect = useCallback(
     (result: SearchResult) => {
-      setQuery(`${result.code} ${result.name}`)
+      const id = result.stock_id ?? result.code ?? ''
+      setQuery(`${id} ${result.name}`)
       setIsOpen(false)
-      router.push(`/stock/${result.code}`)
+      router.push(`/stock/${id}`)
     },
     [router]
   )
@@ -140,29 +146,37 @@ export function StockSearch() {
           }}
           role="listbox"
         >
-          {results.map((result, index) => (
-            <button
-              key={result.code}
-              onClick={() => handleSelect(result)}
-              className={cn(
-                'w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors'
-              )}
-              style={{
-                background: index === activeIndex ? 'var(--secondary)' : undefined,
-                color: 'var(--foreground)',
-              }}
-              role="option"
-              aria-selected={index === activeIndex}
-            >
-              <span
-                className="font-mono font-semibold text-xs px-1.5 py-0.5 rounded"
-                style={{ background: 'var(--secondary)', color: 'var(--primary)' }}
+          {results.map((result, index) => {
+            const id = result.stock_id ?? result.code ?? ''
+            return (
+              <button
+                key={id}
+                onClick={() => handleSelect(result)}
+                className={cn(
+                  'w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors'
+                )}
+                style={{
+                  background: index === activeIndex ? 'var(--secondary)' : undefined,
+                  color: 'var(--foreground)',
+                }}
+                role="option"
+                aria-selected={index === activeIndex}
               >
-                {result.code}
-              </span>
-              <span>{result.name}</span>
-            </button>
-          ))}
+                <span
+                  className="font-mono font-semibold text-xs px-1.5 py-0.5 rounded"
+                  style={{ background: 'var(--secondary)', color: 'var(--primary)' }}
+                >
+                  {id}
+                </span>
+                <span className="flex-1">{result.name}</span>
+                {result.industry && (
+                  <span className="text-xs shrink-0" style={{ color: 'var(--muted-foreground)' }}>
+                    {result.industry}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

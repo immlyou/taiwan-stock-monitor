@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { StockInput } from '@/components/shared/StockInput'
 
 interface RiskMetrics {
   var_95: number
@@ -38,7 +39,6 @@ type TabType = 'stock' | 'portfolio'
 
 export default function RiskPage() {
   const [tab, setTab] = useState<TabType>('stock')
-  const [inputCode, setInputCode] = useState('')
   const [stockCode, setStockCode] = useState('')
   const [portfolioInput, setPortfolioInput] = useState('')
   const [portfolioCodes, setPortfolioCodes] = useState('')
@@ -54,11 +54,6 @@ export default function RiskPage() {
       : null,
     fetchAPI
   )
-
-  const handleStockSearch = () => {
-    const code = inputCode.trim().toUpperCase()
-    if (code) setStockCode(code)
-  }
 
   const handlePortfolioSearch = () => {
     const codes = portfolioInput.trim()
@@ -96,27 +91,13 @@ export default function RiskPage() {
             className="rounded-lg p-4"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
-            <div className="flex gap-2 items-end">
-              <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
-                <input
-                  type="text"
-                  value={inputCode}
-                  onChange={(e) => setInputCode(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleStockSearch()}
-                  placeholder="例：2330"
-                  className="h-9 w-36 rounded-md border px-3 text-sm"
-                  style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-                />
-              </div>
-              <button
-                onClick={handleStockSearch}
-                className="h-9 px-4 rounded-md text-sm font-medium"
-                style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-              >
-                計算風險
-              </button>
-            </div>
+            <StockInput
+              value={stockCode}
+              onChange={setStockCode}
+              label="股票代號"
+              placeholder="例：2330 或 台積電"
+              className="max-w-xs"
+            />
           </div>
 
           {!stockCode ? (

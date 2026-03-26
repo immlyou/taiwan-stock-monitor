@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar } from '@/lib/utils/format'
+import { StockInput } from '@/components/shared/StockInput'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine
 } from 'recharts'
@@ -38,18 +39,12 @@ function formatShares(shares: number) {
 }
 
 export default function ChipPage() {
-  const [inputCode, setInputCode] = useState('')
   const [stockCode, setStockCode] = useState('')
 
   const { data, isLoading, error } = useSWR<ChipData>(
     stockCode ? `/stock/${stockCode}/chip` : null,
     fetchAPI
   )
-
-  const handleSearch = () => {
-    const code = inputCode.trim()
-    if (code) setStockCode(code)
-  }
 
   // 合併三大法人每日資料到同一時間軸
   const allDates = Array.from(
@@ -87,30 +82,16 @@ export default function ChipPage() {
 
       {/* 股票代號輸入 */}
       <div
-        className="rounded-lg p-4 mb-6 flex flex-wrap gap-3 items-end"
+        className="rounded-lg p-4 mb-6"
         style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
       >
-        <div>
-          <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputCode}
-              onChange={(e) => setInputCode(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="例：2330"
-              className="h-9 w-36 rounded-md border px-3 text-sm"
-              style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-            />
-            <button
-              onClick={handleSearch}
-              className="h-9 px-4 rounded-md text-sm font-medium"
-              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-            >
-              查詢
-            </button>
-          </div>
-        </div>
+        <StockInput
+          value={stockCode}
+          onChange={setStockCode}
+          label="股票代號"
+          placeholder="例：2330 或 台積電"
+          className="max-w-xs"
+        />
       </div>
 
       {!stockCode ? (

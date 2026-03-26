@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { StockInput } from '@/components/shared/StockInput'
 import {
   BarChart,
   Bar,
@@ -159,41 +160,28 @@ function LoadingCard() {
   )
 }
 
-function StockInput({
+function AiStockInputRow({
   value,
-  onChange,
   onSubmit,
   loading,
 }: {
   value: string
-  onChange: (v: string) => void
-  onSubmit: () => void
+  onSubmit: (stockId: string) => void
   loading: boolean
 }) {
   return (
-    <div className="flex gap-2 mb-4">
-      <input
-        type="text"
+    <div className="flex gap-2 mb-4 items-end">
+      <StockInput
         value={value}
-        onChange={(e) => onChange(e.target.value.toUpperCase())}
-        onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
-        placeholder="輸入股票代號，例：2330"
-        maxLength={6}
-        className="h-9 rounded-md border px-3 text-sm w-48"
-        style={{
-          background: 'var(--background)',
-          border: '1px solid var(--border)',
-          color: 'var(--foreground)',
-        }}
+        onChange={onSubmit}
+        placeholder="輸入代號或中文名稱，例：2330 或 台積電"
+        className="w-72"
       />
-      <button
-        onClick={onSubmit}
-        disabled={loading || !value.trim()}
-        className="h-9 px-4 rounded-md text-sm font-medium disabled:opacity-60"
-        style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-      >
-        {loading ? '查詢中...' : '查詢'}
-      </button>
+      {loading && (
+        <span className="text-sm h-9 flex items-center" style={{ color: 'var(--muted-foreground)' }}>
+          查詢中...
+        </span>
+      )}
     </div>
   )
 }
@@ -373,7 +361,6 @@ function XGBoostTab() {
 // ─── LSTM Tab ─────────────────────────────────────────────────────────────────
 
 function LSTMTab() {
-  const [inputValue, setInputValue] = useState('')
   const [stockId, setStockId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useSWR<LSTMResponse>(
@@ -381,19 +368,13 @@ function LSTMTab() {
     fetchAPI
   )
 
-  const handleSubmit = () => {
-    const trimmed = inputValue.trim()
-    if (trimmed) setStockId(trimmed)
-  }
-
   const dirConfig = data ? DIRECTION_CONFIG[data.direction] : null
 
   return (
     <div>
-      <StockInput
-        value={inputValue}
-        onChange={setInputValue}
-        onSubmit={handleSubmit}
+      <AiStockInputRow
+        value={stockId ?? ''}
+        onSubmit={(id) => setStockId(id)}
         loading={isLoading}
       />
 
@@ -527,7 +508,6 @@ function LSTMTab() {
 // ─── Claude Tab ───────────────────────────────────────────────────────────────
 
 function ClaudeTab() {
-  const [inputValue, setInputValue] = useState('')
   const [stockId, setStockId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useSWR<ClaudeResponse>(
@@ -535,17 +515,11 @@ function ClaudeTab() {
     fetchAPI
   )
 
-  const handleSubmit = () => {
-    const trimmed = inputValue.trim()
-    if (trimmed) setStockId(trimmed)
-  }
-
   return (
     <div>
-      <StockInput
-        value={inputValue}
-        onChange={setInputValue}
-        onSubmit={handleSubmit}
+      <AiStockInputRow
+        value={stockId ?? ''}
+        onSubmit={(id) => setStockId(id)}
         loading={isLoading}
       />
 

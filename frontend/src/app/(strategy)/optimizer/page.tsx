@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { fetchAPI } from '@/lib/api/client'
+import { StockInput } from '@/components/shared/StockInput'
 
 interface ParamRange {
   key: string
@@ -125,14 +126,11 @@ export default function OptimizerPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
-            <input
-              type="text"
+            <StockInput
               value={stockCode}
-              onChange={(e) => setStockCode(e.target.value.toUpperCase())}
-              placeholder="例：2330"
-              className="h-9 w-full rounded-md border px-3 text-sm"
-              style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              onChange={setStockCode}
+              label="股票代號"
+              placeholder="例：2330 或 台積電"
             />
           </div>
           <div>
