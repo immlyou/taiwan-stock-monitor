@@ -39,19 +39,20 @@ interface PredictedPrice {
 interface LSTMResponse {
   stock_id: string
   name: string
-  direction: 'up' | 'down' | 'sideways'
+  direction: string
   confidence: number
   predicted_prices: PredictedPrice[]
   trend_strength: number
 }
 
 interface ClaudeResponse {
-  stock_id: string
-  name: string
-  summary: string
-  recommendation: 'buy' | 'hold' | 'watch' | 'sell'
-  risk_level: 'low' | 'medium' | 'high'
-  key_factors: string[]
+  stock_id?: string
+  name?: string
+  summary?: string
+  recommendation?: string
+  risk_level?: string
+  key_factors?: string[]
+  error?: string
 }
 
 // Quant types (preserved from original)
@@ -103,7 +104,7 @@ const QUANT_TAB_LABELS: Record<QuantTab, string> = {
 }
 
 const RECOMMENDATION_CONFIG: Record<
-  ClaudeResponse['recommendation'],
+  string,
   { label: string; bg: string; color: string }
 > = {
   buy: { label: '買入', bg: '#ef444422', color: '#ef4444' },
@@ -113,7 +114,7 @@ const RECOMMENDATION_CONFIG: Record<
 }
 
 const RISK_CONFIG: Record<
-  ClaudeResponse['risk_level'],
+  string,
   { label: string; bg: string; color: string }
 > = {
   low: { label: '低風險', bg: '#22c55e22', color: '#22c55e' },
@@ -121,10 +122,13 @@ const RISK_CONFIG: Record<
   high: { label: '高風險', bg: '#ef444422', color: '#ef4444' },
 }
 
-const DIRECTION_CONFIG = {
+const DIRECTION_CONFIG: Record<string, { label: string; symbol: string; color: string }> = {
   up: { label: '上漲', symbol: '▲', color: '#ef4444' },
+  '上漲': { label: '上漲', symbol: '▲', color: '#ef4444' },
   down: { label: '下跌', symbol: '▼', color: '#22c55e' },
+  '下跌': { label: '下跌', symbol: '▼', color: '#22c55e' },
   sideways: { label: '盤整', symbol: '─', color: '#94a3b8' },
+  '盤整': { label: '盤整', symbol: '─', color: '#94a3b8' },
 }
 
 // ─── Shared sub-components ───────────────────────────────────────────────────
@@ -368,7 +372,7 @@ function LSTMTab() {
     fetchAPI
   )
 
-  const dirConfig = data ? DIRECTION_CONFIG[data.direction] : null
+  const dirConfig = data ? (DIRECTION_CONFIG[data.direction] ?? { label: data.direction, symbol: '?', color: '#94a3b8' }) : null
 
   return (
     <div>
@@ -537,7 +541,11 @@ function ClaudeTab() {
 
       {stockId && isLoading && <LoadingCard />}
 
-      {data && (
+      {data?.error && (
+        <ErrorCard message={`Claude AI：${data.error}`} />
+      )}
+
+      {data && !data.error && (
         <Card className="p-6">
           {/* Header */}
           <div className="flex items-start justify-between mb-4">
@@ -553,10 +561,10 @@ function ClaudeTab() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {RECOMMENDATION_CONFIG[data.recommendation] && (
+              {data.recommendation && RECOMMENDATION_CONFIG[data.recommendation] && (
                 <Badge {...RECOMMENDATION_CONFIG[data.recommendation]} />
               )}
-              {RISK_CONFIG[data.risk_level] && (
+              {data.risk_level && RISK_CONFIG[data.risk_level] && (
                 <Badge {...RISK_CONFIG[data.risk_level]} />
               )}
             </div>
@@ -576,7 +584,7 @@ function ClaudeTab() {
           </div>
 
           {/* Key factors */}
-          {data.key_factors.length > 0 && (
+          {(data.key_factors?.length ?? 0) > 0 && (
             <div>
               <p
                 className="text-xs font-medium mb-2"
@@ -585,7 +593,7 @@ function ClaudeTab() {
                 關鍵因素
               </p>
               <ul className="space-y-1.5">
-                {data.key_factors.map((factor, i) => (
+                {(data.key_factors ?? []).map((factor, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span
                       className="mt-0.5 text-xs font-bold"
