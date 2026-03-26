@@ -60,7 +60,7 @@ class SafeJSONResponse(JSONResponse):
         raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
-from core.data_loader import DataLoader, get_data_summary, get_active_stocks
+from core.data_loader import DataLoader, get_data_summary, get_active_stocks, FinLabQuotaExceededError
 from core.indicators import (
     calculate_rsi, calculate_macd, calculate_sma, calculate_ema,
     calculate_bollinger_bands, calculate_kdj, calculate_atr,
@@ -97,6 +97,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 全域 FinLab 額度超限 handler — 攔截所有端點中的 FinLabQuotaExceededError
+from starlette.requests import Request
+from starlette.responses import Response
+
+@app.exception_handler(FinLabQuotaExceededError)
+async def finlab_quota_handler(request: Request, exc: FinLabQuotaExceededError) -> Response:
+    """當 FinLab 額度超限時，回傳友善訊息而非 500"""
+    return SafeJSONResponse(
+        status_code=503,
+        content={
+            "status": "quota_exceeded",
+            "error": "FinLab API 每日額度已達上限（5,000 MB/日），已自動切換備用資料來源。部分資料可能暫時無法顯示，額度將於午夜重置。",
+            "fallback_active": True,
+        },
+    )
 
 # API Key 驗證
 API_KEY = os.getenv("STOCK_API_KEY", "")
@@ -878,7 +894,11 @@ async def stock_info(
         logger.info("[stock_info] FinLab 額度超限，走 fallback: %s", stock_id)
         return await _stock_info_fallback(stock_id, days)
 
-    close = loader.get("close")
+    try:
+        close = loader.get("close")
+    except FinLabQuotaExceededError:
+        logger.warning("[stock_info] FinLab quota hit, switching to fallback: %s", stock_id)
+        return await _stock_info_fallback(stock_id, days)
     if stock_id not in close.columns:
         raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
 

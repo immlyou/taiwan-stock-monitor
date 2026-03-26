@@ -45,6 +45,11 @@ FINLAB_DATA_MAPPING = {key: entry['finlab_key'] for key, entry in DATA_REGISTRY.
 _finlab_usage_mb: float = 0.0
 _finlab_quota_exceeded: bool = False
 
+
+class FinLabQuotaExceededError(Exception):
+    """FinLab API 每日額度超限"""
+    pass
+
 # FinLab 快取 TTL（秒）：從環境變數讀取，預設 24 小時
 # 設為 0 表示不使用記憶體快取（每次都重新下載）
 FINLAB_CACHE_TTL: int = int(os.getenv("FINLAB_CACHE_TTL", "86400"))
@@ -201,9 +206,10 @@ class DataLoader:
             _finlab_quota_exceeded = False
         except Exception as e:
             err_str = str(e).lower()
-            if "quota" in err_str or "limit" in err_str or "exceed" in err_str:
+            if "quota" in err_str or "limit" in err_str or "exceed" in err_str or "5000" in err_str:
                 _finlab_quota_exceeded = True
                 _log.error("FinLab 額度超限: %s", e)
+                raise FinLabQuotaExceededError(str(e)) from e
             raise
 
         # 估算流量（DataFrame 記憶體大小近似 pickle 大小）
