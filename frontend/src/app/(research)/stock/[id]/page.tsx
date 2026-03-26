@@ -1,9 +1,11 @@
 'use client'
 
 import { use, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { StockInput } from '@/components/shared/StockInput'
 import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/format'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -79,6 +81,7 @@ interface ChipResponse {
 
 export default function StockDetailPage({ params }: StockDetailPageProps) {
   const { id } = use(params)
+  const router = useRouter()
   const [tab, setTab] = useState<TabType>('chart')
 
   const { data: stock, isLoading: stockLoading } = useSWR<StockDetail>(
@@ -114,9 +117,17 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
-          {stock ? `${stock.stock_id} ${stock.name}` : `個股分析 — ${id}`}
-        </h1>
+        <div className="flex items-center gap-4 mb-3">
+          <h1 className="text-2xl font-bold shrink-0" style={{ color: 'var(--foreground)' }}>
+            {stock ? `${stock.stock_id} ${stock.name}` : `個股分析 — ${id}`}
+          </h1>
+          <StockInput
+            value={id}
+            onChange={(newId) => { if (newId !== id) router.push(`/stock/${newId}`) }}
+            placeholder="切換股票：輸入代號或名稱"
+            className="flex-1 max-w-sm"
+          />
+        </div>
         <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>個股詳細分析</p>
       </div>
 
