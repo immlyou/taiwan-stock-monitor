@@ -53,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: '策略管理', href: '/strategies' },
       { label: '參數優化', href: '/optimizer' },
       { label: '預測驗證', href: '/predictions' },
+      { label: '遺珠掃描', href: '/hidden-gems' },
     ],
   },
   {

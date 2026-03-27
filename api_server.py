@@ -3525,6 +3525,29 @@ async def morning_report():
     }
 
 
+# ─── 遺珠掃描器 ─────────────────────────────────────────
+
+@app.get("/scanner/hidden-gems", tags=["策略"], dependencies=[Depends(verify_api_key)])
+@cached_response(ttl_seconds=3600)
+async def scanner_hidden_gems():
+    """
+    遺珠掃描器 — 全盤掃描台股市場，找出被忽略但潛力巨大的股票。
+
+    掃描 6 大面向：低估價值、營收爆發、法人布局、技術反轉、小型成長、籌碼集中。
+    計算量大，結果快取 1 小時。
+    """
+    from core.hidden_gems import HiddenGemsScanner
+
+    loop = asyncio.get_event_loop()
+
+    def _scan():
+        scanner = HiddenGemsScanner()
+        return scanner.scan(loader)
+
+    result = await loop.run_in_executor(None, _scan)
+    return result
+
+
 # ─── 啟動 ───────────────────────────────────────────────
 
 if __name__ == "__main__":
