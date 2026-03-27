@@ -3528,7 +3528,7 @@ async def morning_report():
 # ─── 遺珠掃描器 ─────────────────────────────────────────
 
 @app.get("/scanner/hidden-gems", tags=["策略"], dependencies=[Depends(verify_api_key)])
-@cached_response(ttl_seconds=3600)
+@cached_response(ttl_seconds=14400)  # 4 小時快取（盤後資料每日更新一次）
 async def scanner_hidden_gems():
     """
     遺珠掃描器 — 全盤掃描台股市場，找出被忽略但潛力巨大的股票。
