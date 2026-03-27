@@ -63,7 +63,9 @@ export default function RiskPage() {
       ? ['risk-portfolio', portfolioCodes]
       : null,
     () => {
-      const codes = portfolioCodes.split(',').map(c => c.trim()).filter(Boolean)
+      // 支援逗號、空格、頓號等多種分隔
+      const codes = portfolioCodes.split(/[,\s、]+/).map(c => c.trim()).filter(Boolean)
+      if (codes.length < 2) throw new Error('請輸入至少 2 支股票')
       const weight = 1 / codes.length
       return fetchAPI<PortfolioRisk>('/risk/portfolio', {
         method: 'POST',
@@ -76,7 +78,8 @@ export default function RiskPage() {
   )
 
   const handlePortfolioSearch = () => {
-    const codes = portfolioInput.trim()
+    // 正規化輸入：支援逗號、空格、頓號
+    const codes = portfolioInput.split(/[,\s、]+/).map(c => c.trim()).filter(Boolean).join(',')
     if (codes) setPortfolioCodes(codes)
   }
 
@@ -241,7 +244,7 @@ export default function RiskPage() {
                 value={portfolioInput}
                 onChange={(e) => setPortfolioInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handlePortfolioSearch()}
-                placeholder="例：2330,2454,2317"
+                placeholder="例：2330 2454 2317（逗號或空格分隔）"
                 className="flex-1 h-9 rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               />
@@ -265,6 +268,9 @@ export default function RiskPage() {
           ) : portError ? (
             <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
               <p style={{ color: 'var(--destructive)' }}>組合風險計算失敗</p>
+              <p className="text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>
+                請確認輸入至少 2 支有效股票代號，用逗號或空格分隔（如：2330 2317 2454）
+              </p>
             </div>
           ) : portLoading ? (
             <div className="rounded-lg p-8 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
