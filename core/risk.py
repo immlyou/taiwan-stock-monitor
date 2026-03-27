@@ -348,7 +348,10 @@ def calculate_portfolio_var(weights: Dict[str, float],
     weight_series = pd.Series({s: weights[s] for s in common_stocks})
     weight_series = weight_series / weight_series.sum()  # 正規化權重
 
-    portfolio_returns = (returns_df[common_stocks] * weight_series).sum(axis=1)
+    # 確保 columns 對齊（DataFrame columns 可能有 name='symbol'）
+    ret_values = returns_df[common_stocks].values  # numpy array
+    w_values = weight_series.reindex(common_stocks).values
+    portfolio_returns = pd.Series(ret_values @ w_values, index=returns_df.index)
 
     analyzer = RiskAnalyzer()
 
