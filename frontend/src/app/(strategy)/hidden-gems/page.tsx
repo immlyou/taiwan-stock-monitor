@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 
@@ -251,7 +252,7 @@ function StockCard({
 
   return (
     <div
-      className="rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center"
+      className="rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center transition-colors hover:border-[var(--primary)]"
       style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
     >
       {/* 排名 + 基本資訊 */}
@@ -266,14 +267,20 @@ function StockCard({
           {rank}
         </span>
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>
+          <Link
+            href={`/stock/${stock.stock_id}`}
+            className="flex items-center gap-2 group"
+          >
+            <span className="text-sm font-semibold group-hover:underline" style={{ color: 'var(--primary)' }}>
               {stock.stock_id}
             </span>
-            <span className="text-sm truncate" style={{ color: 'var(--foreground)' }}>
+            <span className="text-sm truncate group-hover:underline" style={{ color: 'var(--foreground)' }}>
               {stock.name || '--'}
             </span>
-          </div>
+            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--primary)' }}>
+              →
+            </span>
+          </Link>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-xs tabular-nums" style={{ color: 'var(--foreground)' }}>
               ${stock.price.toFixed(2)}
