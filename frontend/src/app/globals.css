@@ -77,6 +77,46 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 手機版響應式 */
+@media (max-width: 767px) {
+  /* 表格水平滾動 */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 標題字體縮小 */
+  h1 {
+    font-size: 1.25rem !important;
+  }
+
+  /* 間距縮小 */
+  .mb-6 {
+    margin-bottom: 1rem !important;
+  }
+  .mb-8 {
+    margin-bottom: 1.5rem !important;
+  }
+  .gap-4 {
+    gap: 0.75rem !important;
+  }
+}
+
+/* 極小手機（< 480px）：單欄排列 */
+@media (max-width: 479px) {
+  .grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 觸控友善：所有互動元素至少 44px */
+@media (max-width: 767px) {
+  button, a, [role="button"] {
+    min-height: 44px;
+  }
+}
+
 /* 捲軸樣式 */
 ::-webkit-scrollbar {
   width: 6px;
