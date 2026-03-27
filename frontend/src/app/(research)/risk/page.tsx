@@ -26,13 +26,23 @@ interface RiskResponse {
 }
 
 interface PortfolioRisk {
-  totalVar95: number
-  totalVar99: number
-  totalCvar95: number
-  weightedBeta: number
-  portfolioVolatility: number
-  correlationMatrix: Array<{ code: string; values: number[] }>
-  codes: string[]
+  days: number
+  holdings: number
+  portfolio_risk: {
+    var_95: number | null
+    var_99: number | null
+    weighted_volatility: number
+    max_drawdown: number
+    peak_date?: string
+    trough_date?: string
+  }
+  stock_risks: Array<{
+    stock_id: string
+    weight: number
+    volatility: number
+    var_95: number
+    max_drawdown: number
+  }>
 }
 
 type TabType = 'stock' | 'portfolio'
@@ -50,9 +60,19 @@ export default function RiskPage() {
 
   const { data: portRisk, isLoading: portLoading, error: portError } = useSWR<PortfolioRisk>(
     tab === 'portfolio' && portfolioCodes
-      ? `/risk/portfolio?codes=${portfolioCodes}`
+      ? ['risk-portfolio', portfolioCodes]
       : null,
-    fetchAPI
+    () => {
+      const codes = portfolioCodes.split(',').map(c => c.trim()).filter(Boolean)
+      const weight = 1 / codes.length
+      return fetchAPI<PortfolioRisk>('/risk/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          holdings: codes.map(stock_id => ({ stock_id, weight })),
+        }),
+      })
+    }
   )
 
   const handlePortfolioSearch = () => {
@@ -253,44 +273,38 @@ export default function RiskPage() {
           ) : portRisk ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <KpiCard title="組合 VaR 95%" value={`${portRisk.totalVar95.toFixed(2)}%`} accentColor="var(--destructive)" />
-                <KpiCard title="組合 VaR 99%" value={`${portRisk.totalVar99.toFixed(2)}%`} accentColor="#dc2626" />
-                <KpiCard title="組合 CVaR 95%" value={`${portRisk.totalCvar95.toFixed(2)}%`} accentColor="#f97316" />
-                <KpiCard title="加權 Beta" value={portRisk.weightedBeta.toFixed(2)} accentColor="#8b5cf6" />
-                <KpiCard title="組合年化波動" value={`${portRisk.portfolioVolatility.toFixed(2)}%`} accentColor="#f59e0b" />
+                <KpiCard title="組合 VaR 95%" value={portRisk.portfolio_risk.var_95 != null ? `${portRisk.portfolio_risk.var_95.toFixed(2)}%` : 'N/A'} accentColor="var(--destructive)" />
+                <KpiCard title="組合 VaR 99%" value={portRisk.portfolio_risk.var_99 != null ? `${portRisk.portfolio_risk.var_99.toFixed(2)}%` : 'N/A'} accentColor="#dc2626" />
+                <KpiCard title="年化波動率" value={`${portRisk.portfolio_risk.weighted_volatility.toFixed(2)}%`} accentColor="#f59e0b" />
+                <KpiCard title="最大回撤" value={`${portRisk.portfolio_risk.max_drawdown.toFixed(2)}%`} accentColor="#f97316" />
+                <KpiCard title="持股數" value={`${portRisk.holdings}`} accentColor="#8b5cf6" />
               </div>
 
-              {portRisk.correlationMatrix && portRisk.codes && (
+              {/* 個股風險明細 */}
+              {portRisk.stock_risks.length > 0 && (
                 <div
                   className="rounded-lg p-4 overflow-x-auto"
                   style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
                 >
-                  <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>相關係數矩陣</h3>
-                  <table className="text-sm">
+                  <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>個股風險明細</h3>
+                  <table className="text-sm w-full">
                     <thead>
-                      <tr>
-                        <th className="px-3 py-2" style={{ color: 'var(--muted-foreground)' }}></th>
-                        {portRisk.codes.map(c => (
-                          <th key={c} className="px-3 py-2" style={{ color: 'var(--muted-foreground)' }}>{c}</th>
-                        ))}
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <th className="px-3 py-2 text-left" style={{ color: 'var(--muted-foreground)' }}>代號</th>
+                        <th className="px-3 py-2 text-right" style={{ color: 'var(--muted-foreground)' }}>權重</th>
+                        <th className="px-3 py-2 text-right" style={{ color: 'var(--muted-foreground)' }}>年化波動</th>
+                        <th className="px-3 py-2 text-right" style={{ color: 'var(--muted-foreground)' }}>VaR 95%</th>
+                        <th className="px-3 py-2 text-right" style={{ color: 'var(--muted-foreground)' }}>最大回撤</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {portRisk.correlationMatrix.map((row) => (
-                        <tr key={row.code}>
-                          <td className="px-3 py-2 font-medium" style={{ color: 'var(--foreground)' }}>{row.code}</td>
-                          {row.values.map((v, j) => (
-                            <td
-                              key={j}
-                              className="px-3 py-2 tabular-nums text-center"
-                              style={{
-                                color: v === 1 ? 'var(--foreground)' : v > 0.7 ? 'var(--stock-up)' : v < 0 ? 'var(--stock-down)' : 'var(--foreground)',
-                                fontWeight: v === 1 ? 700 : 400,
-                              }}
-                            >
-                              {v.toFixed(2)}
-                            </td>
-                          ))}
+                      {portRisk.stock_risks.map((sr) => (
+                        <tr key={sr.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td className="px-3 py-2 font-semibold" style={{ color: 'var(--primary)' }}>{sr.stock_id}</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--foreground)' }}>{(sr.weight * 100).toFixed(0)}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--foreground)' }}>{sr.volatility.toFixed(2)}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--stock-down)' }}>{sr.var_95.toFixed(2)}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--stock-down)' }}>{sr.max_drawdown.toFixed(2)}%</td>
                         </tr>
                       ))}
                     </tbody>
