@@ -18,6 +18,7 @@ from app.components.error_handler import show_error
 from app.components.portfolio_utils import (
     get_portfolio_names, load_portfolios, save_portfolios
 )
+from core.ai_models import TradingJournalAnalyzer
 
 st.set_page_config(page_title='交易日誌', page_icon='📝', layout='wide')
 
@@ -33,7 +34,11 @@ JOURNAL_FILE.parent.mkdir(exist_ok=True)
 def load_journal():
     if JOURNAL_FILE.exists():
         with open(JOURNAL_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            # 相容舊格式：若為 list 則包裝成 dict
+            if isinstance(data, list):
+                return {'entries': data}
+            return data
     return {'entries': []}
 
 def save_journal(journal_data):
@@ -379,6 +384,25 @@ with tab3:
 
     else:
         show_empty_state('尚無日誌數據', icon='📝', suggestion='開始記錄您的交易，累積寶貴的交易經驗')
+
+    # ========== AI 交易回顧 ==========
+    st.markdown('---')
+    st.markdown('#### 🤖 AI 交易行為回顧')
+
+    if entries:
+        if st.button('🧠 產生 AI 回顧報告', key='ai_journal_review'):
+            with st.spinner('AI 正在分析您的交易行為...'):
+                analyzer = TradingJournalAnalyzer()
+                result = analyzer.analyze(entries)
+                if result.get('error'):
+                    st.warning(f"分析失敗：{result['error']}")
+                elif result.get('report'):
+                    st.session_state['journal_ai_report'] = result['report']
+
+        if 'journal_ai_report' in st.session_state:
+            st.markdown(st.session_state['journal_ai_report'])
+    else:
+        st.caption('累積交易記錄後即可使用 AI 回顧功能')
 
 # ========== 匯出功能 ==========
 st.markdown('---')

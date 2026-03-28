@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { useMarketSummary } from '@/lib/hooks/useMarketSummary'
@@ -175,9 +176,54 @@ function StockRankTable({
   )
 }
 
+interface AiSummaryResult {
+  summary: string
+  telegram_text: string
+  error: string | null
+}
+
 export default function AfterHoursPage() {
   const { data, isLoading, isError } = useAfterHours()
   const { summary, isLoading: summaryLoading } = useMarketSummary()
+
+  const [aiSummary, setAiSummary] = useState<AiSummaryResult | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [telegramOpen, setTelegramOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  async function handleGenerateSummary() {
+    setAiLoading(true)
+    setAiError(null)
+    setAiSummary(null)
+    setTelegramOpen(false)
+    try {
+      const result = await fetchAPI<AiSummaryResult>('/ai/post-market-summary', {
+        method: 'POST',
+        body: JSON.stringify({ market_data: null }),
+      })
+      if (result.error) {
+        setAiError(result.error)
+      } else {
+        setAiSummary(result)
+      }
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : '生成失敗，請稍後再試')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  async function handleCopyTelegram() {
+    if (!aiSummary?.telegram_text) return
+    try {
+      await navigator.clipboard.writeText(aiSummary.telegram_text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback: ignore
+    }
+  }
 
   const taiex = data?.taiex
   const market = data?.market
@@ -372,6 +418,105 @@ export default function AfterHoursPage() {
               </div>
             </section>
           )}
+
+          {/* AI 盤後摘要 */}
+          <section>
+            <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted-foreground)' }}>
+              🤖 AI 盤後摘要
+            </h2>
+
+            <button
+              onClick={handleGenerateSummary}
+              disabled={aiLoading}
+              className="w-full py-3 px-4 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-60"
+              style={{
+                background: 'var(--primary)',
+                color: 'var(--primary-foreground)',
+                cursor: aiLoading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {aiLoading ? '⏳ 生成中，請稍候…' : '📝 生成 AI 覆盤報告'}
+            </button>
+
+            {aiError && (
+              <div
+                className="mt-4 rounded-lg px-4 py-3 text-sm"
+                style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}
+              >
+                錯誤：{aiError}
+              </div>
+            )}
+
+            {aiLoading && (
+              <div className="mt-4 space-y-3">
+                <Skeleton className="h-4 w-3/4" style={{ background: 'var(--secondary)' }} />
+                <Skeleton className="h-4 w-full" style={{ background: 'var(--secondary)' }} />
+                <Skeleton className="h-4 w-5/6" style={{ background: 'var(--secondary)' }} />
+                <Skeleton className="h-4 w-2/3" style={{ background: 'var(--secondary)' }} />
+              </div>
+            )}
+
+            {aiSummary && (
+              <div className="mt-4 space-y-4">
+                {/* 完整報告 */}
+                <div
+                  className="rounded-lg p-5"
+                  style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+                >
+                  <h3
+                    className="text-sm font-semibold mb-3"
+                    style={{ color: 'var(--foreground)' }}
+                  >
+                    完整覆盤報告
+                  </h3>
+                  <p
+                    className="text-sm leading-7 whitespace-pre-wrap"
+                    style={{ color: 'var(--foreground)' }}
+                  >
+                    {aiSummary.summary}
+                  </p>
+                </div>
+
+                {/* Telegram 精簡版（可折疊） */}
+                <div
+                  className="rounded-lg overflow-hidden"
+                  style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+                >
+                  <button
+                    onClick={() => setTelegramOpen((v) => !v)}
+                    className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold"
+                    style={{ color: 'var(--foreground)' }}
+                  >
+                    <span>📨 Telegram 精簡版</span>
+                    <span style={{ color: 'var(--muted-foreground)' }}>
+                      {telegramOpen ? '▲ 收起' : '▼ 展開'}
+                    </span>
+                  </button>
+
+                  {telegramOpen && (
+                    <div className="px-5 pb-4 space-y-3">
+                      <p
+                        className="text-sm leading-7 whitespace-pre-wrap"
+                        style={{ color: 'var(--foreground)' }}
+                      >
+                        {aiSummary.telegram_text}
+                      </p>
+                      <button
+                        onClick={handleCopyTelegram}
+                        className="mt-1 py-2 px-4 rounded-md text-xs font-semibold transition-opacity"
+                        style={{
+                          background: copied ? 'var(--stock-up)' : 'var(--secondary)',
+                          color: copied ? '#fff' : 'var(--foreground)',
+                        }}
+                      >
+                        {copied ? '✅ 已複製！' : '📋 複製到剪貼簿'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       )}
     </div>

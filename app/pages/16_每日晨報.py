@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.news_scanner import NewsScanner, RSS_FEEDS
+from core.ai_models import ClaudeNewsSentimentAnalyzer
 from core.hot_stocks import HotStockAnalyzer, get_hot_stocks_integrated
 from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
@@ -97,6 +98,63 @@ if not scanner.news_cache:
 
 # 產生晨報
 report = scanner.generate_morning_report(refresh=False)
+
+# ========== AI 新聞情緒分析 ==========
+st.markdown('---')
+st.markdown('##### 🤖 AI 新聞情緒分析')
+
+if st.button('🔍 啟動 AI 情緒分析', key='ai_sentiment_btn'):
+    with st.spinner('AI 正在分析新聞情緒...'):
+        analyzer = ClaudeNewsSentimentAnalyzer()
+        # 從 report 中收集新聞
+        all_news = []
+        for news in report.get('positive_news', []) + report.get('negative_news', []) + report.get('neutral_news', []):
+            all_news.append({
+                'title': news.get('title', ''),
+                'summary': news.get('summary', ''),
+                'link': news.get('link', ''),
+                'source': news.get('source', ''),
+            })
+
+        if all_news:
+            ai_results = analyzer.analyze_batch(all_news)
+            if ai_results and not ai_results[0].get('error'):
+                st.session_state['ai_sentiment_results'] = ai_results
+            else:
+                error_msg = ai_results[0].get('error', '未知錯誤') if ai_results else '無結果'
+                st.warning(f'AI 分析失敗：{error_msg}')
+        else:
+            st.info('目前沒有新聞可供分析')
+
+if 'ai_sentiment_results' in st.session_state:
+    results = st.session_state['ai_sentiment_results']
+
+    # 統計
+    pos_count = sum(1 for r in results if r.get('sentiment') == 'positive')
+    neg_count = sum(1 for r in results if r.get('sentiment') == 'negative')
+    avg_score = sum(r.get('score', 0) for r in results) / len(results) if results else 0
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric('AI 判定利多', pos_count)
+    with col2:
+        st.metric('AI 判定利空', neg_count)
+    with col3:
+        color = 'normal' if avg_score >= 0 else 'inverse'
+        st.metric('情緒分數', f'{avg_score:+.2f}', delta_color=color)
+
+    # 詳細結果
+    for r in results:
+        sentiment_icon = '🟢' if r.get('sentiment') == 'positive' else ('🔴' if r.get('sentiment') == 'negative' else '⚪')
+        score = r.get('score', 0)
+        title = r.get('title', '')[:50]
+        impact = r.get('impact', '')
+        stocks = ', '.join(r.get('related_stocks', []))
+
+        st.markdown(
+            f"{sentiment_icon} **{title}** `{score:+.1f}` {impact}"
+            + (f" | 相關：{stocks}" if stocks else ""),
+        )
 
 # ========== KPI 統計列 ==========
 st.markdown('---')

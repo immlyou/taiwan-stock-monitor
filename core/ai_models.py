@@ -1149,3 +1149,569 @@ class XGBoostStockPicker:
 
         items.sort(key=lambda x: x["predicted_return"], reverse=True)
         return items
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature 2: AI 新聞情緒分析（LLM）
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ClaudeNewsSentimentAnalyzer:
+    """使用 Claude API 批次分析新聞情緒，取代關鍵字規則。"""
+
+    _client = None
+    MODEL = "claude-haiku-4-5-20251001"  # 用 Haiku 降低成本
+    MAX_TOKENS = 1024
+
+    def _get_client(self):
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+        if self._client is not None:
+            return self._client
+        try:
+            import anthropic
+            self.__class__._client = anthropic.Anthropic(api_key=api_key)
+        except ImportError:
+            self.__class__._client = None
+        return self.__class__._client
+
+    def analyze_batch(self, news_items: List[Dict[str, str]], max_items: int = 15) -> List[Dict[str, Any]]:
+        """
+        批次分析新聞情緒。
+
+        Parameters
+        ----------
+        news_items : list of dict
+            每則新聞需有 'title' 和 'summary' 欄位
+        max_items : int
+            最多分析幾則（控制成本）
+
+        Returns
+        -------
+        list of dict
+            每則含 sentiment ('positive'/'negative'/'neutral'), score (-1~1),
+            impact (str), related_stocks (list)
+        """
+        client = self._get_client()
+        if client is None:
+            return [{"error": "ANTHROPIC_API_KEY 未設定"}]
+
+        items = news_items[:max_items]
+        news_text = "\n".join(
+            f"{i+1}. 標題：{n.get('title','')}\n   摘要：{n.get('summary','')[:100]}"
+            for i, n in enumerate(items)
+        )
+
+        prompt = (
+            "你是台灣股市新聞分析師。請分析以下新聞的市場情緒。\n\n"
+            f"{news_text}\n\n"
+            "請對每則新聞回傳一行，格式如下（嚴格遵守，不要多餘文字）：\n"
+            "編號|情緒|分數|影響摘要|相關股票\n\n"
+            "規則：\n"
+            "- 情緒：positive / negative / neutral\n"
+            "- 分數：-1.0 到 1.0 的浮點數\n"
+            "- 影響摘要：15 字內\n"
+            "- 相關股票：股票代號用逗號分隔，無則填 none\n\n"
+            "範例：\n"
+            "1|positive|0.7|台積電法說優於預期|2330,2303\n"
+            "2|negative|-0.5|升息衝擊金融股|2882,2881"
+        )
+
+        try:
+            message = client.messages.create(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return self._parse_batch_response(message.content[0].text, items)
+        except Exception as e:
+            logger.error("新聞情緒分析失敗: %s", e)
+            return [{"error": str(e)}]
+
+    def _parse_batch_response(self, text: str, original_items: List[Dict]) -> List[Dict[str, Any]]:
+        results = []
+        lines = [l.strip() for l in text.strip().splitlines() if '|' in l]
+
+        for line in lines:
+            parts = line.split('|')
+            if len(parts) < 5:
+                continue
+            try:
+                idx = int(parts[0].strip()) - 1
+                sentiment = parts[1].strip()
+                score = float(parts[2].strip())
+                impact = parts[3].strip()
+                stocks_str = parts[4].strip()
+                related_stocks = [s.strip() for s in stocks_str.split(',') if s.strip() != 'none'] if stocks_str else []
+
+                original = original_items[idx] if idx < len(original_items) else {}
+                results.append({
+                    "title": original.get("title", ""),
+                    "link": original.get("link", ""),
+                    "source": original.get("source", ""),
+                    "sentiment": sentiment if sentiment in ('positive', 'negative', 'neutral') else 'neutral',
+                    "score": max(-1.0, min(1.0, score)),
+                    "impact": impact,
+                    "related_stocks": related_stocks,
+                })
+            except (ValueError, IndexError):
+                continue
+
+        return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature 3: AI 異常偵測 + Claude 解讀
+# ═══════════════════════════════════════════════════════════════════════════
+
+class AnomalyDetector:
+    """偵測股票異常訊號（爆量、跳空、法人轉向），並用 Claude 產出解讀。"""
+
+    _client = None
+    MODEL = "claude-haiku-4-5-20251001"
+    MAX_TOKENS = 800
+
+    def _get_client(self):
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+        if self._client is not None:
+            return self._client
+        try:
+            import anthropic
+            self.__class__._client = anthropic.Anthropic(api_key=api_key)
+        except ImportError:
+            self.__class__._client = None
+        return self.__class__._client
+
+    def detect(self, data_loader: "DataLoader", stock_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        掃描異常訊號。
+
+        Returns list of anomaly dicts:
+            stock_id, name, anomaly_type, severity ('high'/'medium'/'low'),
+            description, values (dict)
+        """
+        import pandas as pd
+
+        close = data_loader.get('close')
+        volume = data_loader.get('volume')
+        foreign = data_loader.get('foreign_investors')
+
+        if close is None or len(close) < 5:
+            return []
+
+        if stock_ids is None:
+            stock_ids = list(close.columns[:500])  # 限制掃描範圍
+
+        anomalies = []
+
+        for sid in stock_ids:
+            if sid not in close.columns:
+                continue
+
+            prices = close[sid].dropna()
+            if len(prices) < 20:
+                continue
+
+            today = float(prices.iloc[-1])
+            yesterday = float(prices.iloc[-2])
+            change_pct = (today / yesterday - 1) * 100 if yesterday > 0 else 0
+
+            # 1. 爆量偵測：今日成交量 > 20 日均量 * 3
+            if volume is not None and sid in volume.columns:
+                vol_series = volume[sid].dropna()
+                if len(vol_series) >= 20:
+                    today_vol = float(vol_series.iloc[-1])
+                    avg_vol_20 = float(vol_series.iloc[-20:].mean())
+                    if avg_vol_20 > 0 and today_vol > avg_vol_20 * 3:
+                        anomalies.append({
+                            'stock_id': sid,
+                            'anomaly_type': '爆量',
+                            'severity': 'high' if today_vol > avg_vol_20 * 5 else 'medium',
+                            'description': f'成交量為 20 日均量的 {today_vol/avg_vol_20:.1f} 倍',
+                            'values': {'today_vol': today_vol, 'avg_vol_20': avg_vol_20, 'ratio': today_vol / avg_vol_20},
+                        })
+
+            # 2. 跳空偵測：開盤價與前收盤差距 > 3%
+            open_df = data_loader.get('open')
+            if open_df is not None and sid in open_df.columns:
+                open_series = open_df[sid].dropna()
+                if len(open_series) > 0:
+                    today_open = float(open_series.iloc[-1])
+                    gap_pct = (today_open / yesterday - 1) * 100 if yesterday > 0 else 0
+                    if abs(gap_pct) > 3:
+                        direction = '跳空上漲' if gap_pct > 0 else '跳空下跌'
+                        anomalies.append({
+                            'stock_id': sid,
+                            'anomaly_type': direction,
+                            'severity': 'high' if abs(gap_pct) > 5 else 'medium',
+                            'description': f'開盤{"上" if gap_pct > 0 else "下"}跳 {abs(gap_pct):.1f}%',
+                            'values': {'gap_pct': gap_pct, 'open': today_open, 'prev_close': yesterday},
+                        })
+
+            # 3. 法人大幅轉向：連續 5 天買超突然變賣超（或反之），且金額大
+            if foreign is not None and sid in foreign.columns:
+                fi = foreign[sid].dropna()
+                if len(fi) >= 10:
+                    recent_5 = fi.iloc[-5:].sum()
+                    prev_5 = fi.iloc[-10:-5].sum()
+                    if prev_5 > 0 and recent_5 < -prev_5 * 0.5:
+                        anomalies.append({
+                            'stock_id': sid,
+                            'anomaly_type': '外資轉賣',
+                            'severity': 'high',
+                            'description': f'外資從近 5 日買超 {prev_5/1000:.0f} 張轉為賣超 {abs(recent_5)/1000:.0f} 張',
+                            'values': {'prev_5d': prev_5, 'recent_5d': recent_5},
+                        })
+                    elif prev_5 < 0 and recent_5 > -prev_5 * 0.5:
+                        anomalies.append({
+                            'stock_id': sid,
+                            'anomaly_type': '外資轉買',
+                            'severity': 'medium',
+                            'description': f'外資從近 5 日賣超 {abs(prev_5)/1000:.0f} 張轉為買超 {recent_5/1000:.0f} 張',
+                            'values': {'prev_5d': prev_5, 'recent_5d': recent_5},
+                        })
+
+            # 4. 連續漲停/跌停
+            if abs(change_pct) >= 9.5:
+                prev_change = (float(prices.iloc[-2]) / float(prices.iloc[-3]) - 1) * 100 if len(prices) >= 3 else 0
+                if abs(prev_change) >= 9.5 and np.sign(change_pct) == np.sign(prev_change):
+                    direction = '連續漲停' if change_pct > 0 else '連續跌停'
+                    anomalies.append({
+                        'stock_id': sid,
+                        'anomaly_type': direction,
+                        'severity': 'high',
+                        'description': f'連續 2 日{"漲" if change_pct > 0 else "跌"}停',
+                        'values': {'today_change': change_pct, 'prev_change': prev_change},
+                    })
+
+        # 按嚴重度排序
+        severity_order = {'high': 0, 'medium': 1, 'low': 2}
+        anomalies.sort(key=lambda x: severity_order.get(x['severity'], 2))
+
+        # 加入股票名稱
+        try:
+            stock_info = data_loader.get_stock_info()
+            name_map = dict(zip(stock_info['stock_id'], stock_info['name'])) if stock_info is not None else {}
+        except Exception:
+            name_map = {}
+        for a in anomalies:
+            a['name'] = name_map.get(a['stock_id'], '')
+
+        return anomalies
+
+    def explain(self, anomalies: List[Dict[str, Any]], max_items: int = 10) -> str:
+        """用 Claude 對偵測到的異常產出綜合解讀。"""
+        client = self._get_client()
+        if client is None or not anomalies:
+            return ""
+
+        items_text = "\n".join(
+            f"- {a['stock_id']} {a.get('name','')}: {a['anomaly_type']} ({a['severity']}) - {a['description']}"
+            for a in anomalies[:max_items]
+        )
+
+        prompt = (
+            "你是台灣股市分析師。以下是今日偵測到的異常訊號：\n\n"
+            f"{items_text}\n\n"
+            "請提供：\n"
+            "1. 整體市場解讀（50 字內）\n"
+            "2. 需要特別注意的個股及原因（每檔 30 字內，最多 5 檔）\n"
+            "3. 操作建議（30 字內）\n\n"
+            "用繁體中文回覆，精簡扼要。"
+        )
+
+        try:
+            message = client.messages.create(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return message.content[0].text
+        except Exception as e:
+            logger.error("異常解讀失敗: %s", e)
+            return f"AI 解讀失敗: {e}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature 4: AI 交易日誌回顧
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TradingJournalAnalyzer:
+    """分析交易日誌，找出行為偏誤並產出回顧報告。"""
+
+    _client = None
+    MODEL = "claude-sonnet-4-20250514"
+    MAX_TOKENS = 1500
+
+    def _get_client(self):
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+        if self._client is not None:
+            return self._client
+        try:
+            import anthropic
+            self.__class__._client = anthropic.Anthropic(api_key=api_key)
+        except ImportError:
+            self.__class__._client = None
+        return self.__class__._client
+
+    def analyze(self, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        分析交易日誌。
+
+        Parameters
+        ----------
+        entries : list of dict
+            交易日誌條目（來自 trading_journal.json）
+
+        Returns
+        -------
+        dict with keys: report (str), patterns (list), suggestions (list), error (str or None)
+        """
+        client = self._get_client()
+        if client is None:
+            return {"report": "", "error": "ANTHROPIC_API_KEY 未設定"}
+
+        if not entries:
+            return {"report": "尚無交易記錄可分析。", "error": None}
+
+        # 準備交易摘要
+        trade_summary = []
+        for e in entries[-50:]:  # 最近 50 筆
+            line = f"- {e.get('date','')} {e.get('type','')} {e.get('stock','')} "
+            if e.get('price'):
+                line += f"價格:{e['price']} "
+            if e.get('shares'):
+                line += f"股數:{e['shares']} "
+            if e.get('reason'):
+                line += f"原因:{e['reason'][:30]}"
+            if e.get('lesson'):
+                line += f" 教訓:{e['lesson'][:30]}"
+            trade_summary.append(line)
+
+        trades_text = "\n".join(trade_summary)
+
+        # 統計
+        type_counts = {}
+        for e in entries:
+            t = e.get('type', '其他')
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+        stats = ", ".join(f"{k}:{v}次" for k, v in type_counts.items())
+
+        prompt = (
+            "你是專業的交易心理教練。請分析以下交易日誌，找出行為偏誤和改進方向。\n\n"
+            f"交易統計：{stats}\n"
+            f"總筆數：{len(entries)}\n\n"
+            f"最近交易記錄：\n{trades_text}\n\n"
+            "請提供：\n"
+            "1. **交易行為分析**（100字內）：整體交易風格評估\n"
+            "2. **發現的行為偏誤**（列出 2-4 個，每個 30 字內）：\n"
+            "   例如：追高殺低、過度交易、停損不果斷、確認偏誤等\n"
+            "3. **正面習慣**（列出 1-3 個，每個 20 字內）：做得好的地方\n"
+            "4. **具體改善建議**（列出 2-3 個，每個 40 字內）\n\n"
+            "用繁體中文回覆。語氣溫和但直接，像導師一樣給予建設性回饋。"
+        )
+
+        try:
+            message = client.messages.create(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return {"report": message.content[0].text, "error": None}
+        except Exception as e:
+            logger.error("交易日誌分析失敗: %s", e)
+            return {"report": "", "error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature 5: AI 個股對話
+# ═══════════════════════════════════════════════════════════════════════════
+
+class StockChatAssistant:
+    """個股對話助手，根據股票數據上下文回答用戶問題。"""
+
+    _client = None
+    MODEL = "claude-sonnet-4-20250514"
+    MAX_TOKENS = 800
+
+    def _get_client(self):
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+        if self._client is not None:
+            return self._client
+        try:
+            import anthropic
+            self.__class__._client = anthropic.Anthropic(api_key=api_key)
+        except ImportError:
+            self.__class__._client = None
+        return self.__class__._client
+
+    def chat(self, stock_id: str, name: str, data_context: str,
+             question: str, history: List[Dict[str, str]] = None) -> str:
+        """
+        回答關於個股的問題。
+
+        Parameters
+        ----------
+        stock_id : str
+        name : str
+        data_context : str
+            目前個股的數據摘要（價格、技術指標、基本面等）
+        question : str
+            用戶問題
+        history : list of dict
+            對話歷史 [{"role": "user"/"assistant", "content": "..."}]
+
+        Returns
+        -------
+        str : AI 回覆
+        """
+        client = self._get_client()
+        if client is None:
+            return "請先設定 ANTHROPIC_API_KEY 環境變數以啟用 AI 對話功能。"
+
+        system_prompt = (
+            f"你是台灣股市分析助手。用戶正在查看 {stock_id} {name} 的分析頁面。\n"
+            f"以下是該股票的最新數據：\n{data_context}\n\n"
+            "規則：\n"
+            "- 用繁體中文回答\n"
+            "- 簡潔扼要，不超過 200 字\n"
+            "- 基於數據回答，不臆測\n"
+            "- 如果數據不足以回答，誠實說明\n"
+            "- 投資建議需附帶風險提醒"
+        )
+
+        messages = []
+        if history:
+            messages.extend(history[-6:])  # 保留最近 3 輪對話
+        messages.append({"role": "user", "content": question})
+
+        try:
+            message = client.messages.create(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                system=system_prompt,
+                messages=messages,
+            )
+            return message.content[0].text
+        except Exception as e:
+            logger.error("個股對話失敗: %s", e)
+            return f"AI 回覆失敗: {e}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature 6: AI 盤後摘要
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PostMarketSummarizer:
+    """盤後自動生成市場覆盤報告。"""
+
+    _client = None
+    MODEL = "claude-sonnet-4-20250514"
+    MAX_TOKENS = 1500
+
+    def _get_client(self):
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+        if self._client is not None:
+            return self._client
+        try:
+            import anthropic
+            self.__class__._client = anthropic.Anthropic(api_key=api_key)
+        except ImportError:
+            self.__class__._client = None
+        return self.__class__._client
+
+    def generate(self, market_data: Dict[str, Any]) -> Dict[str, str]:
+        """
+        生成盤後摘要。
+
+        Parameters
+        ----------
+        market_data : dict with keys:
+            date, taiex_close, taiex_change, taiex_change_pct,
+            top_gainers (list), top_losers (list),
+            foreign_net, trust_net, dealer_net,
+            portfolio_pnl, portfolio_pnl_pct,
+            notable_events (list of str)
+
+        Returns
+        -------
+        dict with 'summary' (str) and 'telegram_text' (str)
+        """
+        client = self._get_client()
+        if client is None:
+            return {"summary": "", "telegram_text": "", "error": "ANTHROPIC_API_KEY 未設定"}
+
+        # 組裝數據
+        d = market_data
+        gainers_text = ", ".join(
+            f"{s.get('stock_id','')} {s.get('name','')}({s.get('change_pct',0):+.1f}%)"
+            for s in d.get('top_gainers', [])[:5]
+        )
+        losers_text = ", ".join(
+            f"{s.get('stock_id','')} {s.get('name','')}({s.get('change_pct',0):+.1f}%)"
+            for s in d.get('top_losers', [])[:5]
+        )
+
+        prompt = (
+            "你是台灣股市分析師，請根據以下數據撰寫盤後覆盤報告。\n\n"
+            f"日期：{d.get('date', '')}\n"
+            f"加權指數：{d.get('taiex_close', '')} ({d.get('taiex_change_pct', 0):+.2f}%)\n"
+            f"三大法人：外資 {d.get('foreign_net', 0):+.0f}億 / 投信 {d.get('trust_net', 0):+.0f}億 / 自營 {d.get('dealer_net', 0):+.0f}億\n"
+            f"漲幅前五：{gainers_text}\n"
+            f"跌幅前五：{losers_text}\n"
+        )
+
+        if d.get('portfolio_pnl') is not None:
+            prompt += f"持倉損益：{d['portfolio_pnl']:+,.0f} ({d.get('portfolio_pnl_pct', 0):+.2f}%)\n"
+
+        if d.get('notable_events'):
+            prompt += "重要事件：\n" + "\n".join(f"- {e}" for e in d['notable_events'][:5]) + "\n"
+
+        prompt += (
+            "\n請提供兩個版本：\n\n"
+            "【版本A - 完整報告】（200字內）\n"
+            "包含：市場概況、法人動向分析、重點個股點評、明日展望\n\n"
+            "【版本B - Telegram 精簡版】（100字內）\n"
+            "用 emoji 標注重點，適合手機閱讀\n\n"
+            "用繁體中文。"
+        )
+
+        try:
+            message = client.messages.create(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = message.content[0].text
+
+            # 拆分兩個版本
+            summary = text
+            telegram_text = text
+
+            if '版本A' in text and '版本B' in text:
+                parts = text.split('版本B')
+                summary = parts[0].replace('【版本A - 完整報告】', '').replace('【版本A', '').strip().strip('】').strip()
+                telegram_text = parts[1].replace(' - Telegram 精簡版】', '').replace('】', '').strip()
+            elif '版本B' in text:
+                parts = text.split('版本B')
+                summary = parts[0].strip()
+                telegram_text = parts[1].strip()
+
+            # 清理前綴
+            for prefix in ['【', '- 完整報告】', '- Telegram 精簡版】']:
+                summary = summary.replace(prefix, '')
+                telegram_text = telegram_text.replace(prefix, '')
+
+            return {"summary": summary.strip(), "telegram_text": telegram_text.strip(), "error": None}
+        except Exception as e:
+            logger.error("盤後摘要生成失敗: %s", e)
+            return {"summary": "", "telegram_text": "", "error": str(e)}

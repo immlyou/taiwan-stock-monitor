@@ -393,6 +393,7 @@ PAGE_GROUPS = {
         'pages': [
             {'id': 'screening', 'icon': '🔍', 'title': '選股篩選', 'page': 'pages/1_選股篩選.py'},
             {'id': 'ai_stock', 'icon': '🤖', 'title': 'AI 智慧選股', 'page': 'pages/23_AI智慧選股.py'},
+            {'id': 'ai_anomaly', 'icon': '⚠️', 'title': 'AI 異常警報', 'page': 'pages/24_AI異常警報.py'},
             {'id': 'backtest', 'icon': '📊', 'title': '回測分析', 'page': 'pages/2_回測分析.py'},
             {'id': 'strategy', 'icon': '📋', 'title': '策略管理', 'page': 'pages/4_策略管理.py'},
             {'id': 'optimizer', 'icon': '🎯', 'title': '參數優化', 'page': 'pages/5_參數優化.py'},

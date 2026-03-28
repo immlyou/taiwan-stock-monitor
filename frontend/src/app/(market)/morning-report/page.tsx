@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -48,6 +49,27 @@ interface HotStockRaw {
 interface HotStocksApiResponse {
   total: number
   hot_stocks: HotStockRaw[]
+}
+
+interface AiSentimentNewsInput {
+  title: string
+  summary: string
+  link: string
+  source: string
+}
+
+interface AiSentimentResult {
+  title: string
+  link: string
+  source: string
+  sentiment: 'positive' | 'negative' | 'neutral'
+  score: number
+  impact: string
+  related_stocks: string[]
+}
+
+interface AiSentimentResponse {
+  results: AiSentimentResult[]
 }
 
 function useMorningReport() {
@@ -105,6 +127,48 @@ export default function MorningReportPage() {
   const { report, isLoading: reportLoading, isError: reportError } = useMorningReport()
   const { news, isLoading: newsLoading, isError: newsError } = useLatestNews()
   const { hotStocks, isLoading: hotLoading } = useHotStocks()
+
+  const [aiResults, setAiResults] = useState<AiSentimentResult[] | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  async function handleAiAnalysis() {
+    if (!news?.length) return
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const payload: AiSentimentNewsInput[] = news.map((item) => ({
+        title: item.title,
+        summary: '',
+        link: item.url,
+        source: item.source,
+      }))
+      const data = await fetchAPI<AiSentimentResponse>('/ai/news-sentiment', {
+        method: 'POST',
+        body: JSON.stringify({ news: payload }),
+      }, 30000)
+      setAiResults(data.results)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : '分析失敗，請稍後再試')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const sentimentIcon = (s: AiSentimentResult['sentiment']) =>
+    s === 'positive' ? '🟢' : s === 'negative' ? '🔴' : '⚪'
+
+  const aiCounts = aiResults
+    ? {
+        positive: aiResults.filter((r) => r.sentiment === 'positive').length,
+        negative: aiResults.filter((r) => r.sentiment === 'negative').length,
+        neutral: aiResults.filter((r) => r.sentiment === 'neutral').length,
+      }
+    : null
+
+  const aiAvgScore = aiResults?.length
+    ? aiResults.reduce((sum, r) => sum + (r.score ?? 0), 0) / aiResults.length
+    : null
 
   return (
     <div>
@@ -225,6 +289,182 @@ export default function MorningReportPage() {
                     <EmptyState title="暫無最新新聞" icon="+" />
                   </div>
                 )}
+            </div>
+          </div>
+
+          {/* AI 情緒分析 */}
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div
+              className="px-5 py-3 border-b flex items-center justify-between"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+                AI 情緒分析
+              </h2>
+              <button
+                onClick={handleAiAnalysis}
+                disabled={aiLoading || newsLoading || !news?.length}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                style={{
+                  background: 'var(--primary)',
+                  color: 'var(--primary-foreground)',
+                }}
+              >
+                {aiLoading ? (
+                  <>
+                    <span className="animate-spin inline-block w-3 h-3 border border-current border-t-transparent rounded-full" />
+                    分析中…
+                  </>
+                ) : (
+                  '🤖 AI 情緒分析'
+                )}
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              {aiError && (
+                <p className="text-sm" style={{ color: 'var(--stock-down)' }}>
+                  {aiError}
+                </p>
+              )}
+
+              {!aiResults && !aiLoading && !aiError && (
+                <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                  點擊按鈕，讓 AI 分析目前新聞的市場情緒。
+                </p>
+              )}
+
+              {aiResults && (
+                <>
+                  {/* 統計摘要 */}
+                  <div className="flex items-center gap-4 mb-4 flex-wrap">
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 rounded-md text-sm"
+                      style={{ background: 'var(--secondary)' }}
+                    >
+                      <span>🟢</span>
+                      <span style={{ color: 'var(--foreground)' }}>
+                        正面 <span className="font-bold">{aiCounts?.positive}</span>
+                      </span>
+                    </div>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 rounded-md text-sm"
+                      style={{ background: 'var(--secondary)' }}
+                    >
+                      <span>🔴</span>
+                      <span style={{ color: 'var(--foreground)' }}>
+                        負面 <span className="font-bold">{aiCounts?.negative}</span>
+                      </span>
+                    </div>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 rounded-md text-sm"
+                      style={{ background: 'var(--secondary)' }}
+                    >
+                      <span>⚪</span>
+                      <span style={{ color: 'var(--foreground)' }}>
+                        中性 <span className="font-bold">{aiCounts?.neutral}</span>
+                      </span>
+                    </div>
+                    {aiAvgScore !== null && (
+                      <div
+                        className="flex items-center gap-2 px-3 py-2 rounded-md text-sm"
+                        style={{ background: 'var(--secondary)' }}
+                      >
+                        <span style={{ color: 'var(--muted-foreground)' }}>平均分數</span>
+                        <span
+                          className="font-bold"
+                          style={{
+                            color:
+                              aiAvgScore > 0
+                                ? 'var(--stock-up)'
+                                : aiAvgScore < 0
+                                ? 'var(--stock-down)'
+                                : 'var(--stock-flat)',
+                          }}
+                        >
+                          {aiAvgScore > 0 ? '+' : ''}
+                          {aiAvgScore.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 逐則結果 */}
+                  <div className="space-y-3">
+                    {aiResults.map((result, i) => (
+                      <div
+                        key={i}
+                        className="rounded-md p-3"
+                        style={{ background: 'var(--secondary)' }}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="mt-0.5 text-base leading-none">
+                            {sentimentIcon(result.sentiment)}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <a
+                              href={result.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium line-clamp-2 hover:underline"
+                              style={{ color: 'var(--foreground)' }}
+                            >
+                              {result.title}
+                            </a>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-xs" style={{ color: 'var(--primary)' }}>
+                                {result.source}
+                              </span>
+                              <span
+                                className="text-xs font-semibold tabular-nums"
+                                style={{
+                                  color:
+                                    (result.score ?? 0) > 0
+                                      ? 'var(--stock-up)'
+                                      : (result.score ?? 0) < 0
+                                      ? 'var(--stock-down)'
+                                      : 'var(--stock-flat)',
+                                }}
+                              >
+                                {(result.score ?? 0) > 0 ? '+' : ''}
+                                {(result.score ?? 0).toFixed(2)}
+                              </span>
+                            </div>
+                            {result.impact && (
+                              <p
+                                className="text-xs mt-1 leading-relaxed"
+                                style={{ color: 'var(--muted-foreground)' }}
+                              >
+                                {result.impact}
+                              </p>
+                            )}
+                            {result.related_stocks?.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {result.related_stocks.map((s) => (
+                                  <span
+                                    key={s}
+                                    className="text-xs px-1.5 py-0.5 rounded"
+                                    style={{
+                                      background: 'var(--card)',
+                                      color: 'var(--primary)',
+                                      border: '1px solid var(--border)',
+                                    }}
+                                  >
+                                    {s}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

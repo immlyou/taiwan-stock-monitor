@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar } from '@/lib/utils/format'
@@ -31,6 +31,29 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   note: { label: '備注', color: 'var(--muted-foreground)' },
 }
 
+function renderMarkdown(text: string) {
+  return text.split('\n').map((line, i) => {
+    if (line.startsWith('### ')) return <h3 key={i} className="text-base font-semibold mt-4 mb-1" style={{ color: 'var(--foreground)' }}>{line.slice(4)}</h3>
+    if (line.startsWith('## ')) return <h2 key={i} className="text-lg font-bold mt-5 mb-2" style={{ color: 'var(--foreground)' }}>{line.slice(3)}</h2>
+    if (line.startsWith('# ')) return <h1 key={i} className="text-xl font-bold mt-6 mb-2" style={{ color: 'var(--foreground)' }}>{line.slice(2)}</h1>
+    if (line.startsWith('- ') || line.startsWith('* ')) {
+      const content = line.slice(2)
+      return <li key={i} className="ml-4 text-sm" style={{ color: 'var(--foreground)', listStyleType: 'disc' }}>{renderInline(content)}</li>
+    }
+    if (line.trim() === '') return <br key={i} />
+    return <p key={i} className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{renderInline(line)}</p>
+  })
+}
+
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i} style={{ color: 'var(--foreground)' }}>{part.slice(2, -2)}</strong>
+      : part
+  )
+}
+
 export default function JournalPage() {
   const [limit] = useState(50)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -44,6 +67,8 @@ export default function JournalPage() {
     note: '',
   })
   const [saving, setSaving] = useState(false)
+  const [aiReport, setAiReport] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
 
   const swrKey = `${SWR_KEY_BASE}?limit=${limit}`
   const { data, isLoading, error } = useSWR<JournalResponse>(swrKey, fetchAPI)
@@ -75,6 +100,23 @@ export default function JournalPage() {
     await fetchAPI(`${SWR_KEY_BASE}/${id}`, { method: 'DELETE' })
     await mutate(swrKey)
     setDeleteId(null)
+  }
+
+  const handleAiReview = async () => {
+    if (!data || data.entries.length === 0) return
+    setAiLoading(true)
+    setAiReport(null)
+    try {
+      const result = await fetchAPI<{ report?: string; error?: string }>('/ai/journal-review', {
+        method: 'POST',
+        body: JSON.stringify({ entries: data.entries }),
+      })
+      setAiReport(result.report ?? '無法取得報告內容')
+    } catch {
+      setAiReport('AI 回顧報告產生失敗，請稍後再試。')
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   const estimatedAmount = form.shares && form.price
@@ -297,6 +339,46 @@ export default function JournalPage() {
           </div>
         </div>
       )}
+
+      {/* AI 交易行為回顧 */}
+      <div className="mt-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>🤖 AI 交易行為回顧</h2>
+          {data && data.entries.length > 0 && (
+            <button
+              onClick={handleAiReview}
+              disabled={aiLoading}
+              className="h-9 px-4 rounded-md text-sm font-medium disabled:opacity-60"
+              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            >
+              {aiLoading ? '分析中...' : '🧠 產生 AI 回顧報告'}
+            </button>
+          )}
+        </div>
+        <div
+          className="rounded-lg p-6 min-h-24"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          {aiLoading ? (
+            <div className="flex items-center gap-3">
+              <div className="h-4 w-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }} />
+              <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>AI 正在分析您的交易記錄...</span>
+            </div>
+          ) : aiReport ? (
+            <div className="space-y-1">
+              {renderMarkdown(aiReport)}
+            </div>
+          ) : data && data.entries.length === 0 ? (
+            <p className="text-sm text-center" style={{ color: 'var(--muted-foreground)' }}>
+              累積交易記錄後即可使用 AI 回顧功能
+            </p>
+          ) : (
+            <p className="text-sm text-center" style={{ color: 'var(--muted-foreground)' }}>
+              點擊「🧠 產生 AI 回顧報告」按鈕，讓 AI 分析您的交易行為模式
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

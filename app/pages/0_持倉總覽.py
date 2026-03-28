@@ -19,6 +19,7 @@ import plotly.graph_objects as go
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader, get_data_summary
 from core.cache_warmer import warmup_on_startup, is_cache_warm
+from core.realtime_quote import fetch_realtime_quotes
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
 from app.components.session_manager import init_session_state
@@ -97,6 +98,33 @@ alerts_data = load_alerts()
 # ========== 投資組合總覽 (KPI) ==========
 st.markdown('---')
 
+# 判斷是否為盤中時間，若是則取得即時報價
+def _is_market_open():
+    now = datetime.now()
+    return (now.weekday() < 5 and
+            datetime.strptime('09:00', '%H:%M').time() <= now.time() <= datetime.strptime('13:30', '%H:%M').time())
+
+is_realtime = _is_market_open()
+
+# 收集所有持股代號
+all_stock_ids = []
+for portfolio in portfolios.values():
+    for holding in portfolio.get('holdings', []):
+        sid = holding['stock_id']
+        if sid not in all_stock_ids:
+            all_stock_ids.append(sid)
+
+# 盤中時段：批次取得即時報價
+realtime_prices = {}
+if is_realtime and all_stock_ids:
+    try:
+        quotes = fetch_realtime_quotes(all_stock_ids)
+        for sid, q in quotes.items():
+            if q.price > 0:
+                realtime_prices[sid] = q.price
+    except Exception:
+        pass  # fallback 到收盤價
+
 # 計算投資組合總值
 total_portfolio_value = 0
 total_portfolio_cost = 0
@@ -109,7 +137,11 @@ for portfolio_name, portfolio in portfolios.items():
         cost_price = holding['cost_price']
 
         if stock_id in close.columns:
-            latest_price = close[stock_id].dropna().iloc[-1]
+            # 優先使用即時報價，fallback 到收盤價
+            if stock_id in realtime_prices:
+                latest_price = realtime_prices[stock_id]
+            else:
+                latest_price = close[stock_id].dropna().iloc[-1]
             market_value = shares * latest_price
             cost_value = shares * cost_price
             pnl = market_value - cost_value
@@ -319,10 +351,16 @@ with st.expander('📊 系統資訊'):
         with col2:
             st.metric('交易日數', f"{summary.get('total_days', '-')} 天")
         with col3:
-            date_range = summary.get('date_range', '')
-            latest_date = date_range.split(' ~ ')[1] if '~' in date_range else '-'
-            st.metric('最新資料', latest_date)
+            if is_realtime and realtime_prices:
+                st.metric('最新資料', datetime.now().strftime('%Y-%m-%d %H:%M'))
+            else:
+                date_range = summary.get('date_range', '')
+                latest_date = date_range.split(' ~ ')[1] if '~' in date_range else '-'
+                st.metric('最新資料', latest_date)
     except Exception:
         show_empty_state('無法取得系統資訊', icon='ℹ️')
 
-st.caption('資料來源: FinLab API')
+if is_realtime and realtime_prices:
+    st.caption(f'📡 即時報價中（{len(realtime_prices)}/{len(all_stock_ids)} 檔） | 資料來源: TWSE 即時 API')
+else:
+    st.caption('資料來源: FinLab API（盤後收盤價）')

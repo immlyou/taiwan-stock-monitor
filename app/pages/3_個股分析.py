@@ -24,6 +24,7 @@ from app.components.session_manager import (
     get_stock_to_analyze
 )
 from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from core.ai_models import StockChatAssistant
 
 # 嘗試導入 FinLab API
 try:
@@ -1990,6 +1991,95 @@ if selected_stock:
             - 短期不建議介入
             - 如要投資需做好風險控管
             """)
+
+    # ==================== AI 對話 ====================
+    st.markdown('---')
+    st.markdown('### 🤖 AI 個股問答')
+    st.caption(f'詢問任何關於 {stock_id} 的問題，AI 將根據當前數據回答')
+
+    # 初始化對話歷史
+    chat_key = f'stock_chat_{stock_id}'
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
+
+    # 構建數據上下文
+    _chat_context_parts = []
+    try:
+        _close = stock_data['close']
+        if _close is not None and stock_id in _close.columns:
+            _prices = _close[stock_id].dropna()
+            if len(_prices) > 0:
+                _latest = float(_prices.iloc[-1])
+                _prev = float(_prices.iloc[-2]) if len(_prices) > 1 else _latest
+                _chg = (_latest / _prev - 1) * 100
+                _high_52w = float(_prices.iloc[-252:].max()) if len(_prices) >= 252 else float(_prices.max())
+                _low_52w = float(_prices.iloc[-252:].min()) if len(_prices) >= 252 else float(_prices.min())
+                _chat_context_parts.append(f"收盤價: {_latest:.2f} (漲跌: {_chg:+.2f}%)")
+                _chat_context_parts.append(f"52週高低: {_high_52w:.2f} / {_low_52w:.2f}")
+    except Exception:
+        pass
+    try:
+        _pe = stock_data.get('pe_ratio')
+        if _pe is not None and stock_id in _pe.columns:
+            _pe_val = _pe[stock_id].dropna().iloc[-1]
+            _chat_context_parts.append(f"本益比: {_pe_val:.1f}")
+    except Exception:
+        pass
+    try:
+        _pb = stock_data.get('pb_ratio')
+        if _pb is not None and stock_id in _pb.columns:
+            _pb_val = _pb[stock_id].dropna().iloc[-1]
+            _chat_context_parts.append(f"股價淨值比: {_pb_val:.2f}")
+    except Exception:
+        pass
+    try:
+        _dy = stock_data.get('dividend_yield')
+        if _dy is not None and stock_id in _dy.columns:
+            _dy_val = _dy[stock_id].dropna().iloc[-1]
+            _chat_context_parts.append(f"殖利率: {_dy_val:.2f}%")
+    except Exception:
+        pass
+    try:
+        _rev = stock_data.get('revenue_yoy')
+        if _rev is not None and stock_id in _rev.columns:
+            _rev_val = _rev[stock_id].dropna().iloc[-1]
+            _chat_context_parts.append(f"營收年增率: {_rev_val:.1f}%")
+    except Exception:
+        pass
+    _data_context = "\n".join(_chat_context_parts) if _chat_context_parts else "暫無數據"
+
+    # 顯示對話歷史
+    for msg in st.session_state[chat_key]:
+        with st.chat_message(msg['role']):
+            st.markdown(msg['content'])
+
+    # 輸入框
+    if user_input := st.chat_input(f'問關於 {stock_id} 的問題...'):
+        # 顯示用戶訊息
+        st.session_state[chat_key].append({'role': 'user', 'content': user_input})
+        with st.chat_message('user'):
+            st.markdown(user_input)
+
+        # AI 回覆
+        with st.chat_message('assistant'):
+            with st.spinner('思考中...'):
+                _name = stock_id
+                try:
+                    _info_row = stock_info[stock_info['stock_id'] == stock_id]
+                    if len(_info_row) > 0:
+                        _name = _info_row['name'].values[0]
+                except Exception:
+                    pass
+                assistant = StockChatAssistant()
+                reply = assistant.chat(
+                    stock_id=stock_id,
+                    name=_name,
+                    data_context=_data_context,
+                    question=user_input,
+                    history=st.session_state[chat_key][:-1],
+                )
+                st.markdown(reply)
+        st.session_state[chat_key].append({'role': 'assistant', 'content': reply})
 
 else:
     st.info('請在側邊欄選擇要分析的股票')

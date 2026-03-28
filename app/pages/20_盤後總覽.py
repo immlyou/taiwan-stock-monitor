@@ -18,6 +18,7 @@ from datetime import datetime
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.twse_api import get_taiex
+from core.ai_models import PostMarketSummarizer
 from app.components.sidebar import render_sidebar_mini
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
@@ -702,6 +703,82 @@ else:
         else:
             show_empty_state('目前無符合條件的股票', icon='📭', suggestion='存股篩選需要穩定配息的大型股')
         st.markdown(_disclaimer)
+
+# ========== AI 盤後摘要 ==========
+st.markdown('---')
+st.markdown('### 🤖 AI 盤後摘要')
+
+if st.button('📝 生成 AI 覆盤報告', type='primary', use_container_width=True):
+    with st.spinner('AI 正在撰寫盤後摘要...'):
+        try:
+            # 準備數據
+            _market_data = {'date': data.get('latest_date', '')}
+
+            # 加權指數
+            try:
+                taiex = get_taiex()
+                if taiex is not None and len(taiex) > 0:
+                    _market_data['taiex_close'] = float(taiex.iloc[-1])
+                    if len(taiex) > 1:
+                        _market_data['taiex_change_pct'] = (float(taiex.iloc[-1]) / float(taiex.iloc[-2]) - 1) * 100
+            except Exception:
+                pass
+
+            # 漲跌幅排行
+            if 'change_pct' in data:
+                change = data['change_pct'].dropna().sort_values(ascending=False)
+                _si = data.get('stock_info')
+                _name_map = dict(zip(_si['stock_id'], _si['name'])) if _si is not None else {}
+
+                _market_data['top_gainers'] = [
+                    {'stock_id': sid, 'name': _name_map.get(sid, ''), 'change_pct': float(change[sid])}
+                    for sid in change.head(5).index
+                ]
+                _market_data['top_losers'] = [
+                    {'stock_id': sid, 'name': _name_map.get(sid, ''), 'change_pct': float(change[sid])}
+                    for sid in change.tail(5).index
+                ]
+
+            # 三大法人
+            for key, field in [('foreign', 'foreign_net'), ('investment_trust', 'trust_net'), ('dealer', 'dealer_net')]:
+                df = data.get(key)
+                if df is not None and len(df) > 0:
+                    _market_data[field] = float(df.iloc[-1].sum()) / 100_000_000  # 股 → 億
+
+            # 生成摘要
+            summarizer = PostMarketSummarizer()
+            result = summarizer.generate(_market_data)
+
+            if result.get('error'):
+                st.warning(f"生成失敗：{result['error']}")
+            else:
+                st.session_state['post_market_summary'] = result
+        except Exception as e:
+            st.error(f'生成失敗：{e}')
+
+if 'post_market_summary' in st.session_state:
+    result = st.session_state['post_market_summary']
+
+    # 完整報告
+    st.markdown('#### 📋 完整報告')
+    st.info(result.get('summary', ''))
+
+    # Telegram 精簡版
+    with st.expander('📱 Telegram 精簡版'):
+        tg_text = result.get('telegram_text', '')
+        st.code(tg_text, language=None)
+
+        if st.button('📤 推送到 Telegram', key='send_tg_summary'):
+            try:
+                from core.notification import TelegramChannel
+                tg = TelegramChannel()
+                if tg.is_configured():
+                    tg.send('盤後摘要', tg_text)
+                    st.success('已推送到 Telegram！')
+                else:
+                    st.warning('Telegram 未設定，請至系統設定頁面配置 Bot Token 和 Chat ID')
+            except Exception as e:
+                st.error(f'推送失敗：{e}')
 
 # 頁尾說明
 st.markdown('---')

@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
@@ -10,6 +10,11 @@ import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/forma
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
 
 interface StockDetailPageProps {
   params: Promise<{ id: string }>
@@ -83,6 +88,10 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   const { id } = use(params)
   const router = useRouter()
   const [tab, setTab] = useState<TabType>('chart')
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatBottomRef = useRef<HTMLDivElement>(null)
 
   const { data: stock, isLoading: stockLoading } = useSWR<StockDetail>(
     `/stock/${id}`,
@@ -113,6 +122,36 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
 
   // OHLCV 資料，取 close 欄位畫折線
   const chartData = ohlcv?.data ?? []
+
+  // Auto-scroll chat to bottom whenever messages update
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, chatLoading])
+
+  async function sendChat() {
+    const question = chatInput.trim()
+    if (!question || chatLoading) return
+
+    const userMsg: ChatMessage = { role: 'user', content: question }
+    const nextMessages = [...chatMessages, userMsg]
+    setChatMessages(nextMessages)
+    setChatInput('')
+    setChatLoading(true)
+
+    try {
+      const history = nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
+      const res = await fetchAPI<{ reply: string; stock_id: string; name: string }>(
+        '/ai/stock-chat',
+        { method: 'POST', body: JSON.stringify({ stock_id: id, question, history }) },
+        60000
+      )
+      setChatMessages([...nextMessages, { role: 'assistant', content: res.reply }])
+    } catch {
+      setChatMessages([...nextMessages, { role: 'assistant', content: '⚠️ 發生錯誤，請稍後再試。' }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
 
   return (
     <div>
@@ -450,6 +489,119 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* AI 個股問答 */}
+      <div
+        className="rounded-lg overflow-hidden mt-6"
+        style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+      >
+        {/* Header */}
+        <div
+          className="px-4 py-3 border-b"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+            🤖 AI 個股問答
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+            針對 {stock ? `${stock.stock_id} ${stock.name}` : id} 提問，AI 將根據現有資料回答
+          </p>
+        </div>
+
+        {/* Message history */}
+        <div
+          className="flex flex-col gap-3 p-4 overflow-y-auto"
+          style={{ height: '320px' }}
+        >
+          {chatMessages.length === 0 && !chatLoading && (
+            <div
+              className="flex-1 flex items-center justify-center text-sm"
+              style={{ color: 'var(--muted-foreground)' }}
+            >
+              輸入問題開始對話，例如「這檔適合進場嗎？」
+            </div>
+          )}
+
+          {chatMessages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
+                style={
+                  msg.role === 'user'
+                    ? {
+                        background: 'var(--primary)',
+                        color: 'var(--primary-foreground)',
+                        borderBottomRightRadius: '4px',
+                      }
+                    : {
+                        background: 'var(--secondary)',
+                        color: 'var(--foreground)',
+                        borderBottomLeftRadius: '4px',
+                      }
+                }
+              >
+                {msg.content}
+              </div>
+            </div>
+          ))}
+
+          {chatLoading && (
+            <div className="flex justify-start">
+              <div
+                className="rounded-2xl px-4 py-2.5 text-sm"
+                style={{
+                  background: 'var(--secondary)',
+                  color: 'var(--muted-foreground)',
+                  borderBottomLeftRadius: '4px',
+                }}
+              >
+                <span className="inline-flex gap-1">
+                  <span className="animate-bounce" style={{ animationDelay: '0ms' }}>●</span>
+                  <span className="animate-bounce" style={{ animationDelay: '150ms' }}>●</span>
+                  <span className="animate-bounce" style={{ animationDelay: '300ms' }}>●</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div ref={chatBottomRef} />
+        </div>
+
+        {/* Input bar */}
+        <div
+          className="flex gap-2 px-4 py-3 border-t"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
+            placeholder="輸入問題…"
+            disabled={chatLoading}
+            className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+            style={{
+              background: 'var(--secondary)',
+              color: 'var(--foreground)',
+              border: '1px solid var(--border)',
+            }}
+          />
+          <button
+            onClick={sendChat}
+            disabled={chatLoading || !chatInput.trim()}
+            className="rounded-lg px-4 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
+            style={{
+              background: 'var(--primary)',
+              color: 'var(--primary-foreground)',
+            }}
+          >
+            送出
+          </button>
         </div>
       </div>
     </div>
