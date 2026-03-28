@@ -146,7 +146,7 @@ export default function MorningReportPage() {
       const data = await fetchAPI<AiSentimentResponse>('/ai/news-sentiment', {
         method: 'POST',
         body: JSON.stringify({ news: payload }),
-      }, 30000)
+      }, 60000)
       setAiResults(data.results)
     } catch (err) {
       setAiError(err instanceof Error ? err.message : '分析失敗，請稍後再試')

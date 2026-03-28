@@ -201,7 +201,7 @@ export default function AfterHoursPage() {
       const result = await fetchAPI<AiSummaryResult>('/ai/post-market-summary', {
         method: 'POST',
         body: JSON.stringify({ market_data: null }),
-      })
+      }, 60000)
       if (result.error) {
         setAiError(result.error)
       } else {

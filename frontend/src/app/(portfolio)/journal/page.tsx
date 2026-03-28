@@ -110,7 +110,7 @@ export default function JournalPage() {
       const result = await fetchAPI<{ report?: string; error?: string }>('/ai/journal-review', {
         method: 'POST',
         body: JSON.stringify({ entries: data.entries }),
-      })
+      }, 60000)
       setAiReport(result.report ?? '無法取得報告內容')
     } catch {
       setAiReport('AI 回顧報告產生失敗，請稍後再試。')

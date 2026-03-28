@@ -84,7 +84,7 @@ export default function AiAnomalyPage() {
     setData(null)
     try {
       const params = new URLSearchParams({ scope, explain: String(explain) })
-      const result = await fetchAPI<AnomalyResponse>(`/ai/anomalies?${params}`)
+      const result = await fetchAPI<AnomalyResponse>(`/ai/anomalies?${params}`, undefined, 60000)
       setData(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : '掃描失敗，請稍後再試')
