@@ -918,7 +918,8 @@ async def stock_info(
         logger.warning("[stock_info] FinLab quota hit, switching to fallback: %s", stock_id)
         return await _stock_info_fallback(stock_id, days)
     if stock_id not in close.columns:
-        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+        # Fallback: 嘗試從 Goodinfo 取得資料（支援興櫃等 FinLab 不涵蓋的股票）
+        return await _goodinfo_stock_fallback(stock_id)
 
     price_data = close[stock_id].dropna().tail(days)
     latest_price = float(price_data.iloc[-1])
@@ -974,6 +975,32 @@ async def stock_info(
             }
             for d, p in price_data.items()
         ],
+    }
+
+
+async def _goodinfo_stock_fallback(stock_id: str):
+    """Goodinfo fallback：用於 FinLab 不涵蓋的股票（如興櫃）"""
+    from core.goodinfo import fetch_stock_detail
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, fetch_stock_detail, stock_id)
+    if not data or "price" not in data:
+        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    return {
+        "stock_id": stock_id,
+        "name": data.get("name", ""),
+        "industry": data.get("industry", ""),
+        "latest_price": data.get("price"),
+        "change_pct": data.get("change_pct"),
+        "date": today,
+        "pe_ratio": data.get("per"),
+        "pb_ratio": data.get("pbr"),
+        "dividend_yield": data.get("dividend_yield"),
+        "revenue_yoy": None,
+        "price_history": [{"date": today, "price": data.get("price")}] if data.get("price") else [],
+        "source": "goodinfo",
+        "market": data.get("market", ""),
     }
 
 
