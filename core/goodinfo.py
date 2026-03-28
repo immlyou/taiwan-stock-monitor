@@ -230,6 +230,122 @@ def _parse_stock_detail(html: str, stock_id: str) -> Optional[Dict[str, Any]]:
     return result
 
 
+def fetch_ohlcv(stock_id: str, use_cache: bool = True) -> Optional[list]:
+    """
+    從 Goodinfo ShowK_Chart 取得每日 OHLCV 歷史資料。
+
+    Returns
+    -------
+    list of dict: [{date, open, high, low, close, volume}, ...]
+    按日期升序排列。
+    """
+    from typing import List
+
+    cache_key = f"goodinfo_ohlcv_{stock_id}"
+    if use_cache and cache_key in _goodinfo_cache:
+        if time.time() - _goodinfo_cache_ts.get(cache_key, 0) < _CACHE_TTL:
+            return _goodinfo_cache[cache_key]
+
+    session = _get_session()
+    url = f"https://goodinfo.tw/tw/ShowK_Chart.asp?STOCK_ID={stock_id}&CHT_CAT=DATE"
+
+    try:
+        r = session.get(url, timeout=15)
+        r.encoding = "utf-8"
+
+        if len(r.text) < 5000:
+            # 需要刷新 cookie
+            m = re.search(
+                r"setCookie\('CLIENT_KEY',\s*'([\d.]+)\|([\d.]+)\|([\d.]+)\|'",
+                r.text,
+            )
+            if m:
+                version, c1, c2 = m.group(1), m.group(2), m.group(3)
+                tz = -480
+                oa = time.time() / 86400 + 25569 - tz / 1440
+                session.cookies.set(
+                    "CLIENT_KEY",
+                    f"{version}|{c1}|{c2}|{tz}|{oa}|{oa}",
+                    domain="goodinfo.tw",
+                    path="/",
+                )
+                time.sleep(0.7)
+                r = session.get(url, timeout=15)
+                r.encoding = "utf-8"
+
+        if len(r.text) < 5000:
+            _log.warning("[goodinfo] OHLCV 頁面取得失敗: %s", stock_id)
+            return None
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # 找含 OHLCV 的表格（header: 交易日期, 開盤, 最高, 最低, 收盤）
+        target_table = None
+        for t in soup.find_all("table"):
+            ths = t.find_all("th")
+            header_text = " ".join(th.get_text(strip=True) for th in ths[:5])
+            if "交易日期" in header_text and "開盤" in header_text and "收盤" in header_text:
+                target_table = t
+                break
+
+        if not target_table:
+            _log.warning("[goodinfo] 找不到 OHLCV 表格: %s", stock_id)
+            return None
+
+        records = []
+        rows = target_table.find_all("tr")
+        current_year = datetime.now().year
+
+        for row in rows:
+            cells = row.find_all("td")
+            if len(cells) < 5:
+                continue
+
+            date_text = cells[0].get_text(strip=True)
+            # 格式: '26/03/27 → 2026-03-27
+            m = re.match(r"'?(\d{2})/(\d{2})/(\d{2})", date_text)
+            if not m:
+                continue
+
+            yy, mm, dd = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            year = 2000 + yy
+            date_str = f"{year}-{mm:02d}-{dd:02d}"
+
+            open_p = _parse_number(cells[1].get_text(strip=True))
+            high_p = _parse_number(cells[2].get_text(strip=True))
+            low_p = _parse_number(cells[3].get_text(strip=True))
+            close_p = _parse_number(cells[4].get_text(strip=True))
+
+            # 成交量在第 8 列 (index 8) 或成交資料欄
+            volume = None
+            if len(cells) > 8:
+                volume = _parse_number(cells[8].get_text(strip=True))
+
+            if close_p is not None:
+                records.append({
+                    "date": date_str,
+                    "open": open_p,
+                    "high": high_p,
+                    "low": low_p,
+                    "close": close_p,
+                    "volume": volume,
+                })
+
+        # 按日期升序
+        records.sort(key=lambda x: x["date"])
+
+        if records:
+            _goodinfo_cache[cache_key] = records
+            _goodinfo_cache_ts[cache_key] = time.time()
+
+        _log.info("[goodinfo] OHLCV 成功: %s, %d 筆", stock_id, len(records))
+        return records
+
+    except Exception as e:
+        _log.error("[goodinfo] OHLCV 取得失敗 (%s): %s", stock_id, e)
+        return None
+
+
 def fetch_monthly_revenue(stock_id: str) -> Optional[Dict[str, Any]]:
     """從 Goodinfo 取得月營收資料"""
     cache_key = f"goodinfo_rev_{stock_id}"

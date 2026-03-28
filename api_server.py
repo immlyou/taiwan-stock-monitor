@@ -978,6 +978,24 @@ async def stock_info(
     }
 
 
+async def _goodinfo_ohlcv_fallback(stock_id: str, days: int = 120):
+    """Goodinfo OHLCV fallback：從 Goodinfo 取得歷史價格"""
+    from core.goodinfo import fetch_ohlcv
+    loop = asyncio.get_event_loop()
+    records = await loop.run_in_executor(None, fetch_ohlcv, stock_id)
+    if not records:
+        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+    # 只取最近 days 筆
+    records = records[-days:]
+    return {
+        "stock_id": stock_id,
+        "days": len(records),
+        "data": records,
+        "source": "goodinfo",
+    }
+
+
 async def _goodinfo_stock_fallback(stock_id: str):
     """Goodinfo fallback：用於 FinLab 不涵蓋的股票（如興櫃）"""
     from core.goodinfo import fetch_stock_detail
@@ -1193,7 +1211,8 @@ async def stock_ohlcv(
     try:
         close = loader.get("close")
         if stock_id not in close.columns:
-            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+            # Fallback: Goodinfo OHLCV（支援興櫃等 FinLab 不涵蓋的股票）
+            return await _goodinfo_ohlcv_fallback(stock_id, days)
 
         close_s = close[stock_id].dropna().tail(days)
         dates = close_s.index
