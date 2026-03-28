@@ -1718,7 +1718,7 @@ async def ai_anomalies(
     """AI 異常偵測 - 偵測爆量、跳空、法人轉向等異常訊號"""
     from core.ai_models import AnomalyDetector
     loop = asyncio.get_event_loop()
-    loader = get_loader()
+
     detector = AnomalyDetector()
 
     stock_ids = None
@@ -1776,7 +1776,7 @@ async def ai_stock_chat(req: StockChatRequest):
     """AI 個股對話 - 自然語言問答"""
     from core.ai_models import StockChatAssistant
     loop = asyncio.get_event_loop()
-    loader = get_loader()
+
     assistant = StockChatAssistant()
 
     # 收集數據上下文
@@ -1828,7 +1828,7 @@ async def ai_post_market_summary(req: PostMarketSummaryRequest):
     """AI 盤後摘要 - 生成覆盤報告"""
     from core.ai_models import PostMarketSummarizer
     loop = asyncio.get_event_loop()
-    loader = get_loader()
+
     summarizer = PostMarketSummarizer()
 
     # 自動收集市場數據
