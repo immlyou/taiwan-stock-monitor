@@ -1073,7 +1073,8 @@ async def stock_technical(stock_id: str):
     """
     close = loader.get("close")
     if stock_id not in close.columns:
-        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+        # Fallback: 用 Goodinfo OHLCV 計算技術指標
+        return await _goodinfo_technical_fallback(stock_id)
 
     series = close[stock_id].dropna()
 
@@ -1115,6 +1116,62 @@ async def stock_technical(stock_id: str):
         "sma_60": _safe_json(sma_60.iloc[-1]),
         "trend": trend,
     }
+
+
+async def _goodinfo_technical_fallback(stock_id: str):
+    """用 Goodinfo OHLCV 計算技術指標"""
+    import pandas as pd
+    from core.goodinfo import fetch_ohlcv
+    loop = asyncio.get_event_loop()
+    records = await loop.run_in_executor(None, fetch_ohlcv, stock_id)
+    if not records or len(records) < 5:
+        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+
+    closes = pd.Series(
+        [r["close"] for r in records],
+        index=pd.to_datetime([r["date"] for r in records]),
+    )
+
+    latest_price = float(closes.iloc[-1])
+    result = {"stock_id": stock_id, "price": round(latest_price, 2), "source": "goodinfo"}
+
+    try:
+        rsi = calculate_rsi(closes, period=14)
+        result["rsi_14"] = _safe_json(rsi.iloc[-1]) if len(rsi) > 0 else None
+        if result["rsi_14"] and result["rsi_14"] > 70:
+            result["rsi_signal"] = "超買"
+        elif result["rsi_14"] and result["rsi_14"] < 30:
+            result["rsi_signal"] = "超賣"
+        else:
+            result["rsi_signal"] = "中性"
+    except Exception:
+        result["rsi_14"] = None
+        result["rsi_signal"] = "中性"
+
+    try:
+        macd_line, signal_line, histogram = calculate_macd(closes)
+        result["macd"] = _safe_json(macd_line.iloc[-1]) if len(macd_line) > 0 else None
+        result["macd_signal"] = _safe_json(signal_line.iloc[-1]) if len(signal_line) > 0 else None
+        result["macd_histogram"] = _safe_json(histogram.iloc[-1]) if len(histogram) > 0 else None
+    except Exception:
+        result["macd"] = result["macd_signal"] = result["macd_histogram"] = None
+
+    try:
+        sma_5 = calculate_sma(closes, period=5)
+        sma_20 = calculate_sma(closes, period=20)
+        result["sma_5"] = _safe_json(sma_5.iloc[-1]) if len(sma_5) > 0 else None
+        result["sma_20"] = _safe_json(sma_20.iloc[-1]) if len(sma_20) > 0 else None
+        result["sma_60"] = None  # 資料不足 60 天
+
+        if result["sma_5"] and result["sma_20"]:
+            result["trend"] = "多頭排列" if result["sma_5"] > result["sma_20"] else "空頭排列"
+        else:
+            result["trend"] = "盤整"
+    except Exception:
+        result["sma_5"] = result["sma_20"] = result["sma_60"] = None
+        result["trend"] = "盤整"
+
+    return result
 
 
 @app.get("/stock/{stock_id}/chip", tags=["個股"], dependencies=[Depends(verify_api_key)])
