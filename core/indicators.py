@@ -623,9 +623,16 @@ def adx(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
 
-    tr = pd.concat([tr1, tr2, tr3], axis=0).groupby(level=0).max() if isinstance(tr1, pd.Series) else \
-         pd.DataFrame(np.maximum(np.maximum(tr1.values, tr2.values), tr3.values),
-                     index=high.index, columns=high.columns)
+    if isinstance(tr1, pd.Series):
+        tr = pd.Series(
+            np.maximum(np.maximum(tr1.values, tr2.values), tr3.values),
+            index=high.index
+        )
+    else:
+        tr = pd.DataFrame(
+            np.maximum(np.maximum(tr1.values, tr2.values), tr3.values),
+            index=high.index, columns=high.columns
+        )
 
     # 平滑處理
     atr = tr.rolling(window=period, min_periods=1).mean()

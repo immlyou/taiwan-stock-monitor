@@ -13,9 +13,12 @@ echo "=========================================="
 echo "每日資料更新 - $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=========================================="
 
-# 載入環境變數
+# 載入環境變數（用 set -a 方式，避免 xargs 遇到特殊字元崩潰）
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    # shellcheck source=.env
+    source .env
+    set +a
 fi
 
 # 執行資料更新
@@ -39,9 +42,9 @@ fi
 echo "更新完成 - $(date '+%Y-%m-%d %H:%M:%S')"
 
 # 檢查警報並發送通知
+# 注意：使用 `if` 直接包住指令，避免 set -e 在失敗時提前退出
 echo "開始檢查警報..."
-python3 scripts/check_alerts.py 2>&1
-if [ $? -eq 0 ]; then
+if python3 scripts/check_alerts.py 2>&1; then
     echo "✅ 警報檢查完成"
 else
     echo "⚠️ 警報檢查失敗，請查看 alerts.log"

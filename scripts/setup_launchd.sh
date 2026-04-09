@@ -60,16 +60,17 @@ mkdir -p "$ROOT_DIR/logs"
 
 echo "plist 檔案已建立: $PLIST_PATH"
 
-# 載入 launchd 任務
-launchctl unload "$PLIST_PATH" 2>/dev/null
-launchctl load "$PLIST_PATH"
+# 載入 launchd 任務（macOS 10.10+ 使用 bootstrap/bootout 取代舊版 load/unload）
+GUI_UID=$(id -u)
+launchctl bootout "gui/${GUI_UID}/${PLIST_NAME}" 2>/dev/null || true
+launchctl bootstrap "gui/${GUI_UID}" "$PLIST_PATH"
 
 echo "launchd 任務已載入"
 echo ""
 echo "管理指令:"
 echo "  查看狀態: launchctl list | grep finlab"
-echo "  停止任務: launchctl unload $PLIST_PATH"
-echo "  啟動任務: launchctl load $PLIST_PATH"
+echo "  停止任務: launchctl bootout gui/${GUI_UID}/${PLIST_NAME}"
+echo "  啟動任務: launchctl bootstrap gui/${GUI_UID} ${PLIST_PATH}"
 echo "  手動執行: python3 $ROOT_DIR/scripts/daily_update.py"
 echo ""
 echo "任務將在每日 14:30 自動執行"

@@ -54,10 +54,12 @@ class AlertEngine:
         return {'alerts': []}
 
     def _save_alerts(self) -> None:
-        """儲存警報設定"""
+        """儲存警報設定（使用 atomic write 避免並發寫入損毀）"""
         self.ALERTS_FILE.parent.mkdir(exist_ok=True)
-        with open(self.ALERTS_FILE, 'w', encoding='utf-8') as f:
+        tmp_path = self.ALERTS_FILE.with_suffix('.tmp')
+        with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(self.alerts_data, f, ensure_ascii=False, indent=2, default=str)
+        tmp_path.replace(self.ALERTS_FILE)  # atomic rename
 
     def check_alert(self, alert: Dict, data: Dict[str, pd.DataFrame]) -> AlertResult:
         """
@@ -199,8 +201,8 @@ class AlertEngine:
             alert_id=alert['id'],
             stock_id=stock_id,
             alert_type=alert_type,
-            is_triggered=is_triggered,
-            current_value=current_value,
+            is_triggered=bool(is_triggered),   # 確保是 Python bool，而非 np.bool_
+            current_value=float(current_value) if not isinstance(current_value, str) else current_value,
             target_value=target_value if not isinstance(target_value, str) else 0,
             message=message
         )

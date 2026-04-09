@@ -152,7 +152,9 @@ class PortfolioOptimizer:
         weights = result.x
         ret, vol, sharpe = self._portfolio_stats(weights)
 
-        weights_dict = {stock: w for stock, w in zip(self.stocks, weights) if w > 0.001}
+        raw = {stock: w for stock, w in zip(self.stocks, weights) if w > 0.001}
+        total = sum(raw.values())
+        weights_dict = {stock: w / total for stock, w in raw.items()} if total > 0 else raw
 
         return OptimizationResult(
             weights=weights_dict,
@@ -203,7 +205,9 @@ class PortfolioOptimizer:
         weights = result.x
         ret, vol, sharpe = self._portfolio_stats(weights)
 
-        weights_dict = {stock: w for stock, w in zip(self.stocks, weights) if w > 0.001}
+        raw = {stock: w for stock, w in zip(self.stocks, weights) if w > 0.001}
+        total = sum(raw.values())
+        weights_dict = {stock: w / total for stock, w in raw.items()} if total > 0 else raw
 
         return OptimizationResult(
             weights=weights_dict,
@@ -258,7 +262,9 @@ class PortfolioOptimizer:
         weights = result.x
         ret, vol, sharpe = self._portfolio_stats(weights)
 
-        weights_dict = {stock: w for stock, w in zip(self.stocks, weights) if w > 0.001}
+        raw = {stock: w for stock, w in zip(self.stocks, weights) if w > 0.001}
+        total = sum(raw.values())
+        weights_dict = {stock: w / total for stock, w in raw.items()} if total > 0 else raw
 
         return OptimizationResult(
             weights=weights_dict,

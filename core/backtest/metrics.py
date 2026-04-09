@@ -123,20 +123,22 @@ def calculate_sortino_ratio(portfolio_values: pd.Series, risk_free_rate: float =
     # 只計算負報酬的標準差
     downside_returns = returns[returns < 0]
     if len(downside_returns) == 0:
-        # 沒有負報酬，回傳正無限大但設定上限避免顯示問題
-        return 999.99
+        # 沒有負報酬：Sortino 比率為正無限大
+        return float('inf')
 
     downside_std = downside_returns.std() * np.sqrt(252)
 
     # 安全檢查
     if downside_std == 0 or np.isnan(downside_std) or np.isinf(downside_std):
-        return 999.99
+        return float('inf')
 
     result = (annualized_return - risk_free_rate) / downside_std
 
     # 處理結果為 NaN 或 Inf 的情況
-    if np.isnan(result) or np.isinf(result):
-        return 999.99 if result > 0 or np.isnan(result) else -999.99
+    if np.isnan(result):
+        return float('nan')
+    if np.isinf(result):
+        return result  # 保留 +inf / -inf 語意
 
     return result
 
@@ -224,15 +226,17 @@ def calculate_calmar_ratio(portfolio_values: pd.Series) -> float:
     annualized_return = calculate_annualized_return(portfolio_values)
     max_dd, _, _ = calculate_max_drawdown(portfolio_values)
 
-    # 安全檢查
+    # 安全檢查：最大回撤為 0 表示沒有任何回撤
     if max_dd == 0 or np.isnan(max_dd):
-        return 999.99 if annualized_return > 0 else 0.0
+        return float('inf') if annualized_return > 0 else 0.0
 
     result = annualized_return / abs(max_dd)
 
     # 處理結果為 NaN 或 Inf 的情況
-    if np.isnan(result) or np.isinf(result):
-        return 999.99 if result > 0 or np.isnan(result) else -999.99
+    if np.isnan(result):
+        return float('nan')
+    if np.isinf(result):
+        return result  # 保留 +inf / -inf 語意
 
     return result
 
@@ -287,7 +291,8 @@ def calculate_metrics(portfolio_values: pd.Series,
 
 
 def compare_with_benchmark(portfolio_values: pd.Series,
-                           benchmark_values: pd.Series) -> Dict[str, Any]:
+                           benchmark_values: pd.Series,
+                           risk_free_rate: float = 0.02) -> Dict[str, Any]:
     """
     與大盤比較績效
 
@@ -317,7 +322,6 @@ def compare_with_benchmark(portfolio_values: pd.Series,
     # Alpha 計算 (Jensen's Alpha)
     portfolio_ann_return = calculate_annualized_return(portfolio) / 100
     benchmark_ann_return = calculate_annualized_return(benchmark) / 100
-    risk_free_rate = 0.02
 
     alpha = portfolio_ann_return - (risk_free_rate + beta * (benchmark_ann_return - risk_free_rate))
 

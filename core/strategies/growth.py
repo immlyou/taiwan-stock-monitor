@@ -111,7 +111,12 @@ class GrowthStrategy(BaseStrategy):
 
         combined = combined.fillna(False)
 
-        return combined[combined].index.tolist()
+        result = []
+        for idx in combined[combined].index:
+            idx_str = str(idx)
+            stock_id = idx_str.split(' ')[0] if ' ' in idx_str else idx_str
+            result.append(stock_id)
+        return result
 
     def score(self, data: Dict[str, pd.DataFrame], date: Optional[pd.Timestamp] = None) -> pd.Series:
         """
@@ -163,24 +168,20 @@ class GrowthStrategy(BaseStrategy):
         return scores
 
     def _calc_consecutive_growth(self, data: pd.DataFrame, date: pd.Timestamp) -> pd.Series:
-        """計算到指定日期為止的連續正成長月數"""
+        """計算到指定日期為止的連續正成長月數（向量化實作）"""
         if date not in data.index:
             return pd.Series(0, index=data.columns)
 
         date_idx = data.index.get_loc(date)
-        consecutive = pd.Series(0, index=data.columns)
-        # 追蹤每支股票是否仍在連續成長中
-        still_growing = pd.Series(True, index=data.columns)
+        # 取到指定日期為止的所有資料（含當日），由舊到新
+        subset = data.iloc[:date_idx + 1]
 
-        # 從指定日期往前回溯
-        for i in range(date_idx, -1, -1):
-            is_growth = data.iloc[i] > 0
-            # 只有仍在連續成長的股票才累加
-            still_growing = still_growing & is_growth
-            consecutive = consecutive + still_growing.astype(int)
+        is_growth = (subset > 0).astype(int)  # shape: (T, n_stocks)
 
-            # 如果所有股票都停止成長，提前結束
-            if not still_growing.any():
-                break
-
-        return consecutive
+        # 從最後一列往前，找到每欄第一個 0 的位置，其後的 1 才算連續
+        # 技巧：對 is_growth 做 reversed cumsum，再找連續尾段
+        # 等效：從末尾往前累計，遇到 0 中斷
+        reversed_growth = is_growth.iloc[::-1]
+        # cummin 沿列方向：一旦遇到 0，後續（往前方向）都變 0
+        consecutive_mask = reversed_growth.cumprod()
+        return consecutive_mask.sum(axis=0)

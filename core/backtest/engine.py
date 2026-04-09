@@ -291,9 +291,21 @@ class BacktestEngine:
         total_cost = cost + transaction_cost
 
         if total_cost > self.cash:
-            # 資金不足，用精確公式重新計算可買股數
-            max_amount = self.cash / (1 + self.commission_rate * self.commission_discount)
-            shares = int(max_amount / price)
+            # 資金不足，二分搜尋可買股數（正確處理最低手續費 20 元邊界）
+            max_shares = int(self.cash / price)
+            shares = 0
+            lo, hi = 0, max_shares
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if mid == 0:
+                    break
+                c = mid * price
+                tc = self._calculate_transaction_cost(c, is_sell=False)
+                if c + tc <= self.cash:
+                    shares = mid
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
             if shares <= 0:
                 return
             cost = shares * price

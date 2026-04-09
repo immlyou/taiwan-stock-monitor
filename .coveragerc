@@ -1,0 +1,18 @@
+[run]
+source = core
+omit =
+    # 外部爬蟲：依賴真實網路連線，無法在 CI 中測試
+    core/ai_models.py
+    core/news_scanner.py
+    core/ptt_scanner.py
+    core/dcard_scanner.py
+    core/goodinfo.py
+    core/social_scanner.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:

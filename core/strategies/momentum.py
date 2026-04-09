@@ -117,7 +117,12 @@ class MomentumStrategy(BaseStrategy):
 
         combined = combined.fillna(False)
 
-        return combined[combined].index.tolist()
+        result = []
+        for idx in combined[combined].index:
+            idx_str = str(idx)
+            stock_id = idx_str.split(' ')[0] if ' ' in idx_str else idx_str
+            result.append(stock_id)
+        return result
 
     def score(self, data: Dict[str, pd.DataFrame], date: Optional[pd.Timestamp] = None) -> pd.Series:
         """
