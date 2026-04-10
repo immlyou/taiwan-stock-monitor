@@ -464,6 +464,44 @@ async def health_check() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Daily briefing (OpenClaw / Claude agents call this on demand)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def generate_daily_briefing() -> dict:
+    """
+    Generate a complete Taiwan stock market daily briefing in one call.
+
+    One-shot tool that returns everything for a morning/after-hours report:
+    TAIEX index + change, up/down counts, top 5 gainers/losers, the day's
+    strategy picks (value/growth/momentum), news headlines with sentiment-driven
+    market outlook, and a pre-written Traditional Chinese summary sentence.
+
+    Use this when the user asks for "晨報", "今日總結", "台股今天怎麼樣完整一點"
+    instead of chaining market_summary + run_strategy + news separately.
+
+    Returns:
+        {
+            "date": "YYYY-MM-DD",
+            "summary": "台股加權指數 ... 點，上漲 ...%。上漲家數 ...，下跌家數 ...",
+            "keyPoints": ["新聞標題1", ...],   // up to 5 headlines
+            "marketOutlook": "今日新聞偏多/偏空/中性，...",
+            "taiex_index": float,
+            "taiex_change": float,
+            "market": {"up": int, "down": int, "flat": int},
+            "top_gainers": [{"stock_id": "...", "change_pct": float}, ...5],
+            "top_losers":  [{"stock_id": "...", "change_pct": float}, ...5],
+            "strategies":  {
+                "value":    {"total": int, "top5": [stock_ids]},
+                "growth":   {"total": int, "top5": [stock_ids]},
+                "momentum": {"total": int, "top5": [stock_ids]},
+            }
+        }
+    """
+    return await _get("/morning-report")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Self-test mode
 # ═══════════════════════════════════════════════════════════════════════════
 

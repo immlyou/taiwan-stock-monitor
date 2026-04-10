@@ -5,7 +5,7 @@
   "backend": "https://taiwan-stock-api-production.up.railway.app",
   "protocol": "mcp-1.0",
   "transport": "stdio",
-  "total_tools": 34,
+  "total_tools": 35,
   "tools": [
     {
       "name": "market_summary",
@@ -613,6 +613,15 @@
       "input_schema": {
         "properties": {},
         "title": "health_checkArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "generate_daily_briefing",
+      "description": "\nGenerate a complete Taiwan stock market daily briefing in one call.\n\nOne-shot tool that returns everything for a morning/after-hours report:\nTAIEX index + change, up/down counts, top 5 gainers/losers, the day's\nstrategy picks (value/growth/momentum), news headlines with sentiment-driven\nmarket outlook, and a pre-written Traditional Chinese summary sentence.\n\nUse this when the user asks for \"晨報\", \"今日總結\", \"台股今天怎麼樣完整一點\"\ninstead of chaining market_summary + run_strategy + news separately.\n\nReturns:\n    {\n        \"date\": \"YYYY-MM-DD\",\n        \"summary\": \"台股加權指數 ... 點，上漲 ...%。上漲家數 ...，下跌家數 ...\",\n        \"keyPoints\": [\"新聞標題1\", ...],   // up to 5 headlines\n        \"marketOutlook\": \"今日新聞偏多/偏空/中性，...\",\n        \"taiex_index\": float,\n        \"taiex_change\": float,\n        \"market\": {\"up\": int, \"down\": int, \"flat\": int},\n        \"top_gainers\": [{\"stock_id\": \"...\", \"change_pct\": float}, ...5],\n        \"top_losers\":  [{\"stock_id\": \"...\", \"change_pct\": float}, ...5],\n        \"strategies\":  {\n            \"value\":    {\"total\": int, \"top5\": [stock_ids]},\n            \"growth\":   {\"total\": int, \"top5\": [stock_ids]},\n            \"momentum\": {\"total\": int, \"top5\": [stock_ids]},\n        }\n    }\n",
+      "input_schema": {
+        "properties": {},
+        "title": "generate_daily_briefingArguments",
         "type": "object"
       }
     }
