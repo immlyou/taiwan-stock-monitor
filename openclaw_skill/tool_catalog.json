@@ -1,0 +1,620 @@
+{
+  "name": "taiwan-stock-monitor",
+  "version": "1.0.0",
+  "description": "Taiwan stock market data, analysis, strategies, backtests, AI insights",
+  "backend": "https://taiwan-stock-api-production.up.railway.app",
+  "protocol": "mcp-1.0",
+  "transport": "stdio",
+  "total_tools": 34,
+  "tools": [
+    {
+      "name": "market_summary",
+      "description": "\nGet Taiwan stock market summary: TAIEX index, up/down counts, top 10 gainers and losers.\nUse this for daily market overview questions like \"how is Taiwan stock market today\".\n",
+      "input_schema": {
+        "properties": {},
+        "title": "market_summaryArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "market_heatmap",
+      "description": "\nGet market heatmap grouped by industry. Returns each active stock with its\nprice and percentage change, organized under industry categories.\nUseful for \"which industries are hot today\".\n",
+      "input_schema": {
+        "properties": {},
+        "title": "market_heatmapArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "market_money_flow",
+      "description": "\nGet institutional money flow: net buy/sell from foreign investors, investment\ntrust, and dealers. Includes top 10 most-bought and most-sold stocks per group.\n",
+      "input_schema": {
+        "properties": {},
+        "title": "market_money_flowArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "market_after_hours",
+      "description": "\nAfter-hours market summary: TAIEX close, top 5 gainers/losers, institutional net,\nand value/growth/momentum strategy top picks for the day.\n",
+      "input_schema": {
+        "properties": {},
+        "title": "market_after_hoursArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "market_benchmark",
+      "description": "Get TAIEX benchmark index history.",
+      "input_schema": {
+        "properties": {},
+        "title": "market_benchmarkArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "market_industries",
+      "description": "Get performance ranking across industry sectors.",
+      "input_schema": {
+        "properties": {},
+        "title": "market_industriesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "search_stocks",
+      "description": "\nSearch stocks by ID or name (fuzzy match).\n\nArgs:\n    query: Search keyword — either stock code like \"2330\" or name like \"台積電\".\n    limit: Max results to return (1-100). Default 20.\n",
+      "input_schema": {
+        "properties": {
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "search_stocksArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_active_stocks",
+      "description": "\nList all actively trading stocks (traded within last 30 days).\nIncludes latest price and daily change percentage for each.\n",
+      "input_schema": {
+        "properties": {},
+        "title": "list_active_stocksArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_stock",
+      "description": "\nGet basic info + recent price history for a stock.\nReturns: name, industry, latest price, change%, PE/PB/dividend yield, revenue YoY, price_history.\n\nArgs:\n    stock_id: Stock code, e.g. \"2330\" (TSMC).\n    days: Recent N days of price history (1-250). Default 5.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          },
+          "days": {
+            "default": 5,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_stockArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_stock_technical",
+      "description": "\nTechnical indicators for a stock: RSI(14), MACD, SMA 5/20/60, trend, signals.\n\nArgs:\n    stock_id: Stock code, e.g. \"2330\".\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_stock_technicalArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_stock_chip",
+      "description": "\nChip analysis for a stock: foreign/trust/dealer buy-sell, margin, foreign holding %.\n\nArgs:\n    stock_id: Stock code.\n    days: Recent N days (1-60). Default 5.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          },
+          "days": {
+            "default": 5,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_stock_chipArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_stock_chip_detail",
+      "description": "\nDetailed chip analysis with daily history of institutional activity.\n\nArgs:\n    stock_id: Stock code.\n    days: Recent N days. Default 30.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          },
+          "days": {
+            "default": 30,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_stock_chip_detailArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_stock_ohlcv",
+      "description": "\nOHLCV price history for a stock — open, high, low, close, volume per day.\n\nArgs:\n    stock_id: Stock code.\n    days: Recent N days. Default 60.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          },
+          "days": {
+            "default": 60,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_stock_ohlcvArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_stock_financials",
+      "description": "\nFinancial statements summary for a stock: revenue, profit, EPS, growth rates.\n\nArgs:\n    stock_id: Stock code.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_stock_financialsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "compare_stocks",
+      "description": "\nCompare multiple stocks side by side on key metrics.\n\nArgs:\n    stock_ids: Comma-separated stock codes, e.g. \"2330,2317,2454\".\n",
+      "input_schema": {
+        "properties": {
+          "stock_ids": {
+            "title": "Stock Ids",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_ids"
+        ],
+        "title": "compare_stocksArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_realtime_quote",
+      "description": "\nGet realtime (may be ~20 min delayed) quote for a stock.\n\nArgs:\n    stock_id: Stock code.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "get_realtime_quoteArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "run_strategy",
+      "description": "\nRun a predefined stock picking strategy.\n\nArgs:\n    strategy_type: One of \"value\" (low PE + high yield), \"growth\" (revenue YoY),\n                   \"momentum\" (price breakout + volume).\n    preset: \"conservative\" | \"standard\" | \"aggressive\". Default \"standard\".\n    top_n: Return top N picks (1-50). Default 20.\n",
+      "input_schema": {
+        "properties": {
+          "strategy_type": {
+            "title": "Strategy Type",
+            "type": "string"
+          },
+          "preset": {
+            "default": "standard",
+            "title": "Preset",
+            "type": "string"
+          },
+          "top_n": {
+            "default": 20,
+            "title": "Top N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "strategy_type"
+        ],
+        "title": "run_strategyArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "run_screener",
+      "description": "\nCustom stock screener. Combine any subset of filters (all optional).\n\nArgs:\n    pe_max: Max P/E ratio.\n    pe_min: Min P/E ratio.\n    pb_max: Max P/B ratio.\n    dy_min: Min dividend yield (%).\n    yoy_min: Min revenue YoY growth (%).\n    rsi_max: Max RSI(14).\n    rsi_min: Min RSI(14).\n    top_n: Max results (1-100). Default 20.\n",
+      "input_schema": {
+        "properties": {
+          "pe_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pe Max"
+          },
+          "pe_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pe Min"
+          },
+          "pb_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pb Max"
+          },
+          "dy_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dy Min"
+          },
+          "yoy_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Yoy Min"
+          },
+          "rsi_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rsi Max"
+          },
+          "rsi_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rsi Min"
+          },
+          "top_n": {
+            "default": 20,
+            "title": "Top N",
+            "type": "integer"
+          }
+        },
+        "title": "run_screenerArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "ai_pick_stocks",
+      "description": "Get composite AI-recommended stock picks (combines multiple signals).",
+      "input_schema": {
+        "properties": {},
+        "title": "ai_pick_stocksArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "composite_strategy",
+      "description": "Run composite strategy that aggregates value + growth + momentum signals.",
+      "input_schema": {
+        "properties": {},
+        "title": "composite_strategyArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "ai_claude_analysis",
+      "description": "\nClaude AI-powered deep analysis of a stock (fundamentals + technicals + chip).\nTakes ~10-30 seconds.\n\nArgs:\n    stock_id: Stock code.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "ai_claude_analysisArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "ai_lstm_forecast",
+      "description": "\nLSTM neural-network price forecast for a stock.\n\nArgs:\n    stock_id: Stock code.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_id"
+        ],
+        "title": "ai_lstm_forecastArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "ai_xgboost_pick",
+      "description": "XGBoost ML-based stock picks across the market.",
+      "input_schema": {
+        "properties": {},
+        "title": "ai_xgboost_pickArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "ai_stock_chat",
+      "description": "\nChat with AI about a specific stock — free-form Q&A.\n\nArgs:\n    stock_id: Stock code.\n    question: User question in natural language.\n",
+      "input_schema": {
+        "properties": {
+          "stock_id": {
+            "title": "Stock Id",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_id",
+          "question"
+        ],
+        "title": "ai_stock_chatArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "detect_anomalies",
+      "description": "\nDetect price/volume anomalies across the market (unusual moves).\n\nArgs:\n    top_n: Max anomalies to return. Default 10.\n",
+      "input_schema": {
+        "properties": {
+          "top_n": {
+            "default": 10,
+            "title": "Top N",
+            "type": "integer"
+          }
+        },
+        "title": "detect_anomaliesArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "ai_post_market_summary",
+      "description": "AI-generated post-market narrative summary for the day.",
+      "input_schema": {
+        "properties": {},
+        "title": "ai_post_market_summaryArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "run_backtest",
+      "description": "\nRun a strategy backtest. Takes 5-30 seconds.\n\nArgs:\n    strategy: \"value\" | \"growth\" | \"momentum\".\n    initial_capital: Starting capital. Default 1,000,000 TWD.\n    start_date: Start date YYYY-MM-DD (optional, defaults to 3 years ago).\n    end_date: End date YYYY-MM-DD (optional, defaults to today).\n    rebalance_frequency: \"daily\" | \"weekly\" | \"monthly\" | \"quarterly\". Default \"monthly\".\n    preset: \"conservative\" | \"standard\" | \"aggressive\". Default \"standard\".\n",
+      "input_schema": {
+        "properties": {
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "initial_capital": {
+            "default": 1000000,
+            "title": "Initial Capital",
+            "type": "number"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Date"
+          },
+          "rebalance_frequency": {
+            "default": "monthly",
+            "title": "Rebalance Frequency",
+            "type": "string"
+          },
+          "preset": {
+            "default": "standard",
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "run_backtestArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_portfolios",
+      "description": "List all saved portfolios (id, name, created_at, total_value).",
+      "input_schema": {
+        "properties": {},
+        "title": "list_portfoliosArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_portfolio",
+      "description": "\nGet full portfolio details: holdings, cost basis, current value, P&L.\n\nArgs:\n    portfolio_id: Portfolio ID from list_portfolios.\n",
+      "input_schema": {
+        "properties": {
+          "portfolio_id": {
+            "title": "Portfolio Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ],
+        "title": "get_portfolioArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_watchlists",
+      "description": "List all saved watchlists.",
+      "input_schema": {
+        "properties": {},
+        "title": "list_watchlistsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_watchlist",
+      "description": "\nGet a watchlist with current prices and changes for all stocks in it.\n\nArgs:\n    watchlist_id: Watchlist ID from list_watchlists.\n",
+      "input_schema": {
+        "properties": {
+          "watchlist_id": {
+            "title": "Watchlist Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "watchlist_id"
+        ],
+        "title": "get_watchlistArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "list_alerts",
+      "description": "List all configured price/condition alerts.",
+      "input_schema": {
+        "properties": {},
+        "title": "list_alertsArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "check_alerts_now",
+      "description": "Check all alerts against current market data and return triggered ones.",
+      "input_schema": {
+        "properties": {},
+        "title": "check_alerts_nowArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "health_check",
+      "description": "\nCheck backend health. Returns status, data date, total stocks, FinLab quota usage.\nUse this as a first call to confirm the connection works.\n",
+      "input_schema": {
+        "properties": {},
+        "title": "health_checkArguments",
+        "type": "object"
+      }
+    }
+  ]
+}

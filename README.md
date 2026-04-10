@@ -2,6 +2,28 @@
 
 基於 FinLab API 的台股分析與選股系統，使用 Streamlit 建構。
 
+## 線上入口
+
+| 服務 | 位址 |
+|---|---|
+| 前端 (Next.js on Vercel) | https://taiwan-stock-monitor.vercel.app |
+| API Server (FastAPI on Railway) | https://taiwan-stock-api-production.up.railway.app |
+| API 文件 (Swagger UI) | https://taiwan-stock-api-production.up.railway.app/docs |
+
+## 給第三方 APP / AI 代理串接
+
+想把這個服務接到你自己的 APP、AI 代理、OpenClaw、或 LLM function calling？
+
+👉 **[openclaw_skill/INTEGRATION.md](./openclaw_skill/INTEGRATION.md)** — 完整整合指南（4 種接法）
+
+- **方案 A：MCP stdio** — Claude Desktop / Code / Cursor / OpenClaw MCP 版
+- **方案 B：REST API** — 任何能發 HTTPS 的系統
+- **方案 C：Function Calling Catalog** — OpenAI / Anthropic / Gemini tool use
+- **方案 D：Python skill wrapper** — OpenClaw 舊版
+
+可直接執行的範例程式：[`openclaw_skill/examples/`](./openclaw_skill/examples/)
+機器可讀的工具清單：[`openclaw_skill/tool_catalog.json`](./openclaw_skill/tool_catalog.json) （34 個 tools / JSON Schema）
+
 ## 功能特色
 
 - 22+ 功能頁面，涵蓋選股、回測、籌碼分析、財報分析等
