@@ -51,6 +51,9 @@ from api.helpers import (
 from api.routers import system as system_router
 from api.routers import news as news_router
 from api.routers import social as social_router
+from api.routers import watchlists as watchlists_router
+from api.routers import journal as journal_router
+from api.routers import alerts as alerts_router
 
 from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
 from core.data_loader import get_data_summary, get_active_stocks, FinLabQuotaExceededError
@@ -173,106 +176,25 @@ async def finlab_quota_handler(request: Request, exc: FinLabQuotaExceededError) 
 # ─── 工具函數 已搬遷至 api/helpers.py ───────────────────
 
 
-# ─── Pydantic Models ─────────────────────────────────────
-
-class HoldingItem(BaseModel):
-    stock_id: str
-    shares: int = Field(ge=1)
-    cost_price: float = Field(ge=0)
-    buy_date: Optional[str] = None
-
-
-class PortfolioCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = ""
-
-
-class PortfolioUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    holdings: Optional[List[HoldingItem]] = None
-
-
-class WatchlistCreateRequest(BaseModel):
-    name: str
-    stocks: Optional[List[str]] = []
-
-
-class WatchlistUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    stocks: Optional[List[str]] = None
-
-
-class JournalEntryRequest(BaseModel):
-    stock_id: str
-    action: str = Field(description="buy | sell | note")
-    shares: Optional[int] = None
-    price: Optional[float] = None
-    note: Optional[str] = ""
-    date: Optional[str] = None
-
-
-class AlertCreateRequest(BaseModel):
-    stock_id: str
-    type: str = Field(description="price_above | price_below | rsi_above | rsi_below | volume_spike | ma_cross_up | ma_cross_down | new_high | new_low")
-    value: float
-    note: Optional[str] = ""
-
-
-class BacktestRequest(BaseModel):
-    strategy: str = Field(description="value | growth | momentum")
-    preset: str = Field(default="standard", description="conservative | standard | aggressive")
-    initial_capital: float = Field(default=1_000_000, ge=10_000)
-    rebalance_freq: str = Field(default="ME", description="ME=月底, QE=季底")
-    max_stocks: int = Field(default=10, ge=1, le=50)
-    weight_method: str = Field(default="equal", description="equal | market_cap")
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-
-
-class PredictionRequest(BaseModel):
-    stock_id: str
-    horizon_days: int = Field(default=5, ge=1, le=60)
-    method: str = Field(default="trend", description="trend | mean_reversion")
-
-
-class StrategyCreateRequest(BaseModel):
-    name: str
-    strategy_type: str
-    preset: str = "standard"
-    description: Optional[str] = ""
-    params: Optional[Dict[str, Any]] = None
-
-
-class PortfolioRiskRequest(BaseModel):
-    holdings: List[Dict[str, Any]] = Field(description="[{stock_id, weight}]")
-    days: int = Field(default=252, ge=30, le=1260)
-
-
-class SettingsUpdateRequest(BaseModel):
-    theme: Optional[str] = None
-    language: Optional[str] = None
-    notifications_enabled: Optional[bool] = None
-    default_days: Optional[int] = None
-    extra: Optional[Dict[str, Any]] = None
-
-
-class NewsSentimentRequest(BaseModel):
-    news: List[Dict[str, str]] = Field(default=[], description="新聞列表 [{title, summary, link, source}]")
-
-
-class JournalReviewRequest(BaseModel):
-    entries: List[Dict[str, Any]] = Field(default=[], description="交易日誌條目列表")
-
-
-class StockChatRequest(BaseModel):
-    stock_id: str = Field(description="股票代號")
-    question: str = Field(description="用戶問題")
-    history: Optional[List[Dict[str, str]]] = Field(default=None, description="對話歷史")
-
-
-class PostMarketSummaryRequest(BaseModel):
-    market_data: Optional[Dict[str, Any]] = Field(default=None, description="市場數據，若為空則自動收集")
+# ─── Pydantic Models 已搬遷至 api/models.py ─────────────
+from api.models import (
+    HoldingItem,
+    PortfolioCreateRequest,
+    PortfolioUpdateRequest,
+    WatchlistCreateRequest,
+    WatchlistUpdateRequest,
+    JournalEntryRequest,
+    AlertCreateRequest,
+    BacktestRequest,
+    PredictionRequest,
+    StrategyCreateRequest,
+    PortfolioRiskRequest,
+    SettingsUpdateRequest,
+    NewsSentimentRequest,
+    JournalReviewRequest,
+    StockChatRequest,
+    PostMarketSummaryRequest,
+)
 
 
 # ─── API 端點 ───────────────────────────────────────────
@@ -281,6 +203,9 @@ class PostMarketSummaryRequest(BaseModel):
 app.include_router(system_router.router)
 app.include_router(news_router.router)
 app.include_router(social_router.router)
+app.include_router(watchlists_router.router)
+app.include_router(journal_router.router)
+app.include_router(alerts_router.router)
 
 
 # ════════════════════════════════════════════════════════
@@ -2424,311 +2349,7 @@ async def portfolio_delete(portfolio_id: str):
 
 # ─── 自選股 ─────────────────────────────────────────────
 
-@app.get("/watchlists", tags=["自選股"], dependencies=[Depends(verify_api_key)])
-async def watchlists_list():
-    """取得所有自選股清單。"""
-    try:
-        from app.components.watchlist_utils import load_watchlists, get_watchlist_stocks
-        watchlists = load_watchlists()
-        result = []
-        for name, data in watchlists.items():
-            stocks = get_watchlist_stocks(name)
-            result.append({
-                "id": name,
-                "name": name,
-                "stocks_count": len(stocks),
-            })
-        return {"total": len(result), "watchlists": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/watchlists", tags=["自選股"], dependencies=[Depends(verify_api_key)])
-async def watchlist_create(req: WatchlistCreateRequest):
-    """建立新自選股清單。"""
-    try:
-        from app.components.watchlist_utils import load_watchlists, save_watchlists
-        watchlists = load_watchlists()
-        if req.name in watchlists:
-            raise HTTPException(status_code=409, detail=f"自選股清單 '{req.name}' 已存在")
-        watchlists[req.name] = {
-            "stocks": req.stocks or [],
-            "created_at": datetime.now().isoformat(),
-        }
-        save_watchlists(watchlists)
-        return {"message": "建立成功", "id": req.name, "name": req.name}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/watchlists/{watchlist_id}", tags=["自選股"], dependencies=[Depends(verify_api_key)])
-async def watchlist_get(watchlist_id: str):
-    """取得指定自選股清單，含各股當前報價。"""
-    try:
-        from app.components.watchlist_utils import load_watchlists, get_watchlist_stocks
-        watchlists = load_watchlists()
-        if watchlist_id not in watchlists:
-            raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
-
-        stocks = get_watchlist_stocks(watchlist_id)
-        close = loader.get("close")
-        name_map = _get_stock_name_map()
-        industry_map = _get_industry_map()
-
-        result_stocks = []
-        for sid in stocks:
-            price = change_pct = None
-            try:
-                if sid in close.columns:
-                    s = close[sid].dropna()
-                    price = round(float(s.iloc[-1]), 2)
-                    if len(s) >= 2:
-                        change_pct = round((float(s.iloc[-1]) - float(s.iloc[-2])) / float(s.iloc[-2]) * 100, 2)
-            except Exception:
-                pass
-            result_stocks.append({
-                "stock_id": sid,
-                "name": name_map.get(sid, ""),
-                "industry": industry_map.get(sid, ""),
-                "price": price,
-                "change_pct": change_pct,
-            })
-
-        return {
-            "id": watchlist_id,
-            "name": watchlist_id,
-            "stocks_count": len(stocks),
-            "stocks": result_stocks,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.put("/watchlists/{watchlist_id}", tags=["自選股"], dependencies=[Depends(verify_api_key)])
-async def watchlist_update(watchlist_id: str, req: WatchlistUpdateRequest):
-    """更新自選股清單（可追加或覆蓋股票清單）。"""
-    try:
-        from app.components.watchlist_utils import load_watchlists, save_watchlists
-        watchlists = load_watchlists()
-        if watchlist_id not in watchlists:
-            raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
-
-        entry = watchlists[watchlist_id]
-        if isinstance(entry, list):
-            # 舊格式：升級為 dict
-            entry = {"stocks": entry}
-            watchlists[watchlist_id] = entry
-
-        if req.stocks is not None:
-            entry["stocks"] = req.stocks
-        if req.name is not None and req.name != watchlist_id:
-            watchlists[req.name] = watchlists.pop(watchlist_id)
-            watchlist_id = req.name
-
-        save_watchlists(watchlists)
-        return {"message": "更新成功", "id": watchlist_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/watchlists/{watchlist_id}", tags=["自選股"], dependencies=[Depends(verify_api_key)])
-async def watchlist_delete(watchlist_id: str):
-    """刪除自選股清單。"""
-    try:
-        from app.components.watchlist_utils import load_watchlists, save_watchlists
-        watchlists = load_watchlists()
-        if watchlist_id not in watchlists:
-            raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
-        del watchlists[watchlist_id]
-        save_watchlists(watchlists)
-        return {"message": "刪除成功"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── 交易日誌 ────────────────────────────────────────────
-
-JOURNAL_FILE = "trading_journal.json"
-
-
-@app.get("/journal", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
-async def journal_list(
-    stock_id: Optional[str] = Query(default=None, description="依股票代號篩選"),
-    limit: int = Query(default=50, ge=1, le=200),
-):
-    """取得交易日誌列表。"""
-    try:
-        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
-        entries = data.get("entries", [])
-        if stock_id:
-            entries = [e for e in entries if e.get("stock_id") == stock_id]
-        entries = sorted(entries, key=lambda x: x.get("date", ""), reverse=True)
-        return {"total": len(entries), "entries": entries[:limit]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/journal", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
-async def journal_create(req: JournalEntryRequest):
-    """新增交易日誌記錄。"""
-    try:
-        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
-        entry = {
-            "id": str(uuid.uuid4()),
-            "stock_id": req.stock_id,
-            "action": req.action,
-            "shares": req.shares,
-            "price": req.price,
-            "note": req.note or "",
-            "date": req.date or datetime.now().strftime("%Y-%m-%d"),
-            "created_at": datetime.now().isoformat(),
-        }
-        data["entries"].append(entry)
-        _save_json_file(JOURNAL_FILE, data)
-        return {"message": "新增成功", "entry": entry}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.put("/journal/{entry_id}", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
-async def journal_update(entry_id: str, req: JournalEntryRequest):
-    """更新交易日誌記錄。"""
-    try:
-        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
-        entries = data.get("entries", [])
-        idx = next((i for i, e in enumerate(entries) if e.get("id") == entry_id), None)
-        if idx is None:
-            raise HTTPException(status_code=404, detail=f"找不到日誌記錄: {entry_id}")
-        entries[idx].update({
-            "stock_id": req.stock_id,
-            "action": req.action,
-            "shares": req.shares,
-            "price": req.price,
-            "note": req.note or "",
-            "date": req.date or entries[idx].get("date", ""),
-            "updated_at": datetime.now().isoformat(),
-        })
-        _save_json_file(JOURNAL_FILE, data)
-        return {"message": "更新成功", "entry": entries[idx]}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/journal/{entry_id}", tags=["交易日誌"], dependencies=[Depends(verify_api_key)])
-async def journal_delete(entry_id: str):
-    """刪除交易日誌記錄。"""
-    try:
-        data = _load_json_file(JOURNAL_FILE, default={"entries": []})
-        entries = data.get("entries", [])
-        original_len = len(entries)
-        data["entries"] = [e for e in entries if e.get("id") != entry_id]
-        if len(data["entries"]) == original_len:
-            raise HTTPException(status_code=404, detail=f"找不到日誌記錄: {entry_id}")
-        _save_json_file(JOURNAL_FILE, data)
-        return {"message": "刪除成功"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── 警報 ─────────────────────────────────────────────────
-
-@app.get("/alerts", tags=["警報"], dependencies=[Depends(verify_api_key)])
-async def alerts_list():
-    """取得所有警報設定。"""
-    try:
-        engine = AlertEngine()
-        alerts = engine.alerts_data.get("alerts", [])
-        return {"total": len(alerts), "alerts": alerts}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/alerts", tags=["警報"], dependencies=[Depends(verify_api_key)])
-async def alert_create(req: AlertCreateRequest):
-    """新增警報設定。"""
-    try:
-        engine = AlertEngine()
-        alert = {
-            "id": str(uuid.uuid4()),
-            "stock_id": req.stock_id,
-            "type": req.type,
-            "value": req.value,
-            "note": req.note or "",
-            "enabled": True,
-            "created_at": datetime.now().isoformat(),
-        }
-        engine.alerts_data.setdefault("alerts", []).append(alert)
-        engine._save_alerts()
-        return {"message": "新增成功", "alert": alert}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/alerts/{alert_id}", tags=["警報"], dependencies=[Depends(verify_api_key)])
-async def alert_delete(alert_id: str):
-    """刪除警報設定。"""
-    try:
-        engine = AlertEngine()
-        alerts = engine.alerts_data.get("alerts", [])
-        original_len = len(alerts)
-        engine.alerts_data["alerts"] = [a for a in alerts if a.get("id") != alert_id]
-        if len(engine.alerts_data["alerts"]) == original_len:
-            raise HTTPException(status_code=404, detail=f"找不到警報: {alert_id}")
-        engine._save_alerts()
-        return {"message": "刪除成功"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/alerts/check", tags=["警報"], dependencies=[Depends(verify_api_key)])
-async def check_alerts():
-    """
-    檢查所有已設定的警報，回傳觸發的項目。
-    """
-    try:
-        engine = AlertEngine()
-        close = loader.get("close")
-        volume = loader.get("volume")
-        high = loader.get("high")
-        low = loader.get("low")
-        data = {"close": close, "volume": volume, "high": high, "low": low}
-        triggered = engine.check_all_alerts(data)
-        return {
-            "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "triggered_count": len(triggered),
-            "alerts": [
-                {
-                    "alert_id": a.alert_id,
-                    "stock_id": a.stock_id,
-                    "type": a.alert_type,
-                    "current_value": _safe_json(a.current_value),
-                    "target_value": _safe_json(a.target_value),
-                    "message": a.message,
-                }
-                for a in triggered
-            ],
-        }
-    except Exception as e:
-        return {
-            "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "triggered_count": 0,
-            "alerts": [],
-            "note": str(e),
-        }
+# /watchlists/*, /journal/*, /alerts/* 已抽出到 api/routers/
 
 
 # ─── 預測 ─────────────────────────────────────────────────
