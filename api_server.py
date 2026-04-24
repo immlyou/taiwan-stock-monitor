@@ -193,8 +193,8 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(sec
 
 
 # ─── API 回應快取 ────────────────────────────────────────
-_api_cache: Dict[str, Any] = {}
-_cache_ttl: Dict[str, float] = {}
+# Backend 自動選擇：REDIS_URL 有設 → Redis，否則 in-memory（見 core/cache.py）
+from core.cache import get_cache, make_key
 
 
 def cached_response(ttl_seconds: int = 300):
@@ -202,17 +202,19 @@ def cached_response(ttl_seconds: int = 300):
 
     僅快取無路徑參數的 GET 端點（即 args 為空），
     有路徑參數的個股端點不適合全量快取。
+
+    Backend 在程序啟動時決定（Redis / in-memory），失敗自動降級。
     """
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            cache_key = f"{func.__name__}:{str(sorted(kwargs.items()))}"
-            now = time.time()
-            if cache_key in _api_cache and now - _cache_ttl.get(cache_key, 0) < ttl_seconds:
-                return _api_cache[cache_key]
+            cache = get_cache()
+            cache_key = make_key(func.__name__, kwargs)
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
             result = await func(*args, **kwargs)
-            _api_cache[cache_key] = result
-            _cache_ttl[cache_key] = now
+            cache.set(cache_key, result, ttl_seconds)
             return result
         return wrapper
     return decorator
