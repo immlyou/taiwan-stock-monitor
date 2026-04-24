@@ -26,10 +26,8 @@ from enum import Enum
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Body
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import uvicorn
 import pandas as pd
@@ -37,32 +35,14 @@ import numpy as np
 import json as _json
 import math
 
-
-class SafeJSONResponse(JSONResponse):
-    """自動將 NaN/Infinity 替換為 null 的 JSON Response"""
-    def render(self, content: Any) -> bytes:
-        return _json.dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            default=self._default,
-        ).encode("utf-8")
-
-    @staticmethod
-    def _default(obj: Any) -> Any:
-        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
-            return None
-        if isinstance(obj, (np.floating,)):
-            v = float(obj)
-            return None if (math.isnan(v) or math.isinf(v)) else v
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+# API 層模組（從 api_server.py 拆分）
+from api.response import SafeJSONResponse
+from api.deps import verify_api_key, security, API_KEY
+from api.state import loader, multi_source, DATA_DIR
+from api.routers import system as system_router
 
 from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
-from core.data_loader import DataLoader, get_data_summary, get_active_stocks, FinLabQuotaExceededError
+from core.data_loader import get_data_summary, get_active_stocks, FinLabQuotaExceededError
 from core.indicators import (
     calculate_rsi, calculate_macd, calculate_sma, calculate_ema,
     calculate_bollinger_bands, calculate_kdj, calculate_atr,
@@ -173,25 +153,6 @@ async def finlab_quota_handler(request: Request, exc: FinLabQuotaExceededError) 
         },
     )
 
-# API Key 驗證
-API_KEY = os.getenv("STOCK_API_KEY", "")
-security = HTTPBearer(auto_error=False)
-
-
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """驗證 API Key（若有設定）。
-
-    未設定 STOCK_API_KEY 時允許所有請求通過，適合本地開發。
-    生產環境務必設定 STOCK_API_KEY。
-    """
-    if not API_KEY:
-        logger.debug("API_KEY 未設定，跳過認證（本地開發模式）")
-        return True
-    if not credentials or credentials.credentials != API_KEY:
-        raise HTTPException(status_code=401, detail="無效的 API Key")
-    return True
-
-
 # ─── API 回應快取 ────────────────────────────────────────
 # Backend 自動選擇：REDIS_URL 有設 → Redis，否則 in-memory（見 core/cache.py）
 from core.cache import get_cache, make_key
@@ -220,16 +181,7 @@ def cached_response(ttl_seconds: int = 300):
     return decorator
 
 
-# 全域 DataLoader
-loader = DataLoader()
-
-# 多源資料 Fallback
-from core.data_sources import MultiSourceDataProvider
-multi_source = MultiSourceDataProvider(loader)
-
-# 資料目錄
-DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# loader / multi_source / DATA_DIR 從 api.state 引入（見上方 imports）
 
 
 
@@ -413,68 +365,13 @@ class PostMarketSummaryRequest(BaseModel):
 
 # ─── API 端點 ───────────────────────────────────────────
 
-@app.get("/", tags=["系統"])
-async def root():
-    """API 根目錄"""
-    return {
-        "name": "台股戰情中心 API",
-        "version": "2.0.0",
-        "docs": "/docs",
-    }
+# 系統 router (/、/health) 已抽出到 api/routers/system.py
+app.include_router(system_router.router)
 
 
 # ════════════════════════════════════════════════════════
 # 第一批：通用 + 市場資料
 # ════════════════════════════════════════════════════════
-
-@app.get("/health", tags=["系統"])
-async def health():
-    """
-    系統健康檢查。
-
-    回傳 API 服務狀態、資料載入狀態、最新資料日期及 FinLab API 流量統計。
-    """
-    from core.data_loader import _finlab_usage_mb, _finlab_quota_exceeded, DataCache, FINLAB_CACHE_TTL
-
-    cache = DataCache()
-    cache_stats = cache.get_stats()
-
-    finlab_info = {
-        "estimated_usage_mb": round(_finlab_usage_mb, 1),
-        "quota_exceeded": _finlab_quota_exceeded,
-        "cache_ttl_seconds": FINLAB_CACHE_TTL,
-        "cached_datasets": cache_stats.get("total_items", 0),
-    }
-
-    if _finlab_quota_exceeded:
-        return {
-            "status": "degraded",
-            "error": "FinLab API 額度超限，已啟用多源 fallback (yfinance/TWSE/FinMind)",
-            "fallback_active": True,
-            "fallback_sources": ["yfinance", "twse", "finmind"],
-            "finlab": finlab_info,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-    try:
-        close = loader.get("close")
-        latest_date = close.index.max().strftime("%Y-%m-%d")
-        total_stocks = len(close.columns)
-        return {
-            "status": "ok",
-            "version": "2.0.0",
-            "latest_data_date": latest_date,
-            "total_stocks": total_stocks,
-            "finlab": finlab_info,
-            "timestamp": datetime.now().isoformat(),
-        }
-    except Exception as e:
-        return {
-            "status": "degraded",
-            "error": str(e),
-            "finlab": finlab_info,
-            "timestamp": datetime.now().isoformat(),
-        }
 
 
 @app.get("/stocks/list", tags=["股票"], dependencies=[Depends(verify_api_key)])
