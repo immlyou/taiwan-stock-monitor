@@ -40,6 +40,12 @@ venv/
 # Data cache (可選擇保留或忽略)
 data/*_cache.json
 
+# Test artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Logs
 *.log
 logs/
