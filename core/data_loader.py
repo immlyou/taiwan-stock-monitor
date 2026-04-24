@@ -209,6 +209,11 @@ class DataLoader:
             if "quota" in err_str or "limit" in err_str or "exceed" in err_str or "5000" in err_str:
                 _finlab_quota_exceeded = True
                 _log.error("FinLab 額度超限: %s", e)
+                try:
+                    from core.finlab_quota_alerter import get_alerter
+                    get_alerter().notify_quota_exceeded(error=str(e))
+                except Exception as alert_err:
+                    _log.warning("quota exceeded alert failed: %s", alert_err)
                 raise FinLabQuotaExceededError(str(e)) from e
             raise
 
@@ -220,6 +225,12 @@ class DataLoader:
                 estimated_mb = 0.1
             _finlab_usage_mb += estimated_mb
             _log.info("FinLab 累計流量: %.1f MB（本次 +%.1f MB）", _finlab_usage_mb, estimated_mb)
+            # 主動告警：跨越 80% / 95% 門檻時觸發
+            try:
+                from core.finlab_quota_alerter import get_alerter
+                get_alerter().check_usage(_finlab_usage_mb)
+            except Exception as alert_err:
+                _log.warning("quota usage alert check failed: %s", alert_err)
         except Exception:
             pass
 
