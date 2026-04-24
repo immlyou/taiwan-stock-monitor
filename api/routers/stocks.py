@@ -107,3 +107,57 @@ async def stocks_active():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/stocks/compare")
+async def stocks_compare(
+    ids: str = Query(..., description="股票代號，逗號分隔，如 2330,2317"),
+    days: int = Query(default=60, ge=10, le=500, description="最近 N 個交易日"),
+):
+    """
+    多股比較 - 回傳多支股票的標準化價格序列（以第一天為基準 = 100）。
+
+    範例: /stocks/compare?ids=2330,2317&days=60
+    """
+    try:
+        stock_ids = [s.strip() for s in ids.split(",") if s.strip()]
+        if not stock_ids:
+            raise HTTPException(status_code=400, detail="請提供至少一個股票代號")
+        if len(stock_ids) > 10:
+            raise HTTPException(status_code=400, detail="最多比較 10 支股票")
+
+        close = loader.get("close")
+        name_map = _get_stock_name_map()
+
+        result_stocks = []
+        for sid in stock_ids:
+            if sid not in close.columns:
+                continue
+            series = close[sid].dropna().tail(days)
+            if len(series) == 0:
+                continue
+            base = float(series.iloc[0])
+            normalized = [(float(v) / base * 100) if base > 0 else 100 for v in series]
+            result_stocks.append({
+                "stock_id": sid,
+                "name": name_map.get(sid, ""),
+                "base_price": round(base, 2),
+                "latest_price": round(float(series.iloc[-1]), 2),
+                "total_return_pct": round((float(series.iloc[-1]) / base - 1) * 100, 2) if base > 0 else 0,
+                "data": [
+                    {"date": d.strftime("%Y-%m-%d"), "price": round(float(p), 2), "normalized": round(n, 2)}
+                    for (d, p), n in zip(series.items(), normalized)
+                ],
+            })
+
+        return {
+            "days": days,
+            "stocks": result_stocks,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# /strategy/* 與 /ai/* 已抽出到 api/routers/{strategy,ai}.py
+# _claude_analyzer singleton 亦搬遷至 api/routers/strategy.py
+

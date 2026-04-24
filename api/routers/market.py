@@ -21,6 +21,7 @@ from api.helpers import (
     cached_response,
 )
 from api.state import loader
+from api.routers.strategy import run_strategy
 from core.data_loader import get_active_stocks, get_data_summary
 
 logger = logging.getLogger(__name__)
@@ -239,3 +240,94 @@ async def market_industries():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/market/after-hours")
+@cached_response(ttl_seconds=300)
+async def market_after_hours():
+    """
+    盤後總覽 - 含市場統計與三大策略 AI 選股結果。
+
+    整合當日收盤數據與 value / growth / momentum 策略各取前 5 名。
+    """
+    try:
+        close = loader.get("close")
+        active = get_active_stocks()
+
+        latest = close[active].iloc[-1]
+        prev = close[active].iloc[-2]
+        changes = ((latest - prev) / prev * 100).dropna()
+        name_map = _get_stock_name_map()
+
+        top_gainers = changes.nlargest(5)
+        top_losers = changes.nsmallest(5)
+
+        strategies_summary = {}
+        for stype in ("value", "growth", "momentum"):
+            try:
+                resp = await run_strategy(stype, preset="standard", top_n=5)
+                strategies_summary[stype] = {
+                    "total": resp["total_matches"],
+                    "top5": [
+                        {"stock_id": s["stock_id"], "name": name_map.get(s["stock_id"], "")}
+                        for s in resp["stocks"][:5]
+                    ],
+                }
+            except Exception:
+                strategies_summary[stype] = {"total": 0, "top5": []}
+
+        # 大盤指數
+        taiex_data = {}
+        try:
+            benchmark = loader.get_benchmark()
+            if benchmark is not None and len(benchmark) >= 2:
+                taiex_close = float(benchmark.iloc[-1])
+                taiex_prev = float(benchmark.iloc[-2])
+                taiex_change = taiex_close - taiex_prev
+                taiex_change_pct = (taiex_change / taiex_prev * 100) if taiex_prev != 0 else 0
+                taiex_data = {
+                    "close": round(taiex_close, 2),
+                    "change": round(taiex_change, 2),
+                    "change_pct": round(taiex_change_pct, 2),
+                }
+        except Exception:
+            pass
+
+        # 三大法人
+        institutional_data = {}
+        for key, label in [("foreign_investors", "foreign"), ("investment_trust", "trust"), ("dealer", "dealer")]:
+            try:
+                df = loader.get(key)
+                net = float(df.iloc[-1].dropna().sum())
+                institutional_data[label] = {"total_net": _safe_json(net)}
+            except Exception:
+                institutional_data[label] = {"total_net": 0}
+
+        return {
+            "date": close.index[-1].strftime("%Y-%m-%d"),
+            "taiex": taiex_data,
+            "institutional": institutional_data,
+            "market": {
+                "up": int((changes > 0).sum()),
+                "down": int((changes < 0).sum()),
+                "flat": int((changes == 0).sum()),
+            },
+            "top_gainers": [
+                {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
+                for sid, pct in top_gainers.items()
+            ],
+            "top_losers": [
+                {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
+                for sid, pct in top_losers.items()
+            ],
+            "ai_picks": strategies_summary,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# /market/benchmark 與 /market/industries 已抽出到 api/routers/market.py
+
+
+# ════════════════════════════════════════════════════════
+# 個股查詢（原有端點保持不變）
+# /stock/{id}/* 已抽出到 api/routers/stock.py
+
