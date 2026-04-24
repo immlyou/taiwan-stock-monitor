@@ -39,7 +39,18 @@ import math
 from api.response import SafeJSONResponse
 from api.deps import verify_api_key, security, API_KEY
 from api.state import loader, multi_source, DATA_DIR
+from api.helpers import (
+    _safe_json,
+    _get_stock_latest,
+    _load_json_file,
+    _save_json_file,
+    _get_stock_name_map,
+    _get_industry_map,
+    cached_response,
+)
 from api.routers import system as system_router
+from api.routers import news as news_router
+from api.routers import social as social_router
 
 from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
 from core.data_loader import get_data_summary, get_active_stocks, FinLabQuotaExceededError
@@ -153,112 +164,13 @@ async def finlab_quota_handler(request: Request, exc: FinLabQuotaExceededError) 
         },
     )
 
-# ─── API 回應快取 ────────────────────────────────────────
-# Backend 自動選擇：REDIS_URL 有設 → Redis，否則 in-memory（見 core/cache.py）
-from core.cache import get_cache, make_key
-
-
-def cached_response(ttl_seconds: int = 300):
-    """快取 API 回應的裝飾器，預設 5 分鐘 TTL。
-
-    僅快取無路徑參數的 GET 端點（即 args 為空），
-    有路徑參數的個股端點不適合全量快取。
-
-    Backend 在程序啟動時決定（Redis / in-memory），失敗自動降級。
-    """
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            cache = get_cache()
-            cache_key = make_key(func.__name__, kwargs)
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return cached
-            result = await func(*args, **kwargs)
-            cache.set(cache_key, result, ttl_seconds)
-            return result
-        return wrapper
-    return decorator
-
-
-# loader / multi_source / DATA_DIR 從 api.state 引入（見上方 imports）
+# cached_response / loader / multi_source / DATA_DIR 從 api.helpers 與 api.state
+# 引入（見上方 imports）。舊定義已搬遷至 api/ 套件。
 
 
 
 
-# ─── 工具函數 ───────────────────────────────────────────
-def _safe_json(obj):
-    """安全轉換 numpy/pandas 物件為 JSON 可序列化格式"""
-    if isinstance(obj, (np.integer,)):
-        return int(obj)
-    if isinstance(obj, (np.floating,)):
-        return round(float(obj), 4) if not np.isnan(obj) else None
-    if isinstance(obj, (np.ndarray,)):
-        return obj.tolist()
-    if isinstance(obj, pd.Timestamp):
-        return obj.strftime("%Y-%m-%d")
-    return obj
-
-
-def _get_stock_latest(stock_id: str, days: int = 1):
-    """取得個股最新數據"""
-    close = loader.get("close")
-    if stock_id not in close.columns:
-        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
-
-    data = close[stock_id].dropna().tail(days)
-    return data
-
-
-def _load_json_file(filename: str, default=None):
-    """安全讀取 data/ 目錄下的 JSON 檔案"""
-    path = DATA_DIR / filename
-    if default is None:
-        default = {}
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return default
-    return default
-
-
-def _save_json_file(filename: str, data) -> None:
-    """安全寫入 data/ 目錄下的 JSON 檔案"""
-    path = DATA_DIR / filename
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-
-
-def _get_stock_name_map() -> Dict[str, str]:
-    """取得股票代號 -> 名稱的對照表"""
-    try:
-        cats = loader.get("categories")
-        if "stock_id" in cats.columns and "name" in cats.columns:
-            return dict(zip(cats["stock_id"].astype(str), cats["name"].astype(str)))
-        elif cats.index.name == "stock_id" or cats.index.dtype == object:
-            if "name" in cats.columns:
-                return dict(zip(cats.index.astype(str), cats["name"].astype(str)))
-    except Exception:
-        pass
-    return {}
-
-
-def _get_industry_map() -> Dict[str, str]:
-    """取得股票代號 -> 產業的對照表"""
-    try:
-        cats = loader.get("categories")
-        for col in ["category", "industry", "產業", "類別"]:
-            if col in cats.columns:
-                id_col = "stock_id" if "stock_id" in cats.columns else cats.index
-                if isinstance(id_col, str):
-                    return dict(zip(cats[id_col].astype(str), cats[col].astype(str)))
-                else:
-                    return dict(zip(id_col.astype(str), cats[col].astype(str)))
-    except Exception:
-        pass
-    return {}
+# ─── 工具函數 已搬遷至 api/helpers.py ───────────────────
 
 
 # ─── Pydantic Models ─────────────────────────────────────
@@ -367,6 +279,8 @@ class PostMarketSummaryRequest(BaseModel):
 
 # 系統 router (/、/health) 已抽出到 api/routers/system.py
 app.include_router(system_router.router)
+app.include_router(news_router.router)
+app.include_router(social_router.router)
 
 
 # ════════════════════════════════════════════════════════
@@ -3295,156 +3209,7 @@ async def quote_realtime_batch(req: BatchQuoteRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/news/latest", tags=["新聞"], dependencies=[Depends(verify_api_key)])
-async def news_latest(
-    limit: int = Query(default=20, ge=1, le=100),
-    stock_id: Optional[str] = Query(default=None, description="依股票代號篩選"),
-):
-    """
-    取得最新股市新聞。
-
-    快取存在且在 10 分鐘內則直接回傳；否則即時觸發 RSS 掃描後回傳。
-    回傳格式已對應前端欄位（url、publishedAt、id）。
-    """
-    try:
-        cache_path = DATA_DIR / "news_cache.json"
-        CACHE_TTL_SECONDS = 600  # 10 分鐘
-
-        # 檢查快取是否存在且未過期
-        cache_valid = False
-        if cache_path.exists():
-            try:
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    cache = json.load(f)
-                updated_at_str = cache.get("updated_at") if isinstance(cache, dict) else None
-                if updated_at_str:
-                    updated_at = datetime.fromisoformat(updated_at_str)
-                    if (datetime.now() - updated_at).total_seconds() < CACHE_TTL_SECONDS:
-                        cache_valid = True
-            except Exception:
-                cache_valid = False
-
-        # 快取無效則即時掃描
-        if not cache_valid:
-            try:
-                from core.news_scanner import NewsScanner
-                scanner = NewsScanner()
-                await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None, scanner.fetch_all_feeds
-                    ),
-                    timeout=30.0,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("新聞掃描超時（30s），使用現有快取")
-            except Exception as e:
-                logger.error(f"新聞掃描失敗: {e}")
-
-        # 讀取（可能剛更新的）快取
-        if not cache_path.exists():
-            return {"total": 0, "news": []}
-
-        with open(cache_path, "r", encoding="utf-8") as f:
-            cache = json.load(f)
-
-        raw_items = cache if isinstance(cache, list) else cache.get("news", cache.get("items", []))
-
-        if stock_id:
-            raw_items = [n for n in raw_items if stock_id in n.get("stocks", [])]
-
-        # 轉換欄位名以符合前端介面（url、publishedAt、id）
-        def _normalize_news_item(n: dict) -> dict:
-            return {
-                "id": n.get("content_hash") or n.get("id") or "",
-                "title": n.get("title", ""),
-                "source": n.get("source", ""),
-                "url": n.get("url") or n.get("link", ""),
-                "publishedAt": n.get("publishedAt") or n.get("published", ""),
-                "category": n.get("category", ""),
-                "summary": n.get("summary", ""),
-                "stocks": n.get("stocks", []),
-                "sentiment": n.get("sentiment", "neutral"),
-                "keywords": n.get("keywords", []),
-            }
-
-        items = [_normalize_news_item(n) for n in raw_items[:limit]]
-
-        return {
-            "total": len(raw_items),
-            "news": items,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/social/hot-stocks", tags=["社群"], dependencies=[Depends(verify_api_key)])
-@cached_response(ttl_seconds=600)
-async def social_hot_stocks(
-    top_n: int = Query(default=20, ge=1, le=50),
-):
-    """
-    社群熱門股票 - 結合新聞熱度、成交量異常、價格動能的熱門排行。
-
-    使用 HotStockAnalyzer 計算綜合熱門分數。
-    """
-    try:
-        from core.hot_stocks import HotStockAnalyzer
-        analyzer = HotStockAnalyzer()
-        hot_stocks = analyzer.get_hot_stocks(top_n=top_n)
-        return {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "total": len(hot_stocks),
-            "hot_stocks": [
-                {
-                    "stock_id": s.stock_id,
-                    "name": s.name,
-                    "industry": s.industry,
-                    "total_score": round(s.total_score, 2),
-                    "news_score": round(s.news_score, 2),
-                    "volume_score": round(s.volume_score, 2),
-                    "momentum_score": round(s.momentum_score, 2),
-                    "volume_ratio": round(s.volume_ratio, 2),
-                    "price_change_5d": round(s.price_change_5d, 2),
-                    "current_price": round(s.current_price, 2),
-                    "tags": s.tags,
-                }
-                for s in hot_stocks
-            ],
-        }
-    except Exception as e:
-        # 降級：使用成交量異常排行
-        try:
-            active = get_active_stocks()
-            close = loader.get("close")
-            vol_df = loader.get("volume")
-            name_map = _get_stock_name_map()
-
-            vol_latest = vol_df[active].iloc[-1]
-            vol_avg = vol_df[active].tail(21).iloc[:-1].mean()
-            vol_ratio = (vol_latest / vol_avg.replace(0, np.nan)).fillna(0)
-            top = vol_ratio.nlargest(top_n)
-
-            latest = close[active].iloc[-1]
-            prev = close[active].iloc[-2]
-            changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
-
-            return {
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "total": len(top),
-                "hot_stocks": [
-                    {
-                        "stock_id": sid,
-                        "name": name_map.get(sid, ""),
-                        "volume_ratio": round(float(ratio), 2),
-                        "change_pct": round(float(changes.get(sid, 0) or 0), 2),
-                        "total_score": round(float(ratio) * 10, 2),
-                    }
-                    for sid, ratio in top.items()
-                ],
-                "note": "HotStockAnalyzer 不可用，以成交量倍數替代",
-            }
-        except Exception as e2:
-            raise HTTPException(status_code=500, detail=str(e2))
+# /news/latest 與 /social/hot-stocks 已抽出到 api/routers/{news,social}.py
 
 
 # ════════════════════════════════════════════════════════
