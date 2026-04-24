@@ -58,6 +58,8 @@ from api.routers import portfolios as portfolios_router
 from api.routers import predictions as predictions_router
 from api.routers import saved_strategies as saved_strategies_router
 from api.routers import settings as settings_router
+from api.routers import stocks as stocks_router
+from api.routers import quote as quote_router
 
 from config import STRATEGY_PARAMS, TRADING_COSTS, BACKTEST_DEFAULTS
 from core.data_loader import get_data_summary, get_active_stocks, FinLabQuotaExceededError
@@ -214,6 +216,8 @@ app.include_router(portfolios_router.router)
 app.include_router(predictions_router.router)
 app.include_router(saved_strategies_router.router)
 app.include_router(settings_router.router)
+app.include_router(stocks_router.router)
+app.include_router(quote_router.router)
 
 
 # ════════════════════════════════════════════════════════
@@ -221,104 +225,7 @@ app.include_router(settings_router.router)
 # ════════════════════════════════════════════════════════
 
 
-@app.get("/stocks/list", tags=["股票"], dependencies=[Depends(verify_api_key)])
-@cached_response(ttl_seconds=3600)
-async def stocks_list():
-    """
-    取得全部股票清單，包含代號與名稱。
-
-    回傳所有在資料庫中的股票（含已下市），搭配類別資訊。
-    """
-    try:
-        close = loader.get("close")
-        all_ids = [col for col in close.columns if col != "date"]
-        name_map = _get_stock_name_map()
-        industry_map = _get_industry_map()
-
-        return {
-            "total": len(all_ids),
-            "stocks": [
-                {
-                    "stock_id": sid,
-                    "name": name_map.get(sid, ""),
-                    "industry": industry_map.get(sid, ""),
-                }
-                for sid in all_ids
-            ],
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/stocks/search", tags=["股票"], dependencies=[Depends(verify_api_key)])
-async def stocks_search(
-    q: str = Query(..., description="搜尋關鍵字（代號或名稱）", min_length=1),
-    limit: int = Query(default=20, ge=1, le=100),
-):
-    """
-    搜尋股票（依代號或名稱模糊比對）。
-
-    範例: /stocks/search?q=台積電
-    """
-    try:
-        close = loader.get("close")
-        all_ids = [col for col in close.columns if col != "date"]
-        name_map = _get_stock_name_map()
-        industry_map = _get_industry_map()
-        q_lower = q.lower()
-
-        results = []
-        for sid in all_ids:
-            name = name_map.get(sid, "")
-            if q_lower in sid.lower() or q_lower in name.lower():
-                results.append({
-                    "stock_id": sid,
-                    "name": name,
-                    "industry": industry_map.get(sid, ""),
-                })
-            if len(results) >= limit:
-                break
-
-        return {"query": q, "total": len(results), "stocks": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/stocks/active", tags=["股票"], dependencies=[Depends(verify_api_key)])
-@cached_response(ttl_seconds=3600)
-async def stocks_active():
-    """
-    取得仍在交易的活躍股票清單（排除已下市）。
-
-    以近 30 天內有交易資料為判斷標準。
-    """
-    try:
-        active = get_active_stocks()
-        name_map = _get_stock_name_map()
-        industry_map = _get_industry_map()
-        close = loader.get("close")
-
-        latest = close[active].iloc[-1]
-        prev = close[active].iloc[-2]
-        changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
-
-        stocks = []
-        for sid in active:
-            stocks.append({
-                "stock_id": sid,
-                "name": name_map.get(sid, ""),
-                "industry": industry_map.get(sid, ""),
-                "latest_price": round(float(latest.get(sid, 0) or 0), 2),
-                "change_pct": round(float(changes.get(sid, 0) or 0), 2),
-            })
-
-        return {
-            "total": len(active),
-            "date": close.index[-1].strftime("%Y-%m-%d"),
-            "stocks": stocks,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# /stocks/list, /stocks/search, /stocks/active 已抽出到 api/routers/stocks.py
 
 
 @app.get("/market/summary", tags=["市場"], dependencies=[Depends(verify_api_key)])
@@ -2317,159 +2224,7 @@ async def optimizer_run(body: Dict[str, Any] = Body(...)):
 # 第五批：即時與社群
 # ════════════════════════════════════════════════════════
 
-@app.get("/quote/realtime/{stock_id}", tags=["報價"], dependencies=[Depends(verify_api_key)])
-async def quote_realtime(stock_id: str):
-    """
-    個股即時報價（以最新收盤價模擬，無法取得真實盤中資料時的 fallback）。
-
-    範例: /quote/realtime/2330
-    """
-    from core.data_loader import _finlab_quota_exceeded
-
-    # ── Fallback: FinLab 額度超限時改用 TWSE 即時報價 ──
-    if _finlab_quota_exceeded:
-        logger.info("[quote] FinLab 額度超限，走 TWSE fallback: %s", stock_id)
-        twse = multi_source.get_realtime_quote(stock_id)
-        if twse:
-            price = twse.get("price") or 0
-            prev = twse.get("yesterday_close") or price
-            change = price - prev
-            change_pct = (change / prev * 100) if prev > 0 else 0
-            return {
-                "stock_id": stock_id,
-                "name": twse.get("name", ""),
-                "price": round(price, 2),
-                "prev_close": round(prev, 2),
-                "change": round(change, 2),
-                "change_pct": round(change_pct, 2),
-                "high": round(twse.get("high") or 0, 2) or None,
-                "low": round(twse.get("low") or 0, 2) or None,
-                "volume": twse.get("volume"),
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "is_realtime": True,
-                "note": "資料來自 TWSE 即時報價 (fallback)",
-                "source": "twse",
-            }
-        raise HTTPException(status_code=503, detail="FinLab 額度超限且 TWSE 即時報價無資料")
-
-    try:
-        close = loader.get("close")
-        if stock_id not in close.columns:
-            raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
-
-        series = close[stock_id].dropna()
-        latest = float(series.iloc[-1])
-        prev = float(series.iloc[-2]) if len(series) >= 2 else latest
-        change = latest - prev
-        change_pct = (change / prev * 100) if prev > 0 else 0
-
-        name_map = _get_stock_name_map()
-
-        # 嘗試取當日高低（如果有資料）
-        high_price = low_price = None
-        try:
-            high_df = loader.get("high")
-            low_df = loader.get("low")
-            if stock_id in high_df.columns:
-                high_price = round(float(high_df[stock_id].dropna().iloc[-1]), 2)
-            if stock_id in low_df.columns:
-                low_price = round(float(low_df[stock_id].dropna().iloc[-1]), 2)
-        except Exception:
-            pass
-
-        volume = None
-        try:
-            vol_df = loader.get("volume")
-            if stock_id in vol_df.columns:
-                volume = int(vol_df[stock_id].dropna().iloc[-1])
-        except Exception:
-            pass
-
-        return {
-            "stock_id": stock_id,
-            "name": name_map.get(stock_id, ""),
-            "price": round(latest, 2),
-            "prev_close": round(prev, 2),
-            "change": round(change, 2),
-            "change_pct": round(change_pct, 2),
-            "high": high_price,
-            "low": low_price,
-            "volume": volume,
-            "date": series.index[-1].strftime("%Y-%m-%d"),
-            "is_realtime": False,
-            "note": "資料為最新交易日收盤價",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class BatchQuoteRequest(BaseModel):
-    stock_ids: List[str] = Field(..., description="股票代號列表", max_items=50)
-
-
-@app.post("/quote/realtime/batch", tags=["報價"], dependencies=[Depends(verify_api_key)])
-async def quote_realtime_batch(req: BatchQuoteRequest):
-    """
-    批次取得多股即時報價。
-
-    一次最多 50 支，使用向量化計算提升效能。
-    """
-    from core.data_loader import _finlab_quota_exceeded
-
-    # ── Fallback: FinLab 額度超限時改用 TWSE 批次報價 ──
-    if _finlab_quota_exceeded:
-        logger.info("[batch_quote] FinLab 額度超限，走 TWSE fallback: %d 支", len(req.stock_ids))
-        twse_results = multi_source.get_realtime_batch(req.stock_ids)
-        quotes = []
-        for item in twse_results:
-            price = item.get("price") or 0
-            prev = item.get("yesterday_close") or price
-            change_pct = ((price - prev) / prev * 100) if prev > 0 else 0
-            quotes.append({
-                "stock_id": item.get("stock_id", ""),
-                "name": item.get("name", ""),
-                "price": round(price, 2),
-                "change_pct": round(change_pct, 2),
-            })
-        return {
-            "total": len(quotes),
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "quotes": quotes,
-            "source": "twse",
-        }
-
-    try:
-        close = loader.get("close")
-        name_map = _get_stock_name_map()
-        valid_ids = [sid for sid in req.stock_ids if sid in close.columns]
-
-        if not valid_ids:
-            return {"total": 0, "quotes": []}
-
-        latest = close[valid_ids].iloc[-1]
-        prev = close[valid_ids].iloc[-2]
-        changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
-
-        quotes = []
-        for sid in valid_ids:
-            quotes.append({
-                "stock_id": sid,
-                "name": name_map.get(sid, ""),
-                "price": round(float(latest.get(sid, 0) or 0), 2),
-                "change_pct": round(float(changes.get(sid, 0) or 0), 2),
-            })
-
-        return {
-            "total": len(quotes),
-            "date": close.index[-1].strftime("%Y-%m-%d"),
-            "quotes": quotes,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
+# /quote/realtime/* 已抽出到 api/routers/quote.py
 # /news/latest 與 /social/hot-stocks 已抽出到 api/routers/{news,social}.py
 
 
