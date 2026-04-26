@@ -134,6 +134,10 @@ FinLab pickle 快取檔很大，預設不應提交到 Git。根目錄的 `*.pick
 
 目前工具目錄包含 35 個 tools。
 
+## 產品 Roadmap
+
+後續智能分析功能開發順序見 [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
+
 ## 測試與檢查
 
 後端測試：
