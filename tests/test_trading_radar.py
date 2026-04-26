@@ -1,6 +1,7 @@
 import pandas as pd
 
 from core.trading_radar import TradingRadar
+from core.radar_pro import RadarPro
 
 
 class RadarLoader:
@@ -60,3 +61,29 @@ def test_trading_radar_scan_returns_categories(monkeypatch):
     assert result["stocks"]
     assert "accumulation" in result["categories"]
     assert "distribution_risk" in result["categories"]
+
+
+def test_radar_pro_backtest_and_tracking(monkeypatch):
+    monkeypatch.setattr("core.radar_pro.get_active_stocks", lambda: ["2330", "2317", "2454"])
+    pro = RadarPro(RadarLoader())
+
+    backtest = pro.backtest(days=80, top_n=2)
+    tracking = pro.tracking()
+
+    assert backtest["summary"]
+    assert tracking["latest_signal_count"] >= 0
+
+
+def test_radar_pro_peer_price_news_and_chip(monkeypatch):
+    monkeypatch.setattr("core.radar_pro.get_active_stocks", lambda: ["2330", "2317", "2454"])
+    pro = RadarPro(RadarLoader())
+
+    peers = pro.peer_comparison("2330")
+    plan = pro.price_plan("2330")
+    news = pro.news_revenue("2330")
+    chip = pro.broker_chip_proxy("2330")
+
+    assert peers["industry"] == "半導體"
+    assert plan["entry_zone"]["low"] <= plan["entry_zone"]["high"]
+    assert "interpretation" in news
+    assert chip["flows"]

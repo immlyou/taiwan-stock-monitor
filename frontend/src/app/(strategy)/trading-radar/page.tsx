@@ -54,6 +54,74 @@ interface RadarResponse {
   categories: Record<string, RadarStock[]>
 }
 
+interface BacktestResponse {
+  summary: Array<{
+    horizon_days: number
+    sample_count: number
+    avg_return_pct: number | null
+    hit_rate_pct: number | null
+    worst_return_pct: number | null
+  }>
+  note: string
+}
+
+interface TrackingResponse {
+  latest_signal_count: number
+  action_counts: Record<string, number>
+  estimated_10d_hit_rate_pct: number | null
+  estimated_10d_avg_return_pct: number | null
+}
+
+interface PortfolioHealth {
+  health_score: number
+  risk_count: number
+  holdings: Array<{ stock_id: string; name?: string; action: string; radar_score: number; pnl_pct: number; suggestion: string }>
+}
+
+interface PeerResponse {
+  industry: string
+  rank?: number | null
+  peer_count: number
+  peers: Array<{ stock_id: string; name?: string; radar_score: number; action: string; revenue_yoy?: number | null }>
+}
+
+interface DailyReport {
+  title: string
+  summary: string[]
+  sections: Record<string, RadarStock[]>
+}
+
+interface NotificationPreview {
+  total: number
+  messages: Array<{ level: string; stock_id: string; title: string; message: string }>
+}
+
+interface TimelineResponse {
+  events: Array<{ date: string; type: string; title: string; impact?: string; url?: string }>
+}
+
+interface PricePlan {
+  entry_zone: { low: number; high: number }
+  stop_loss: number
+  targets: Array<{ label: string; price: number }>
+  risk_reward_ratio: number
+}
+
+interface NewsRevenue {
+  revenue_yoy?: number | null
+  revenue_mom?: number | null
+  news_count: number
+  sentiment_score: number
+  interpretation: string
+}
+
+interface BrokerChip {
+  data_status: string
+  status: string
+  flows: Array<{ name: string; net_5d: number; net_20d: number }>
+  note: string
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   accumulation: '主力吸籌',
   revenue_breakout: '營收爆發未反應',
@@ -127,8 +195,18 @@ function StockCard({ item, onSelect }: { item: RadarStock; onSelect?: (stockId: 
 
 export default function TradingRadarPage() {
   const { data, isLoading, error } = useSWR<RadarResponse>('/radar/stocks?top_n=60', fetchAPI)
+  const { data: backtest } = useSWR<BacktestResponse>('/radar/backtest?days=180&top_n=20', fetchAPI)
+  const { data: tracking } = useSWR<TrackingResponse>('/radar/tracking', fetchAPI)
+  const { data: portfolioHealth } = useSWR<PortfolioHealth>('/radar/portfolio-health/default', fetchAPI)
+  const { data: dailyReport } = useSWR<DailyReport>('/radar/daily-report', fetchAPI)
+  const { data: notifications } = useSWR<NotificationPreview>('/radar/notifications/preview?portfolio_id=default', fetchAPI)
   const [selectedId, setSelectedId] = useState('2330')
   const { data: selected } = useSWR<RadarStock>(selectedId ? `/radar/stock/${selectedId}` : null, fetchAPI)
+  const { data: peers } = useSWR<PeerResponse>(selectedId ? `/radar/peers/${selectedId}` : null, fetchAPI)
+  const { data: timeline } = useSWR<TimelineResponse>(selectedId ? `/radar/events/${selectedId}` : null, fetchAPI)
+  const { data: pricePlan } = useSWR<PricePlan>(selectedId ? `/radar/price-plan/${selectedId}` : null, fetchAPI)
+  const { data: newsRevenue } = useSWR<NewsRevenue>(selectedId ? `/radar/news-revenue/${selectedId}` : null, fetchAPI)
+  const { data: brokerChip } = useSWR<BrokerChip>(selectedId ? `/radar/broker-chip/${selectedId}` : null, fetchAPI)
 
   const categories = data?.categories ?? {}
   const topStocks = data?.stocks ?? []
@@ -157,6 +235,33 @@ export default function TradingRadarPage() {
         </div>
       ) : (
         <div className="space-y-6">
+          <div className="grid md:grid-cols-4 gap-3">
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>10日估計命中率</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--primary)' }}>
+                {tracking?.estimated_10d_hit_rate_pct != null ? `${tracking.estimated_10d_hit_rate_pct.toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>10日平均報酬</p>
+              <p className="text-2xl font-bold" style={{ color: getChangeColorVar(tracking?.estimated_10d_avg_return_pct ?? 0) }}>
+                {tracking?.estimated_10d_avg_return_pct != null ? `${tracking.estimated_10d_avg_return_pct > 0 ? '+' : ''}${tracking.estimated_10d_avg_return_pct.toFixed(2)}%` : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>持倉健康分</p>
+              <p className="text-2xl font-bold" style={{ color: (portfolioHealth?.health_score ?? 0) >= 70 ? 'var(--primary)' : 'var(--destructive)' }}>
+                {portfolioHealth?.health_score?.toFixed(0) ?? '—'}
+              </p>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>推播預覽</p>
+              <p className="text-2xl font-bold" style={{ color: (notifications?.total ?? 0) > 0 ? 'var(--destructive)' : 'var(--foreground)' }}>
+                {notifications?.total ?? 0}
+              </p>
+            </div>
+          </div>
+
           {selected && (
             <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
@@ -206,8 +311,100 @@ export default function TradingRadarPage() {
                   </div>
                 </div>
               </div>
+
+              <div className="grid md:grid-cols-4 gap-3 mt-3">
+                {pricePlan && (
+                  <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>價格計畫</p>
+                    <p className="text-sm" style={{ color: 'var(--foreground)' }}>進場 {pricePlan.entry_zone.low.toFixed(2)} - {pricePlan.entry_zone.high.toFixed(2)}</p>
+                    <p className="text-sm" style={{ color: 'var(--destructive)' }}>停損 {pricePlan.stop_loss.toFixed(2)}</p>
+                    <p className="text-sm" style={{ color: 'var(--primary)' }}>R/R {pricePlan.risk_reward_ratio.toFixed(2)}</p>
+                  </div>
+                )}
+                {peers && (
+                  <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>同業比較</p>
+                    <p className="text-sm" style={{ color: 'var(--foreground)' }}>{peers.industry}</p>
+                    <p className="text-sm" style={{ color: 'var(--primary)' }}>排名 {peers.rank ?? '—'} / {peers.peer_count}</p>
+                  </div>
+                )}
+                {newsRevenue && (
+                  <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>新聞與營收</p>
+                    <p className="text-sm" style={{ color: 'var(--foreground)' }}>{newsRevenue.interpretation}</p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>新聞 {newsRevenue.news_count} / 情緒 {newsRevenue.sentiment_score.toFixed(1)}</p>
+                  </div>
+                )}
+                {brokerChip && (
+                  <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>券商籌碼代理</p>
+                    <p className="text-sm" style={{ color: 'var(--foreground)' }}>{brokerChip.status}</p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>{brokerChip.note}</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>雷達訊號回測</h2>
+              <div className="space-y-2">
+                {(backtest?.summary ?? []).map((row) => (
+                  <div key={row.horizon_days} className="flex justify-between text-sm">
+                    <span style={{ color: 'var(--muted-foreground)' }}>{row.horizon_days}日</span>
+                    <span style={{ color: getChangeColorVar(row.avg_return_pct ?? 0) }}>
+                      勝率 {row.hit_rate_pct?.toFixed(1) ?? '—'}% / {row.avg_return_pct != null && row.avg_return_pct > 0 ? '+' : ''}{row.avg_return_pct?.toFixed(2) ?? '—'}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>每日操盤報告</h2>
+              <div className="space-y-2">
+                {(dailyReport?.summary ?? []).map((line) => (
+                  <p key={line} className="text-sm" style={{ color: 'var(--foreground)' }}>{line}</p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>持倉健檢</h2>
+              <div className="space-y-2">
+                {(portfolioHealth?.holdings ?? []).slice(0, 5).map((item) => (
+                  <div key={item.stock_id} className="flex justify-between gap-2 text-sm">
+                    <span style={{ color: 'var(--foreground)' }}>{item.stock_id} {item.name ?? ''}</span>
+                    <span style={{ color: actionColor(item.action) }}>{item.action}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>事件時間軸</h2>
+              <div className="space-y-2">
+                {(timeline?.events ?? []).slice(0, 8).map((event) => (
+                  <div key={`${event.date}-${event.title}`} className="flex gap-3 text-sm">
+                    <span className="w-20 shrink-0" style={{ color: 'var(--muted-foreground)' }}>{event.date}</span>
+                    <span style={{ color: 'var(--foreground)' }}>{event.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>智慧推播預覽</h2>
+              <div className="space-y-2">
+                {(notifications?.messages ?? []).slice(0, 8).map((msg) => (
+                  <div key={`${msg.stock_id}-${msg.title}`} className="text-sm">
+                    <p style={{ color: msg.level === 'high' ? 'var(--destructive)' : 'var(--primary)' }}>{msg.title}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{msg.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
           <div className="grid md:grid-cols-5 gap-3">
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => (

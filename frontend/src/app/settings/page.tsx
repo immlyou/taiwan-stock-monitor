@@ -361,7 +361,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.5.0
+              v3.6.0
             </span>
           </div>
 
@@ -423,6 +423,18 @@ export default function SettingsPage() {
 /* ------------------------------------------------------------------ */
 
 const CHANGELOG = [
+  {
+    version: 'v3.6.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：雷達訊號回測，估算 5/10/20 日勝率、平均報酬與最差報酬',
+      '功能新增：訊號追蹤與命中率儀表板，統計最新動作分布與代理命中率',
+      '功能新增：持倉自動健檢，將雷達風險套用到投資組合持股',
+      '功能新增：同業比較雷達，顯示個股在同產業中的雷達排名與百分位',
+      '功能新增：每日操盤報告、智慧推播預覽、事件時間軸、價格計畫、新聞營收解讀與券商籌碼代理訊號',
+    ],
+  },
   {
     version: 'v3.5.0',
     date: '2026-04-26',
