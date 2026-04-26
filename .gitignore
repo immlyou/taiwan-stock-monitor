@@ -68,3 +68,11 @@ reports/
 # Legacy Flask files
 legacy/
 .gstack/
+.vercel
+.env*.local
+
+# Local agent / workflow tool state
+.omc/
+.pm/
+.claude/worktrees/
+frontend/.vercel.bak/

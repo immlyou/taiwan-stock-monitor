@@ -361,7 +361,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.2.0
+              v3.3.0
             </span>
           </div>
 
@@ -423,6 +423,20 @@ export default function SettingsPage() {
 /* ------------------------------------------------------------------ */
 
 const CHANGELOG = [
+  {
+    version: 'v3.3.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：公開工具目錄鏡像至前端 public/tool_catalog.json，方便外部 AI / app 直接讀取工具定義',
+      '功能新增：新增 API router registration smoke test，保護 24 個核心 router 不會在重構時漏掛',
+      '版本修正：README 與前端 README 更新為 FastAPI + Next.js + Streamlit 並存架構',
+      '版本修正：Vercel 部署忽略規則補齊，排除後端、測試、快取與本機工具狀態',
+      '版本修正：修復前端 lint warning，補齊股票搜尋 combobox ARIA 屬性',
+      '版本修正：固定 Turbopack root，避免 Next.js build 誤判 workspace root',
+      '版本修正：持倉總覽同步處理投資組合明細載入錯誤狀態',
+    ],
+  },
   {
     version: 'v3.2.0',
     date: '2026-03-27',

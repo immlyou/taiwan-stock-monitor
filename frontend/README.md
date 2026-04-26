@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 台股戰情中心前端
 
-## Getting Started
+Next.js 前端，提供台股戰情中心的正式 Web UI。後端 API 由根目錄的 FastAPI server 提供。
 
-First, run the development server:
+## 技術棧
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- SWR
+- Radix UI primitives
+- lucide-react
+- Recharts / lightweight-charts
+
+## 本機開發
+
+先在專案根目錄啟動 API：
+
+```bash
+python api_server.py --host 0.0.0.0 --port 8000 --reload
+```
+
+再啟動前端：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+開啟 `http://localhost:3000`。
+
+## 環境變數
+
+建立 `frontend/.env.local`：
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+生產環境部署到 Vercel 時，`NEXT_PUBLIC_API_URL` 必須設定為 Railway API：
+
+```env
+NEXT_PUBLIC_API_URL=https://taiwan-stock-api-production.up.railway.app
+```
+
+## API Proxy
+
+[next.config.ts](./next.config.ts) 會將瀏覽器端 `/api/:path*` rewrite 到 `NEXT_PUBLIC_API_URL`：
+
+```text
+/api/market/summary -> https://.../market/summary
+```
+
+前端 API helper 位於 [src/lib/api/client.ts](./src/lib/api/client.ts)。Client Components 使用 `/api` proxy；Server Components / SSR 直接使用 `NEXT_PUBLIC_API_URL`。
+
+## 常用指令
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run lint
+npm run build
+npm run start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 部署
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+部署平台：Vercel。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+相關檔案：
 
-## Learn More
+- [`vercel.json`](./vercel.json)
+- [`next.config.ts`](./next.config.ts)
+- 根目錄 [`.vercelignore`](../.vercelignore)
 
-To learn more about Next.js, take a look at the following resources:
+Vercel 建置時只需要前端與少量公開資源。後端程式、測試、FinLab pickle 快取與本機工具資料會由 `.vercelignore` 排除。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 公開工具目錄
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+[`public/tool_catalog.json`](./public/tool_catalog.json) 是給外部 AI / app 讀取的工具目錄鏡像，來源應與根目錄 [`openclaw_skill/tool_catalog.json`](../openclaw_skill/tool_catalog.json) 保持一致。

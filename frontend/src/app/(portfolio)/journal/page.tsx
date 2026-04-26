@@ -3,7 +3,6 @@
 import React, { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
-import { getChangeColorVar } from '@/lib/utils/format'
 
 interface JournalEntry {
   id: string

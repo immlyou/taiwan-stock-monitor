@@ -69,7 +69,7 @@ function useDashboard() {
     )
 
   const isLoading = listLoading || (!!portfolioId && detailLoading)
-  const isError = !!listError
+  const isError = !!listError || !!detailError
 
   return { detail, isLoading, isError, hasPortfolio: !!portfolioId }
 }
