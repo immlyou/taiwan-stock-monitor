@@ -361,7 +361,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.4.0
+              v3.4.1
             </span>
           </div>
 
@@ -423,6 +423,17 @@ export default function SettingsPage() {
 /* ------------------------------------------------------------------ */
 
 const CHANGELOG = [
+  {
+    version: 'v3.4.1',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：公司營運概況資料層，支援主要產品線、營收來源、業務範圍與產業別',
+      '功能新增：個股頁新增公司營運概況卡，補足僅有技術數據時的基本面脈絡',
+      '功能新增：新增 /stock/{id}/profile API，先讀本機補充資料，再嘗試公開資料來源自動補齊',
+      '資料補充：友輝 4933 新增產品線與 113 年度增光膜內外銷營收結構',
+    ],
+  },
   {
     version: 'v3.4.0',
     date: '2026-04-26',

@@ -9,6 +9,7 @@ def test_all_routers_registered():
     expected = [
         ("market",           "/market/summary"),
         ("stock",            "/stock/{stock_id}"),
+        ("stock_profile",    "/stock/{stock_id}/profile"),
         ("stock_scorecard",  "/stock/{stock_id}/scorecard"),
         ("stock_score_history", "/stock/{stock_id}/score-history"),
         ("strategy",         "/strategy/{strategy_type}"),

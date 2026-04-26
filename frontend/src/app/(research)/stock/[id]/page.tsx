@@ -36,6 +36,30 @@ interface StockDetail {
   dividend_yield?: number
   revenue_yoy?: number
   price_history?: Array<{ date: string; price: number }>
+  company_profile?: CompanyProfile
+}
+
+interface CompanyProfile {
+  stock_id: string
+  name?: string
+  company_full_name?: string
+  market?: string
+  industry?: string
+  business_scope?: string
+  business_summary?: string
+  product_lines?: string[]
+  revenue_sources?: Array<{
+    period?: string
+    name: string
+    amount_thousand_twd?: number
+    ratio_pct?: number
+  }>
+  website?: string
+  capital?: string
+  chairman?: string
+  general_manager?: string
+  profile_sources?: Array<{ name: string; url?: string }>
+  updated_at?: string
 }
 
 // GET /stock/:id/ohlcv?days=120
@@ -172,6 +196,11 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
 
   const { data: scorecard } = useSWR<ScorecardResponse>(
     `/stock/${id}/scorecard`,
+    fetchAPI
+  )
+
+  const { data: companyProfile } = useSWR<CompanyProfile>(
+    `/stock/${id}/profile`,
     fetchAPI
   )
 
@@ -392,6 +421,90 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* 公司營運概況 */}
+      {(companyProfile ?? stock?.company_profile) && (
+        <div
+          className="rounded-lg p-4 mb-6"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          {(() => {
+            const profile = companyProfile ?? stock?.company_profile
+            if (!profile) return null
+            return (
+              <>
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                  <div>
+                    <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>公司營運概況</h2>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                      {profile.company_full_name || profile.name || id}
+                      {profile.market ? ` / ${profile.market}` : ''}
+                      {profile.industry ? ` / ${profile.industry}` : ''}
+                    </p>
+                  </div>
+                  {profile.updated_at && (
+                    <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>更新 {profile.updated_at}</span>
+                  )}
+                </div>
+
+                {profile.business_summary && (
+                  <p className="text-sm leading-relaxed mb-4" style={{ color: 'var(--foreground)' }}>
+                    {profile.business_summary}
+                  </p>
+                )}
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>主要產品線</p>
+                    {profile.product_lines?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {profile.product_lines.map((product) => (
+                          <span key={product} className="px-2 py-1 rounded text-xs" style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)' }}>
+                            {product}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>尚無產品線資料</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>營收來源</p>
+                    {profile.revenue_sources?.length ? (
+                      <div className="space-y-2">
+                        {profile.revenue_sources.map((source) => (
+                          <div key={`${source.period}-${source.name}`}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span style={{ color: 'var(--foreground)' }}>{source.name}</span>
+                              <span style={{ color: 'var(--muted-foreground)' }}>
+                                {source.ratio_pct != null ? `${source.ratio_pct.toFixed(1)}%` : source.period ?? ''}
+                              </span>
+                            </div>
+                            {source.ratio_pct != null && (
+                              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(100, source.ratio_pct)}%`, background: 'var(--primary)' }} />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>尚無營收結構資料</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  {profile.business_scope && <span>業務範圍：{profile.business_scope}</span>}
+                  {profile.capital && <span>資本額：{profile.capital}</span>}
+                  {profile.website && <span>網站：{profile.website}</span>}
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 

@@ -1,0 +1,42 @@
+{
+  "4933": {
+    "stock_id": "4933",
+    "name": "友輝",
+    "company_full_name": "友輝光電股份有限公司",
+    "market": "上櫃",
+    "industry": "光電業",
+    "business_scope": "LCD背光模組零組件-聚光片",
+    "product_lines": [
+      "增光膜／聚光片",
+      "LCD 背光模組光學膜材料",
+      "車載用光學膜與量子點膜",
+      "擴散膜與貼合型多功能光學膜"
+    ],
+    "revenue_sources": [
+      {
+        "period": "113年度",
+        "name": "增光膜（內銷）",
+        "amount_thousand_twd": 1709641,
+        "ratio_pct": 58.2
+      },
+      {
+        "period": "113年度",
+        "name": "增光膜（外銷）",
+        "amount_thousand_twd": 1227136,
+        "ratio_pct": 41.8
+      }
+    ],
+    "business_summary": "友輝以 LCD 背光模組用光學膜材料為核心，主要產品包含增光膜／聚光片，並延伸至車載顯示、量子點膜、擴散膜與貼合型多功能光學膜等應用。",
+    "profile_sources": [
+      {
+        "name": "公開資訊觀測站／公司基本資料彙整",
+        "url": "https://mops.twse.com.tw/mops/web/index"
+      },
+      {
+        "name": "友輝公司年報產品組合資料",
+        "url": "https://mops.twse.com.tw/mops/web/t57sb01_q10"
+      }
+    ],
+    "updated_at": "2026-04-26"
+  }
+}

@@ -162,6 +162,12 @@ def generate_stock_summary(loader: Any, stock_id: str) -> Dict[str, Any]:
     weaknesses = sorted_components[-2:]
     labels = score.get("component_labels", {})
     metrics = score.get("key_metrics", {})
+    company_profile: Dict[str, Any] = {}
+    try:
+        from core.company_profile import get_company_profile
+        company_profile = get_company_profile(loader, normalized_id)
+    except Exception:
+        company_profile = {}
 
     total = score.get("total_score")
     rating = score.get("rating")
@@ -183,17 +189,20 @@ def generate_stock_summary(loader: Any, stock_id: str) -> Dict[str, Any]:
         points.append(f"最新營收年增率 {float(metrics['revenue_yoy']):.2f}%")
     if metrics.get("pe_ratio") is not None:
         points.append(f"本益比 {float(metrics['pe_ratio']):.2f}")
+    if company_profile.get("business_scope"):
+        points.append(f"主要業務：{company_profile['business_scope']}")
 
     return {
         "stock_id": normalized_id,
         "name": name_map.get(normalized_id, ""),
-        "industry": industry_map.get(normalized_id, ""),
+        "industry": company_profile.get("industry") or industry_map.get(normalized_id, ""),
         "date": score.get("date"),
         "stance": stance,
         "score": total,
         "rating": rating,
         "summary": f"{normalized_id} {name_map.get(normalized_id, '')} 目前量化評級 {rating}，總分 {total if total is not None else 'N/A'}，判讀為{stance}。",
         "key_points": points,
+        "company_profile": company_profile or None,
         "strengths": [{"component": k, "label": labels.get(k, k), "score": _safe_float(v)} for k, v in strengths],
         "weaknesses": [{"component": k, "label": labels.get(k, k), "score": _safe_float(v)} for k, v in weaknesses],
     }

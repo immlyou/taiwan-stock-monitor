@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.deps import verify_api_key
 from api.helpers import _get_industry_map, _get_stock_name_map, _safe_json, cached_response
 from api.state import loader, multi_source
+from core.company_profile import get_company_profile
 from core.data_loader import FinLabQuotaExceededError
 from core.indicators import (
     calculate_atr,
@@ -105,11 +106,16 @@ async def stock_info(
 
     name_map = _get_stock_name_map()
     industry_map = _get_industry_map()
+    company_profile = None
+    try:
+        company_profile = get_company_profile(loader, stock_id)
+    except Exception:
+        company_profile = None
 
     return {
         "stock_id": stock_id,
         "name": name_map.get(stock_id, ""),
-        "industry": industry_map.get(stock_id, ""),
+        "industry": company_profile.get("industry") if company_profile else industry_map.get(stock_id, ""),
         "latest_price": round(latest_price, 2),
         "change_pct": change_pct,
         "date": price_data.index[-1].strftime("%Y-%m-%d"),
@@ -117,6 +123,7 @@ async def stock_info(
         "pb_ratio": pb,
         "dividend_yield": dy,
         "revenue_yoy": rev_yoy,
+        "company_profile": company_profile,
         "price_history": [
             {
                 "date": d.strftime("%Y-%m-%d"),
@@ -125,6 +132,20 @@ async def stock_info(
             for d, p in price_data.items()
         ],
     }
+
+
+@router.get("/stock/{stock_id}/profile")
+async def stock_company_profile(
+    stock_id: str,
+    refresh: bool = Query(default=False, description="略過本程序快取並重新嘗試資料來源"),
+):
+    """公司營運概況：主要產品線、營收來源、業務範圍與產業別。"""
+    try:
+        return get_company_profile(loader, stock_id, refresh=refresh)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"找不到公司基本資料: {stock_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/stock/{stock_id}/scorecard")
