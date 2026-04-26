@@ -48,6 +48,7 @@ from api.routers import (
     portfolios as portfolios_router,
     predictions as predictions_router,
     quote as quote_router,
+    radar as radar_router,
     reports as reports_router,
     risk as risk_router,
     saved_strategies as saved_strategies_router,
@@ -172,6 +173,7 @@ for _router_module in (
     stocks_router,       # /stocks/list, /search, /active, /compare
     quote_router,        # /quote/realtime/*
     risk_router,         # /risk/*
+    radar_router,        # /radar/*
     scanner_router,      # /scanner/*
     market_router,       # /market/*
     stock_router,        # /stock/{id}/*

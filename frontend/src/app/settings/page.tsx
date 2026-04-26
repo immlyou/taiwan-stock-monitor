@@ -361,7 +361,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.4.1
+              v3.5.0
             </span>
           </div>
 
@@ -423,6 +423,18 @@ export default function SettingsPage() {
 /* ------------------------------------------------------------------ */
 
 const CHANGELOG = [
+  {
+    version: 'v3.5.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：AI 操盤雷達，整合籌碼、營收、技術位置與出貨風險',
+      '功能新增：主力吸籌偵測，辨識法人買超但股價尚未過熱的型態',
+      '功能新增：營收爆發未反應清單，找出基本面轉強但短線漲幅有限的個股',
+      '功能新增：出貨風險警報，提示高位法人轉賣、爆量收低與追價風險',
+      '功能新增：進場等待區與每日觀察清單，提供觀察價、支撐、壓力與失效條件',
+    ],
+  },
   {
     version: 'v3.4.1',
     date: '2026-04-26',

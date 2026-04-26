@@ -49,6 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: '選股篩選', href: '/screener' },
       { label: 'AI 智慧選股', href: '/ai-pick' },
+      { label: 'AI 操盤雷達', href: '/trading-radar' },
       { label: 'AI 異常警報', href: '/ai-anomaly' },
       { label: '回測分析', href: '/backtest' },
       { label: '策略管理', href: '/strategies' },

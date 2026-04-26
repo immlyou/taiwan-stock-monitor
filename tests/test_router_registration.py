@@ -24,6 +24,8 @@ def test_all_routers_registered():
         ("compare",          "/stocks/compare"),
         ("after_hours",      "/market/after-hours"),
         ("risk",             "/risk/portfolio"),
+        ("radar_stocks",     "/radar/stocks"),
+        ("radar_stock",      "/radar/stock/{stock_id}"),
         ("scanner",          "/scanner/hidden-gems"),
         ("quote",            "/quote/realtime/batch"),
         ("stocks",           "/stocks/list"),
