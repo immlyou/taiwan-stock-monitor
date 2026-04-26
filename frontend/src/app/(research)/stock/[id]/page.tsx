@@ -21,6 +21,7 @@ interface StockDetailPageProps {
 }
 
 type TabType = 'chart' | 'technical' | 'chip' | 'basic'
+type ScoreComponentKey = 'value' | 'growth' | 'momentum' | 'chip' | 'quality' | 'risk'
 
 // GET /stock/:id
 interface StockDetail {
@@ -84,6 +85,41 @@ interface ChipResponse {
   foreign_holding_pct?: number
 }
 
+interface ScorecardResponse {
+  stock_id: string
+  name?: string
+  industry?: string
+  date?: string
+  total_score: number | null
+  rating: string
+  component_scores: Record<ScoreComponentKey, number | null>
+  component_labels: Record<ScoreComponentKey, string>
+  key_metrics: {
+    latest_price?: number | null
+    pe_ratio?: number | null
+    pb_ratio?: number | null
+    dividend_yield?: number | null
+    revenue_yoy?: number | null
+    revenue_mom?: number | null
+  }
+  available_components: number
+}
+
+const SCORE_COMPONENT_ORDER: ScoreComponentKey[] = ['value', 'growth', 'momentum', 'chip', 'quality', 'risk']
+
+function getRatingColor(rating: string): string {
+  if (rating === 'A') return '#22c55e'
+  if (rating === 'B') return '#84cc16'
+  if (rating === 'C') return '#f59e0b'
+  if (rating === 'D') return '#f97316'
+  if (rating === 'F') return '#ef4444'
+  return 'var(--muted-foreground)'
+}
+
+function formatScore(score: number | null | undefined): string {
+  return score == null ? '—' : score.toFixed(1)
+}
+
 export default function StockDetailPage({ params }: StockDetailPageProps) {
   const { id } = use(params)
   const router = useRouter()
@@ -110,6 +146,11 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
 
   const { data: chip } = useSWR<ChipResponse>(
     tab === 'chip' ? `/stock/${id}/chip` : null,
+    fetchAPI
+  )
+
+  const { data: scorecard } = useSWR<ScorecardResponse>(
+    `/stock/${id}/scorecard`,
     fetchAPI
   )
 
@@ -204,6 +245,78 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
           accentColor="var(--stock-down)"
         />
       </div>
+
+      {/* 量化評分卡 */}
+      {scorecard && (
+        <div
+          className="rounded-lg p-4 mb-6"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>量化評分卡</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                價值、成長、動能、籌碼、品質、風險六構面綜合評估
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>總分</p>
+                <p className="text-2xl font-bold tabular-nums" style={{ color: getRatingColor(scorecard.rating) }}>
+                  {formatScore(scorecard.total_score)}
+                </p>
+              </div>
+              <div
+                className="h-12 w-12 rounded-md flex items-center justify-center text-lg font-bold"
+                style={{
+                  background: 'var(--secondary)',
+                  color: getRatingColor(scorecard.rating),
+                  border: '1px solid var(--border)',
+                }}
+                aria-label={`量化評級 ${scorecard.rating}`}
+              >
+                {scorecard.rating}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+            {SCORE_COMPONENT_ORDER.map((key) => {
+              const score = scorecard.component_scores[key]
+              const label = scorecard.component_labels[key] ?? key
+              const width = Math.max(0, Math.min(100, score ?? 0))
+              return (
+                <div key={key} className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{label}</span>
+                    <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+                      {formatScore(score)}
+                    </span>
+                  </div>
+                  <div
+                    className="h-1.5 rounded-full overflow-hidden"
+                    style={{ background: 'var(--border)' }}
+                    aria-label={`${label}分數 ${formatScore(score)}`}
+                  >
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${width}%`, background: getRatingColor(scorecard.rating) }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            <span>資料日期：{scorecard.date ?? '—'}</span>
+            <span>可用構面：{scorecard.available_components}/6</span>
+            {scorecard.key_metrics.revenue_mom != null && (
+              <span>營收月增率：{scorecard.key_metrics.revenue_mom.toFixed(2)}%</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 今日行情摘要 */}
       {stock && (

@@ -37,6 +37,7 @@ from core.indicators import (
     calculate_sma,
     calculate_williams_r,
 )
+from core.stock_score import calculate_stock_score
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,25 @@ async def stock_info(
             }
             for d, p in price_data.items()
         ],
+    }
+
+
+@router.get("/stock/{stock_id}/scorecard")
+async def stock_scorecard(stock_id: str):
+    """個股量化評分卡：價值、成長、動能、籌碼、品質、風險六構面。"""
+    try:
+        score = calculate_stock_score(loader, stock_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    name_map = _get_stock_name_map()
+    industry_map = _get_industry_map()
+    return {
+        **score,
+        "name": name_map.get(stock_id, ""),
+        "industry": industry_map.get(stock_id, ""),
     }
 
 
@@ -668,5 +688,4 @@ async def stock_chip_detail(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 

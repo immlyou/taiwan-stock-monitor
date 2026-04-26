@@ -5,16 +5,29 @@ import logging
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import verify_api_key
 from api.state import loader
 from core.data_loader import get_active_stocks
 from core.indicators import calculate_rsi
+from core.stock_score import calculate_top_scores
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["策略"], dependencies=[Depends(verify_api_key)])
+
+
+@router.get("/screener/scores")
+async def screener_scores(
+    top_n: int = Query(default=50, ge=1, le=200, description="回傳前 N 名量化評分股票"),
+):
+    """全市場量化評分排行。"""
+    try:
+        return calculate_top_scores(loader, top_n=top_n)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/screener")
