@@ -43,6 +43,12 @@ class AlertCreateRequest(BaseModel):
     note: Optional[str] = ""
 
 
+class AlertUpdateRequest(BaseModel):
+    enabled: Optional[bool] = None
+    value: Optional[float] = None
+    note: Optional[str] = None
+
+
 # ─── 投資組合 ──────────────────────────────────────────
 class HoldingItem(BaseModel):
     stock_id: str

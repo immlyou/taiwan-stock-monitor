@@ -12,6 +12,7 @@ from api.deps import verify_api_key
 from api.state import loader
 from core.data_loader import get_active_stocks
 from core.indicators import calculate_rsi
+from core.intelligence import calculate_score_upgrades
 from core.stock_score import calculate_top_scores
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,18 @@ async def screener_scores(
     """全市場量化評分排行。"""
     try:
         return calculate_top_scores(loader, top_n=top_n)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/screener/score-upgrades")
+async def screener_score_upgrades(
+    days: int = Query(default=20, ge=2, le=60, description="比較近 N 個交易日評分變化"),
+    top_n: int = Query(default=20, ge=1, le=100, description="升級與降級各回傳 N 筆"),
+):
+    """量化評分升降級榜。"""
+    try:
+        return calculate_score_upgrades(loader, days=days, top_n=top_n)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

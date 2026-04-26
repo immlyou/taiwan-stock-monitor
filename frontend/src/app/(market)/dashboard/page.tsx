@@ -48,6 +48,33 @@ interface PortfoliosListResponse {
   portfolios: PortfolioListItem[]
 }
 
+interface DashboardWidget {
+  id: string
+  type: string
+  enabled: boolean
+  order: number
+  size: string
+  title: string
+  config: Record<string, unknown>
+}
+
+interface DashboardConfig {
+  updated_at: string
+  widgets: DashboardWidget[]
+}
+
+interface SmartAlertsResponse {
+  alerts: Array<{ stock_id: string; name?: string; severity: string; score?: number | null; reasons: string[] }>
+}
+
+interface IndustryRotation {
+  industries: Array<{ industry: string; rotation_score: number; quadrant: string }>
+}
+
+interface ScoreUpgrades {
+  upgrades: Array<{ stock_id: string; name?: string; score_change: number | null; rating: string }>
+}
+
 function useDashboard() {
   // Fetch portfolio list first
   const { data: listData, error: listError, isLoading: listLoading } =
@@ -88,9 +115,14 @@ function PositionRowSkeleton() {
 
 export default function DashboardPage() {
   const { detail, isLoading, isError, hasPortfolio } = useDashboard()
+  const { data: dashboardConfig } = useSWR<DashboardConfig>('/dashboard/config', fetchAPI)
+  const { data: smartAlerts } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=4', fetchAPI)
+  const { data: rotation } = useSWR<IndustryRotation>('/market/industry-rotation?top_n=4', fetchAPI)
+  const { data: scoreUpgrades } = useSWR<ScoreUpgrades>('/screener/score-upgrades?days=20&top_n=4', fetchAPI)
 
   const summary = detail?.summary
   const holdings = detail?.holdings ?? []
+  const widgets = (dashboardConfig?.widgets ?? []).filter((widget) => widget.enabled).sort((a, b) => a.order - b.order)
 
   const kpiCards = [
     {
@@ -151,6 +183,61 @@ export default function DashboardPage() {
               />
             ))}
           </div>
+
+          {widgets.length > 0 && (
+            <div
+              className="rounded-lg p-4 mb-6"
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>自訂 Dashboard</h2>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                    Widget 設定由 /dashboard/config 管理
+                  </p>
+                </div>
+                <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{widgets.length} 個啟用</span>
+              </div>
+              <div className="grid md:grid-cols-3 gap-3">
+                {widgets.slice(0, 6).map((widget) => (
+                  <div key={widget.id} className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>{widget.title}</p>
+                    {widget.type === 'smart_alerts' ? (
+                      <div className="space-y-1">
+                        {(smartAlerts?.alerts ?? []).slice(0, 3).map((item) => (
+                          <p key={item.stock_id} className="text-sm truncate" style={{ color: 'var(--foreground)' }}>
+                            {item.stock_id} {item.reasons[0]}
+                          </p>
+                        ))}
+                      </div>
+                    ) : widget.type === 'industry_rotation' ? (
+                      <div className="space-y-1">
+                        {(rotation?.industries ?? []).slice(0, 3).map((item) => (
+                          <p key={item.industry} className="text-sm flex justify-between gap-2" style={{ color: 'var(--foreground)' }}>
+                            <span className="truncate">{item.industry}</span>
+                            <span style={{ color: getChangeColorVar(item.rotation_score) }}>{item.quadrant}</span>
+                          </p>
+                        ))}
+                      </div>
+                    ) : widget.type === 'score_upgrades' ? (
+                      <div className="space-y-1">
+                        {(scoreUpgrades?.upgrades ?? []).slice(0, 3).map((item) => (
+                          <p key={item.stock_id} className="text-sm flex justify-between gap-2" style={{ color: 'var(--foreground)' }}>
+                            <span>{item.stock_id}</span>
+                            <span style={{ color: getChangeColorVar(item.score_change ?? 0) }}>
+                              {item.score_change != null && item.score_change > 0 ? '+' : ''}{item.score_change?.toFixed(1) ?? '—'}
+                            </span>
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm" style={{ color: 'var(--foreground)' }}>{widget.type}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 持股列表 */}
           <div

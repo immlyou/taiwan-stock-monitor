@@ -40,6 +40,7 @@ from api.routers import (
     ai as ai_router,
     alerts as alerts_router,
     backtest as backtest_router,
+    dashboard as dashboard_router,
     journal as journal_router,
     market as market_router,
     news as news_router,
@@ -163,6 +164,7 @@ for _router_module in (
     watchlists_router,   # /watchlists/*
     journal_router,      # /journal/*
     alerts_router,       # /alerts/*
+    dashboard_router,    # /dashboard/*
     portfolios_router,   # /portfolios/*
     predictions_router,  # /predictions/*
     saved_strategies_router,  # /strategies/saved/*

@@ -361,7 +361,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.3.0
+              v3.4.0
             </span>
           </div>
 
@@ -423,6 +423,20 @@ export default function SettingsPage() {
 /* ------------------------------------------------------------------ */
 
 const CHANGELOG = [
+  {
+    version: 'v3.4.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：Phase 2 評分變化歷史與升降級榜，追蹤量化分數趨勢',
+      '功能新增：Phase 3 智慧警報 2.0，加入評分、突破、跌破與爆量建議',
+      '功能新增：Phase 4 個股 AI 摘要，不依賴外部模型也能產生資料判讀',
+      '功能新增：Phase 5 投資組合診斷，顯示集中度、產業配置、波動與回撤',
+      '功能新增：Phase 6 產業輪動雷達，整合短中期動能與上漲廣度',
+      '功能新增：Phase 7 自訂 Dashboard widget config API 與首屏摘要卡',
+      '版本修正：警報前後端欄位契約對齊，補齊 PATCH 更新與支援類型清單',
+    ],
+  },
   {
     version: 'v3.3.0',
     date: '2026-04-26',

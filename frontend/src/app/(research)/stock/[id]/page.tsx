@@ -105,6 +105,27 @@ interface ScorecardResponse {
   available_components: number
 }
 
+interface ScoreHistoryResponse {
+  history: Array<{
+    date: string
+    total_score: number | null
+    rating: string
+    change: number | null
+    rating_changed: boolean
+  }>
+  score_change: number | null
+}
+
+interface StockSummaryResponse {
+  stance: string
+  score: number | null
+  rating: string
+  summary: string
+  key_points: string[]
+  strengths: Array<{ component: string; label: string; score: number | null }>
+  weaknesses: Array<{ component: string; label: string; score: number | null }>
+}
+
 const SCORE_COMPONENT_ORDER: ScoreComponentKey[] = ['value', 'growth', 'momentum', 'chip', 'quality', 'risk']
 
 function getRatingColor(rating: string): string {
@@ -151,6 +172,16 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
 
   const { data: scorecard } = useSWR<ScorecardResponse>(
     `/stock/${id}/scorecard`,
+    fetchAPI
+  )
+
+  const { data: scoreHistory } = useSWR<ScoreHistoryResponse>(
+    `/stock/${id}/score-history?days=20`,
+    fetchAPI
+  )
+
+  const { data: stockSummary } = useSWR<StockSummaryResponse>(
+    `/ai/stock-summary/${id}`,
     fetchAPI
   )
 
@@ -311,9 +342,55 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
             <span>資料日期：{scorecard.date ?? '—'}</span>
             <span>可用構面：{scorecard.available_components}/6</span>
+            {scoreHistory?.score_change != null && (
+              <span style={{ color: getChangeColorVar(scoreHistory.score_change) }}>
+                近 20 日評分：{scoreHistory.score_change > 0 ? '+' : ''}{scoreHistory.score_change.toFixed(2)}
+              </span>
+            )}
             {scorecard.key_metrics.revenue_mom != null && (
               <span>營收月增率：{scorecard.key_metrics.revenue_mom.toFixed(2)}%</span>
             )}
+          </div>
+
+          {scoreHistory?.history?.length ? (
+            <div className="mt-4 grid grid-cols-5 md:grid-cols-10 gap-1">
+              {scoreHistory.history.slice(-10).map((point) => (
+                <div key={point.date} className="rounded-md p-2 text-center" style={{ background: 'var(--secondary)' }}>
+                  <p className="text-[10px]" style={{ color: 'var(--muted-foreground)' }}>{point.date.slice(5)}</p>
+                  <p className="text-xs font-semibold tabular-nums" style={{ color: getRatingColor(point.rating) }}>
+                    {formatScore(point.total_score)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* AI 摘要 */}
+      {stockSummary && (
+        <div
+          className="rounded-lg p-4 mb-6"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>AI 個股摘要</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                由量化分數、基本面與構面強弱自動產生
+              </p>
+            </div>
+            <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: 'var(--secondary)', color: getRatingColor(stockSummary.rating) }}>
+              {stockSummary.stance}
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed mb-3" style={{ color: 'var(--foreground)' }}>{stockSummary.summary}</p>
+          <div className="grid md:grid-cols-2 gap-3">
+            {stockSummary.key_points.slice(0, 4).map((point) => (
+              <div key={point} className="rounded-md p-3 text-sm" style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}>
+                {point}
+              </div>
+            ))}
           </div>
         </div>
       )}

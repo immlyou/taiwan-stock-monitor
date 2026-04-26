@@ -23,6 +23,7 @@ from api.helpers import (
 from api.state import loader
 from api.routers.strategy import run_strategy
 from core.data_loader import get_active_stocks, get_data_summary
+from core.intelligence import calculate_industry_rotation
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +241,18 @@ async def market_industries():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/market/industry-rotation")
+@cached_response(ttl_seconds=300)
+async def market_industry_rotation(
+    top_n: int = Query(default=30, ge=1, le=100, description="回傳產業數量"),
+):
+    """產業輪動雷達：短中期動能、廣度與領先/改善/轉弱/落後象限。"""
+    try:
+        return calculate_industry_rotation(loader, top_n=top_n)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @router.get("/market/after-hours")
 @cached_response(ttl_seconds=300)
 async def market_after_hours():
@@ -330,4 +343,3 @@ async def market_after_hours():
 # ════════════════════════════════════════════════════════
 # 個股查詢（原有端點保持不變）
 # /stock/{id}/* 已抽出到 api/routers/stock.py
-

@@ -10,6 +10,7 @@ from api.deps import verify_api_key
 from api.helpers import _get_stock_name_map
 from api.models import PortfolioCreateRequest, PortfolioUpdateRequest
 from api.state import loader
+from core.intelligence import diagnose_portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,21 @@ async def portfolio_get(portfolio_id: str):
                 "total_pnl_pct": round(total_pnl_pct, 2),
             },
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolios/{portfolio_id}/diagnostics")
+async def portfolio_diagnostics(portfolio_id: str):
+    """投資組合診斷：集中度、產業配置、風險與調整建議。"""
+    try:
+        from app.components.portfolio_utils import load_portfolios
+        portfolios = load_portfolios()
+        if portfolio_id not in portfolios:
+            raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+        return diagnose_portfolio(loader, portfolio_id, portfolios[portfolio_id])
     except HTTPException:
         raise
     except Exception as e:

@@ -13,16 +13,48 @@ interface AlertsResponse {
   alerts: Alert[]
 }
 
-const ALERT_TYPES: { key: Alert['type']; label: string; unit: string }[] = [
-  { key: 'price_above', label: '價格高於', unit: '元' },
-  { key: 'price_below', label: '價格低於', unit: '元' },
-  { key: 'change_percent', label: '漲跌幅超過', unit: '%' },
-  { key: 'volume', label: '成交量超過', unit: '張' },
+interface AlertTypeOption {
+  type: Alert['type']
+  label: string
+  unit: string
+  default_value: number
+}
+
+interface AlertTypesResponse {
+  types: AlertTypeOption[]
+}
+
+interface SmartAlert {
+  stock_id: string
+  name?: string
+  severity: 'high' | 'medium' | string
+  latest_price: number
+  change_pct: number
+  score?: number | null
+  reasons: string[]
+}
+
+interface SmartAlertsResponse {
+  total: number
+  alerts: SmartAlert[]
+}
+
+const FALLBACK_ALERT_TYPES: AlertTypeOption[] = [
+  { type: 'price_above', label: '價格高於', unit: '元', default_value: 600 },
+  { type: 'price_below', label: '價格低於', unit: '元', default_value: 500 },
+  { type: 'rsi_above', label: 'RSI 高於', unit: '', default_value: 70 },
+  { type: 'rsi_below', label: 'RSI 低於', unit: '', default_value: 30 },
+  { type: 'volume_spike', label: '爆量倍數', unit: '倍', default_value: 2 },
+  { type: 'new_high', label: '創 N 日新高', unit: '日', default_value: 20 },
+  { type: 'new_low', label: '創 N 日新低', unit: '日', default_value: 20 },
 ]
 
 export default function AlertsPage() {
   const { data: alertsData, isLoading, error } = useSWR<AlertsResponse>(SWR_KEY, fetchAPI)
+  const { data: typesData } = useSWR<AlertTypesResponse>('/alerts/types', fetchAPI)
+  const { data: smartData } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=8', fetchAPI)
   const alerts = alertsData?.alerts
+  const alertTypes = typesData?.types ?? FALLBACK_ALERT_TYPES
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -39,10 +71,9 @@ export default function AlertsPage() {
       await fetchAPI(SWR_KEY, {
         method: 'POST',
         body: JSON.stringify({
-          code: form.code.toUpperCase(),
+          stock_id: form.code.toUpperCase(),
           type: form.type,
           value: Number(form.value),
-          enabled: true,
         }),
       })
       await mutate(SWR_KEY)
@@ -104,6 +135,41 @@ export default function AlertsPage() {
         </div>
       )}
 
+      {smartData?.alerts?.length ? (
+        <div
+          className="rounded-lg p-4 mb-6"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>智慧警報建議</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                量化評分、突破、跌破與爆量訊號
+              </p>
+            </div>
+            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{smartData.total} 筆</span>
+          </div>
+          <div className="grid md:grid-cols-2 gap-2">
+            {smartData.alerts.map((item) => (
+              <div key={`${item.stock_id}-${item.reasons.join(',')}`} className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="font-semibold text-sm" style={{ color: 'var(--primary)' }}>
+                    {item.stock_id} {item.name ?? ''}
+                  </p>
+                  <span className="text-xs" style={{ color: item.severity === 'high' ? 'var(--destructive)' : 'var(--muted-foreground)' }}>
+                    {item.severity === 'high' ? '高' : '中'}
+                  </span>
+                </div>
+                <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>
+                  現價 {item.latest_price.toFixed(2)} / 評分 {item.score?.toFixed(1) ?? '—'}
+                </p>
+                <p className="text-xs" style={{ color: 'var(--foreground)' }}>{item.reasons[0]}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {/* 警報列表 */}
       {error ? (
         <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
@@ -118,7 +184,7 @@ export default function AlertsPage() {
       ) : alerts && alerts.length > 0 ? (
         <div className="space-y-2">
           {alerts.map((alert) => {
-            const typeInfo = ALERT_TYPES.find(t => t.key === alert.type)
+            const typeInfo = alertTypes.find(t => t.type === alert.type)
             const statusColor = alert.triggered
               ? 'var(--destructive)'
               : alert.enabled
@@ -152,7 +218,7 @@ export default function AlertsPage() {
 
                 {/* 代號 */}
                 <div className="flex-shrink-0">
-                  <p className="font-semibold" style={{ color: 'var(--primary)' }}>{alert.code}</p>
+                  <p className="font-semibold" style={{ color: 'var(--primary)' }}>{alert.stock_id ?? alert.code}</p>
                   <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{alert.name}</p>
                 </div>
 
@@ -165,7 +231,7 @@ export default function AlertsPage() {
                     </span>
                   </p>
                   <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    建立於 {alert.createdAt.slice(0, 10)}
+                    建立於 {(alert.created_at ?? alert.createdAt ?? '').slice(0, 10)}
                   </p>
                 </div>
 
@@ -229,14 +295,14 @@ export default function AlertsPage() {
                   className="h-9 w-full rounded-md border px-3 text-sm"
                   style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
                 >
-                  {ALERT_TYPES.map(t => (
-                    <option key={t.key} value={t.key}>{t.label}</option>
+                  {alertTypes.map(t => (
+                    <option key={t.type} value={t.type}>{t.label}</option>
                   ))}
                 </select>
               </div>
               <div>
                 <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>
-                  觸發值（{ALERT_TYPES.find(t => t.key === form.type)?.unit}）
+                  觸發值（{alertTypes.find(t => t.type === form.type)?.unit}）
                 </label>
                 <input
                   type="number"
@@ -252,9 +318,9 @@ export default function AlertsPage() {
                 style={{ background: 'var(--secondary)', color: 'var(--muted-foreground)' }}
               >
                 當 <span className="font-semibold" style={{ color: 'var(--foreground)' }}>{form.code || '[股票]'}</span>
-                {' '}{ALERT_TYPES.find(t => t.key === form.type)?.label}
+                {' '}{alertTypes.find(t => t.type === form.type)?.label}
                 {' '}<span className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                  {form.value || '[值]'} {ALERT_TYPES.find(t => t.key === form.type)?.unit}
+                  {form.value || '[值]'} {alertTypes.find(t => t.type === form.type)?.unit}
                 </span>
                 {' '}時觸發警報
               </div>

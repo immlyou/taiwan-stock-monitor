@@ -8,8 +8,10 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,10 +27,22 @@ from api.models import (
 )
 from api.state import loader
 from core.data_loader import get_active_stocks
+from core.intelligence import generate_stock_summary
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["AI 分析"], dependencies=[Depends(verify_api_key)])
+
+
+@router.get("/ai/stock-summary/{stock_id}")
+async def ai_stock_summary(stock_id: str):
+    """個股 AI 摘要 fallback：不依賴外部 LLM 的資料判讀摘要。"""
+    try:
+        return generate_stock_summary(loader, stock_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/ai/news-sentiment")

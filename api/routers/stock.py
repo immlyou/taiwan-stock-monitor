@@ -37,6 +37,7 @@ from core.indicators import (
     calculate_sma,
     calculate_williams_r,
 )
+from core.intelligence import calculate_score_history
 from core.stock_score import calculate_stock_score
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,20 @@ async def stock_scorecard(stock_id: str):
         "name": name_map.get(stock_id, ""),
         "industry": industry_map.get(stock_id, ""),
     }
+
+
+@router.get("/stock/{stock_id}/score-history")
+async def stock_score_history(
+    stock_id: str,
+    days: int = Query(default=20, ge=2, le=30, description="評分歷史交易日數"),
+):
+    """個股量化評分歷史，用於觀察升降級與分數趨勢。"""
+    try:
+        return calculate_score_history(loader, stock_id, days=days)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"找不到股票: {stock_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def _goodinfo_ohlcv_fallback(stock_id: str, days: int = 120):
@@ -688,4 +703,3 @@ async def stock_chip_detail(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

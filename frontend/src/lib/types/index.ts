@@ -41,13 +41,15 @@ export interface Position {
 // 警報
 export interface Alert {
   id: string
-  code: string
-  name: string
-  type: 'price_above' | 'price_below' | 'change_percent' | 'volume'
+  stock_id?: string
+  code?: string
+  name?: string
+  type: 'price_above' | 'price_below' | 'rsi_above' | 'rsi_below' | 'volume_spike' | 'new_high' | 'new_low'
   value: number
   enabled: boolean
   triggered: boolean
-  createdAt: string
+  created_at?: string
+  createdAt?: string
 }
 
 // 策略

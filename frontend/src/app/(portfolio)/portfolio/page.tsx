@@ -34,11 +34,25 @@ interface PortfolioDetail {
   summary: PortfolioSummary
 }
 
+interface PortfolioDiagnostics {
+  concentration: {
+    top_holding_weight: number
+    top_industry_weight: number
+  }
+  risk: {
+    annualized_volatility_pct: number
+    max_drawdown_pct: number
+  }
+  allocation: Array<{ industry: string; weight: number; market_value: number }>
+  suggestions: string[]
+}
+
 const PORTFOLIO_ID = 'default'
 const SWR_KEY = `/portfolios/${PORTFOLIO_ID}`
 
 export default function PortfolioPage() {
   const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI)
+  const { data: diagnostics } = useSWR<PortfolioDiagnostics>(`${SWR_KEY}/diagnostics`, fetchAPI)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editHolding, setEditHolding] = useState<Holding | null>(null)
   const [deleteStockId, setDeleteStockId] = useState<string | null>(null)
@@ -186,6 +200,52 @@ export default function PortfolioPage() {
                 value={`${holdings.length} 支`}
                 accentColor="#f59e0b"
               />
+            </div>
+          )}
+
+          {diagnostics && holdings.length > 0 && (
+            <div
+              className="rounded-lg p-4"
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>投資組合診斷</h3>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>集中度、風險與產業配置</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                <KpiCard title="最大持股權重" value={`${diagnostics.concentration.top_holding_weight.toFixed(1)}%`} accentColor="#f59e0b" />
+                <KpiCard title="最大產業權重" value={`${diagnostics.concentration.top_industry_weight.toFixed(1)}%`} accentColor="#8b5cf6" />
+                <KpiCard title="年化波動率" value={`${diagnostics.risk.annualized_volatility_pct.toFixed(1)}%`} accentColor="var(--primary)" />
+                <KpiCard title="最大回撤" value={`${diagnostics.risk.max_drawdown_pct.toFixed(1)}%`} accentColor="var(--destructive)" />
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                  <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>產業配置</p>
+                  <div className="space-y-2">
+                    {diagnostics.allocation.slice(0, 5).map((item) => (
+                      <div key={item.industry}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span style={{ color: 'var(--foreground)' }}>{item.industry}</span>
+                          <span style={{ color: 'var(--muted-foreground)' }}>{item.weight.toFixed(1)}%</span>
+                        </div>
+                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(100, item.weight)}%`, background: 'var(--primary)' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                  <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>調整建議</p>
+                  <div className="space-y-2">
+                    {diagnostics.suggestions.map((suggestion) => (
+                      <p key={suggestion} className="text-sm" style={{ color: 'var(--foreground)' }}>{suggestion}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
