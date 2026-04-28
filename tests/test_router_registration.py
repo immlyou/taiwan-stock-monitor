@@ -1,4 +1,4 @@
-"""Smoke test: assert all 24 router modules contribute at least one route."""
+"""Smoke test: assert all 47 router modules contribute at least one route."""
 from api_server import app
 
 
