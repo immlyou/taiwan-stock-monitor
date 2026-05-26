@@ -109,3 +109,41 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: https://taiwan-stock-api-production.up.railway.app
         run: npm run build
+
+  e2e:
+    name: Playwright E2E (Vercel)
+    runs-on: ubuntu-latest
+    # 線上環境有外部依賴（Railway API、FinLab）會偶發 flake；先以 advisory 為主
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke E2E against Vercel
+        env:
+          PLAYWRIGHT_BASE_URL: https://taiwan-stock-monitor.vercel.app
+        # 只跑 smoke：頁面可達 + 無未捕獲例外。其他 spec 等線上穩定再開啟。
+        run: npx playwright test e2e/smoke.spec.ts --reporter=list,html
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
