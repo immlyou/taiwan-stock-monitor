@@ -7,8 +7,6 @@ from typing import Any, Dict
 
 from fastapi import APIRouter
 
-from api.state import loader
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["系統"])
@@ -60,22 +58,25 @@ async def health() -> Dict[str, Any]:
             "timestamp": datetime.now().isoformat(),
         }
 
-    try:
-        close = loader.get("close")
-        latest_date = close.index.max().strftime("%Y-%m-%d")
-        total_stocks = len(close.columns)
+    # 只從記憶體快取讀取資料新鮮度，絕不在 healthcheck 內觸發 FinLab 下載；
+    # 否則雲端模式下 healthcheck 會因下載大資料集而超時，導致 Railway 判定
+    # 啟動失敗並回 502（應用程式無法回應）。
+    close = cache.get("close")
+    if close is not None and not close.empty:
         return {
             "status": "ok",
             "version": "2.0.0",
-            "latest_data_date": latest_date,
-            "total_stocks": total_stocks,
+            "latest_data_date": close.index.max().strftime("%Y-%m-%d"),
+            "total_stocks": len(close.columns),
             "finlab": finlab_info,
             "timestamp": datetime.now().isoformat(),
         }
-    except Exception as e:
-        return {
-            "status": "degraded",
-            "error": str(e),
-            "finlab": finlab_info,
-            "timestamp": datetime.now().isoformat(),
-        }
+
+    # 服務本身健康；資料尚在背景預熱或尚未被請求觸發載入。
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "data_status": "warming_up",
+        "finlab": finlab_info,
+        "timestamp": datetime.now().isoformat(),
+    }
