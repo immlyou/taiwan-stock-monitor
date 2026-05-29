@@ -121,8 +121,18 @@ async def _lifespan(app: FastAPI):
             loaded, skipped, failed,
         )
 
+    # 資料預熱改為「背景非阻塞」執行。
+    # 雲端（Railway）走 FinLab API 模式時，預熱會逐一下載多個全市場大資料集；
+    # 若在此 await，會阻塞 app startup 與 /health healthcheck，導致 Railway 判定
+    # 啟動失敗而回 502。改為背景執行後 app 立即可服務，資料邊載入邊就緒（含快取）。
+    def _safe_load() -> None:
+        try:
+            _load()
+        except Exception:  # noqa: BLE001 — 背景任務不可讓例外逸出
+            _log.exception("背景資料預熱發生未預期錯誤")
+
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _load)
+    loop.run_in_executor(None, _safe_load)  # 不 await：背景預熱，不阻塞啟動
 
     yield  # 應用程式運行中
 
@@ -456,25 +466,28 @@ async def health():
             "timestamp": datetime.now().isoformat(),
         }
 
-    try:
-        close = loader.get("close")
-        latest_date = close.index.max().strftime("%Y-%m-%d")
-        total_stocks = len(close.columns)
+    # 只從記憶體快取讀取資料新鮮度，絕不在 healthcheck 內觸發 FinLab 下載；
+    # 否則雲端模式下 healthcheck 會因下載大資料集而超時，導致 Railway 判定
+    # 啟動失敗並回 502（應用程式無法回應）。
+    close = cache.get("close")
+    if close is not None and not close.empty:
         return {
             "status": "ok",
             "version": "2.0.0",
-            "latest_data_date": latest_date,
-            "total_stocks": total_stocks,
+            "latest_data_date": close.index.max().strftime("%Y-%m-%d"),
+            "total_stocks": len(close.columns),
             "finlab": finlab_info,
             "timestamp": datetime.now().isoformat(),
         }
-    except Exception as e:
-        return {
-            "status": "degraded",
-            "error": str(e),
-            "finlab": finlab_info,
-            "timestamp": datetime.now().isoformat(),
-        }
+
+    # 服務本身健康；資料尚在背景預熱或尚未被請求觸發載入。
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "data_status": "warming_up",
+        "finlab": finlab_info,
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 @app.get("/stocks/list", tags=["股票"], dependencies=[Depends(verify_api_key)])
