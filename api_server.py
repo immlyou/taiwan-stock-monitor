@@ -3052,6 +3052,9 @@ async def predictions_list(
     """取得已儲存的預測記錄。"""
     try:
         data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        # 容錯：舊資料檔可能存成 list 格式（非 {"predictions": [...]}）
+        if isinstance(data, list):
+            data = {"predictions": data}
         preds = data.get("predictions", [])
         if stock_id:
             preds = [p for p in preds if p.get("stock_id") == stock_id]
@@ -3129,6 +3132,8 @@ async def prediction_create(req: PredictionRequest):
 
         # 儲存記錄
         data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        if isinstance(data, list):
+            data = {"predictions": data}
         data["predictions"].append(prediction)
         # 只保留最近 500 筆
         data["predictions"] = data["predictions"][-500:]
