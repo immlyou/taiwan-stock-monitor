@@ -6,7 +6,8 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { StockInput } from '@/components/shared/StockInput'
-import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/format'
+import { formatPrice, formatPercent, formatChange, getChangeColorVar } from '@/lib/utils/format'
+import { ratingColor } from '@/lib/constants/chartColors'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
@@ -152,15 +153,6 @@ interface StockSummaryResponse {
 
 const SCORE_COMPONENT_ORDER: ScoreComponentKey[] = ['value', 'growth', 'momentum', 'chip', 'quality', 'risk']
 
-function getRatingColor(rating: string): string {
-  if (rating === 'A') return '#22c55e'
-  if (rating === 'B') return '#84cc16'
-  if (rating === 'C') return '#f59e0b'
-  if (rating === 'D') return '#f97316'
-  if (rating === 'F') return '#ef4444'
-  return 'var(--muted-foreground)'
-}
-
 function formatScore(score: number | null | undefined): string {
   return score == null ? '—' : score.toFixed(1)
 }
@@ -288,19 +280,19 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
         />
         <KpiCard
           title="本益比 PE"
-          value={stock?.pe_ratio != null ? stock.pe_ratio.toFixed(2) : '—'}
+          value={stock?.pe_ratio != null ? formatPrice(stock.pe_ratio) : '—'}
           isLoading={stockLoading}
-          accentColor="#8b5cf6"
+          accentColor="var(--flow-dealer)"
         />
         <KpiCard
           title="股價淨值比 PB"
-          value={stock?.pb_ratio != null ? stock.pb_ratio.toFixed(2) : '—'}
+          value={stock?.pb_ratio != null ? formatPrice(stock.pb_ratio) : '—'}
           isLoading={stockLoading}
-          accentColor="#f59e0b"
+          accentColor="var(--flow-trust)"
         />
         <KpiCard
           title="殖利率"
-          value={stock?.dividend_yield != null ? `${stock.dividend_yield.toFixed(2)}%` : '—'}
+          value={stock?.dividend_yield != null ? `${formatPrice(stock.dividend_yield)}%` : '—'}
           isLoading={stockLoading}
           accentColor="var(--stock-down)"
         />
@@ -322,7 +314,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>總分</p>
-                <p className="text-2xl font-bold tabular-nums" style={{ color: getRatingColor(scorecard.rating) }}>
+                <p className="text-2xl font-bold tabular-nums" style={{ color: ratingColor(scorecard.rating) }}>
                   {formatScore(scorecard.total_score)}
                 </p>
               </div>
@@ -330,7 +322,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                 className="h-12 w-12 rounded-md flex items-center justify-center text-lg font-bold"
                 style={{
                   background: 'var(--secondary)',
-                  color: getRatingColor(scorecard.rating),
+                  color: ratingColor(scorecard.rating),
                   border: '1px solid var(--border)',
                 }}
                 aria-label={`量化評級 ${scorecard.rating}`}
@@ -360,7 +352,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                   >
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${width}%`, background: getRatingColor(scorecard.rating) }}
+                      style={{ width: `${width}%`, background: ratingColor(scorecard.rating) }}
                     />
                   </div>
                 </div>
@@ -373,11 +365,11 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
             <span>可用構面：{scorecard.available_components}/6</span>
             {scoreHistory?.score_change != null && (
               <span style={{ color: getChangeColorVar(scoreHistory.score_change) }}>
-                近 20 日評分：{scoreHistory.score_change > 0 ? '+' : ''}{scoreHistory.score_change.toFixed(2)}
+                近 20 日評分：{formatChange(scoreHistory.score_change)}
               </span>
             )}
             {scorecard.key_metrics.revenue_mom != null && (
-              <span>營收月增率：{scorecard.key_metrics.revenue_mom.toFixed(2)}%</span>
+              <span>營收月增率：{formatPercent(scorecard.key_metrics.revenue_mom)}</span>
             )}
           </div>
 
@@ -386,7 +378,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
               {scoreHistory.history.slice(-10).map((point) => (
                 <div key={point.date} className="rounded-md p-2 text-center" style={{ background: 'var(--secondary)' }}>
                   <p className="text-[10px]" style={{ color: 'var(--muted-foreground)' }}>{point.date.slice(5)}</p>
-                  <p className="text-xs font-semibold tabular-nums" style={{ color: getRatingColor(point.rating) }}>
+                  <p className="text-xs font-semibold tabular-nums" style={{ color: ratingColor(point.rating) }}>
                     {formatScore(point.total_score)}
                   </p>
                 </div>
@@ -409,7 +401,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                 由量化分數、基本面與構面強弱自動產生
               </p>
             </div>
-            <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: 'var(--secondary)', color: getRatingColor(stockSummary.rating) }}>
+            <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: 'var(--secondary)', color: ratingColor(stockSummary.rating) }}>
               {stockSummary.stance}
             </span>
           </div>
@@ -480,7 +472,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                             <div className="flex justify-between text-xs mb-1">
                               <span style={{ color: 'var(--foreground)' }}>{source.name}</span>
                               <span style={{ color: 'var(--muted-foreground)' }}>
-                                {source.ratio_pct != null ? `${source.ratio_pct.toFixed(1)}%` : source.period ?? ''}
+                                {source.ratio_pct != null ? `${formatPrice(source.ratio_pct)}%` : source.period ?? ''}
                               </span>
                             </div>
                             {source.ratio_pct != null && (
@@ -530,7 +522,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                 className="font-semibold"
                 style={{ color: getChangeColorVar(stock.revenue_yoy) }}
               >
-                {stock.revenue_yoy.toFixed(2)}%
+                {formatPercent(stock.revenue_yoy)}
               </p>
             </div>
           )}
@@ -643,7 +635,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                       <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                         <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MA5</p>
                         <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {technical.sma.sma5.toFixed(2)}
+                          {formatPrice(technical.sma.sma5)}
                         </p>
                       </div>
                     )}
@@ -651,7 +643,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                       <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                         <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MA20</p>
                         <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {technical.sma.sma20.toFixed(2)}
+                          {formatPrice(technical.sma.sma20)}
                         </p>
                       </div>
                     )}
@@ -659,7 +651,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                       <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                         <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>MA60</p>
                         <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {technical.sma.sma60.toFixed(2)}
+                          {formatPrice(technical.sma.sma60)}
                         </p>
                       </div>
                     )}
@@ -668,7 +660,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                       <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                         <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>RSI(14)</p>
                         <p className="font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {technical.rsi_14.toFixed(2)}
+                          {formatPrice(technical.rsi_14)}
                         </p>
                       </div>
                     )}
@@ -680,7 +672,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                           className="font-semibold tabular-nums"
                           style={{ color: getChangeColorVar(technical.macd.macd) }}
                         >
-                          {technical.macd.macd.toFixed(2)}
+                          {formatPrice(technical.macd.macd)}
                         </p>
                       </div>
                     )}
@@ -691,7 +683,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                           className="font-semibold tabular-nums"
                           style={{ color: getChangeColorVar(technical.macd.signal) }}
                         >
-                          {technical.macd.signal.toFixed(2)}
+                          {formatPrice(technical.macd.signal)}
                         </p>
                       </div>
                     )}
@@ -702,7 +694,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                           className="font-semibold tabular-nums"
                           style={{ color: getChangeColorVar(technical.macd.histogram) }}
                         >
-                          {technical.macd.histogram.toFixed(2)}
+                          {formatPrice(technical.macd.histogram)}
                         </p>
                       </div>
                     )}
@@ -750,7 +742,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                     <div className="rounded-md p-3 mt-2" style={{ background: 'var(--secondary)' }}>
                       <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>外資持股比例</p>
                       <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                        {chip.foreign_holding_pct.toFixed(2)}%
+                        {formatPrice(chip.foreign_holding_pct)}%
                       </p>
                     </div>
                   )}
@@ -774,10 +766,10 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                       { label: '產業別', value: stock.industry ?? '—' },
                       { label: '現價', value: formatPrice(stock.latest_price) },
                       { label: '漲跌幅', value: formatPercent(stock.change_pct) },
-                      { label: '本益比 (PE)', value: stock.pe_ratio?.toFixed(2) ?? '—' },
-                      { label: '股價淨值比 (PB)', value: stock.pb_ratio?.toFixed(2) ?? '—' },
-                      { label: '殖利率', value: stock.dividend_yield != null ? `${stock.dividend_yield.toFixed(2)}%` : '—' },
-                      { label: '營收年增率', value: stock.revenue_yoy != null ? `${stock.revenue_yoy.toFixed(2)}%` : '—' },
+                      { label: '本益比 (PE)', value: stock.pe_ratio != null ? formatPrice(stock.pe_ratio) : '—' },
+                      { label: '股價淨值比 (PB)', value: stock.pb_ratio != null ? formatPrice(stock.pb_ratio) : '—' },
+                      { label: '殖利率', value: stock.dividend_yield != null ? `${formatPrice(stock.dividend_yield)}%` : '—' },
+                      { label: '營收年增率', value: stock.revenue_yoy != null ? formatPercent(stock.revenue_yoy) : '—' },
                       { label: '資料日期', value: stock.date ?? '—' },
                     ].map(({ label, value }) => (
                       <tr key={label} style={{ borderBottom: '1px solid var(--border)' }}>

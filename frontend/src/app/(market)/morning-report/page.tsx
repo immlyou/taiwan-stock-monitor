@@ -5,7 +5,7 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDate, getChangeColorVar, formatPercent } from '@/lib/utils/format'
+import { formatDate, getChangeColorVar, formatPercent, formatChange } from '@/lib/utils/format'
 
 interface MorningReport {
   date: string
@@ -376,17 +376,9 @@ export default function MorningReportPage() {
                         <span style={{ color: 'var(--muted-foreground)' }}>平均分數</span>
                         <span
                           className="font-bold"
-                          style={{
-                            color:
-                              aiAvgScore > 0
-                                ? 'var(--stock-up)'
-                                : aiAvgScore < 0
-                                ? 'var(--stock-down)'
-                                : 'var(--stock-flat)',
-                          }}
+                          style={{ color: getChangeColorVar(aiAvgScore) }}
                         >
-                          {aiAvgScore > 0 ? '+' : ''}
-                          {aiAvgScore.toFixed(2)}
+                          {formatChange(aiAvgScore)}
                         </span>
                       </div>
                     )}
@@ -420,17 +412,9 @@ export default function MorningReportPage() {
                               </span>
                               <span
                                 className="text-xs font-semibold tabular-nums"
-                                style={{
-                                  color:
-                                    (result.score ?? 0) > 0
-                                      ? 'var(--stock-up)'
-                                      : (result.score ?? 0) < 0
-                                      ? 'var(--stock-down)'
-                                      : 'var(--stock-flat)',
-                                }}
+                                style={{ color: getChangeColorVar(result.score ?? 0) }}
                               >
-                                {(result.score ?? 0) > 0 ? '+' : ''}
-                                {(result.score ?? 0).toFixed(2)}
+                                {formatChange(result.score ?? 0)}
                               </span>
                             </div>
                             {result.impact && (

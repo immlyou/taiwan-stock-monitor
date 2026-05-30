@@ -4,6 +4,8 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { StockInput } from '@/components/shared/StockInput'
+import { CHART_SERIES } from '@/lib/constants/chartColors'
+import { formatPrice, formatPercent } from '@/lib/utils/format'
 import {
   BarChart,
   Bar,
@@ -107,28 +109,56 @@ const RECOMMENDATION_CONFIG: Record<
   string,
   { label: string; bg: string; color: string }
 > = {
-  buy: { label: '買入', bg: '#ef444422', color: '#ef4444' },
-  hold: { label: '持有', bg: '#3b82f622', color: '#3b82f6' },
-  watch: { label: '觀望', bg: '#64748b22', color: '#94a3b8' },
-  sell: { label: '賣出', bg: '#22c55e22', color: '#22c55e' },
+  buy: {
+    label: '買入',
+    bg: 'var(--stock-up-weak)',
+    color: 'var(--stock-up)',
+  },
+  hold: {
+    label: '持有',
+    bg: 'color-mix(in srgb, var(--flow-foreign) 13%, transparent)',
+    color: 'var(--flow-foreign)',
+  },
+  watch: {
+    label: '觀望',
+    bg: 'color-mix(in srgb, var(--stock-flat) 13%, transparent)',
+    color: 'var(--stock-flat)',
+  },
+  sell: {
+    label: '賣出',
+    bg: 'var(--stock-down-weak)',
+    color: 'var(--stock-down)',
+  },
 }
 
 const RISK_CONFIG: Record<
   string,
   { label: string; bg: string; color: string }
 > = {
-  low: { label: '低風險', bg: '#22c55e22', color: '#22c55e' },
-  medium: { label: '中風險', bg: '#f59e0b22', color: '#f59e0b' },
-  high: { label: '高風險', bg: '#ef444422', color: '#ef4444' },
+  low: {
+    label: '低風險',
+    bg: 'var(--stock-down-weak)',
+    color: 'var(--stock-down)',
+  },
+  medium: {
+    label: '中風險',
+    bg: 'color-mix(in srgb, var(--flow-trust) 13%, transparent)',
+    color: 'var(--flow-trust)',
+  },
+  high: {
+    label: '高風險',
+    bg: 'var(--stock-up-weak)',
+    color: 'var(--stock-up)',
+  },
 }
 
 const DIRECTION_CONFIG: Record<string, { label: string; symbol: string; color: string }> = {
-  up: { label: '上漲', symbol: '▲', color: '#ef4444' },
-  '上漲': { label: '上漲', symbol: '▲', color: '#ef4444' },
-  down: { label: '下跌', symbol: '▼', color: '#22c55e' },
-  '下跌': { label: '下跌', symbol: '▼', color: '#22c55e' },
-  sideways: { label: '盤整', symbol: '─', color: '#94a3b8' },
-  '盤整': { label: '盤整', symbol: '─', color: '#94a3b8' },
+  up: { label: '上漲', symbol: '▲', color: 'var(--stock-up)' },
+  '上漲': { label: '上漲', symbol: '▲', color: 'var(--stock-up)' },
+  down: { label: '下跌', symbol: '▼', color: 'var(--stock-down)' },
+  '下跌': { label: '下跌', symbol: '▼', color: 'var(--stock-down)' },
+  sideways: { label: '盤整', symbol: '─', color: 'var(--stock-flat)' },
+  '盤整': { label: '盤整', symbol: '─', color: 'var(--stock-flat)' },
 }
 
 // ─── Shared sub-components ───────────────────────────────────────────────────
@@ -284,8 +314,7 @@ function XGBoostTab() {
                           : 'var(--stock-down)',
                     }}
                   >
-                    {row.predicted_return >= 0 ? '+' : ''}
-                    {(row.predicted_return * 100).toFixed(2)}%
+                    {formatPercent(row.predicted_return * 100)}
                   </td>
                   <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
                     <div className="flex items-center gap-2">
@@ -331,7 +360,7 @@ function XGBoostTab() {
               <XAxis
                 type="number"
                 tickFormatter={(v) => `${v}%`}
-                tick={{ fill: '#94a3b8', fontSize: 11 }}
+                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -339,7 +368,7 @@ function XGBoostTab() {
                 type="category"
                 dataKey="name"
                 width={100}
-                tick={{ fill: '#94a3b8', fontSize: 11 }}
+                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -353,7 +382,7 @@ function XGBoostTab() {
                 }}
                 formatter={(v) => [`${v}%`, '重要性']}
               />
-              <Bar dataKey="value" fill="#3b82f6" radius={[0, 3, 3, 0]} />
+              <Bar dataKey="value" fill={CHART_SERIES[0]} radius={[0, 3, 3, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
@@ -372,7 +401,7 @@ function LSTMTab() {
     fetchAPI
   )
 
-  const dirConfig = data ? (DIRECTION_CONFIG[data.direction] ?? { label: data.direction, symbol: '?', color: '#94a3b8' }) : null
+  const dirConfig = data ? (DIRECTION_CONFIG[data.direction] ?? { label: data.direction, symbol: '?', color: 'var(--stock-flat)' }) : null
 
   return (
     <div>
@@ -467,15 +496,15 @@ function LSTMTab() {
                   }))}
                   margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis
                     dataKey="day"
-                    tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fill: '#94a3b8', fontSize: 11 }}
+                    tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     width={60}
@@ -489,7 +518,7 @@ function LSTMTab() {
                       color: 'var(--foreground)',
                       fontSize: 12,
                     }}
-                    formatter={(v) => [typeof v === 'number' ? v.toFixed(2) : v, '預測價格']}
+                    formatter={(v) => [typeof v === 'number' ? formatPrice(v) : v, '預測價格']}
                   />
                   <Line
                     type="monotone"
@@ -725,7 +754,7 @@ function QuantTab() {
                       className="py-2 px-4 tabular-nums"
                       style={{ color: 'var(--foreground)' }}
                     >
-                      {row.price.toFixed(2)}
+                      {formatPrice(row.price)}
                     </td>
                     <td
                       className="py-2 px-4 tabular-nums"
@@ -793,13 +822,13 @@ function QuantTab() {
                       className="py-2 px-4 tabular-nums"
                       style={{ color: 'var(--foreground)' }}
                     >
-                      {row.price.toFixed(2)}
+                      {formatPrice(row.price)}
                     </td>
                     <td
                       className="py-2 px-4 tabular-nums font-semibold"
                       style={{ color: 'var(--stock-up)' }}
                     >
-                      +{row.revenue_yoy.toFixed(2)}%
+                      {formatPercent(row.revenue_yoy)}
                     </td>
                     <td
                       className="py-2 px-4 tabular-nums font-semibold"
@@ -810,8 +839,7 @@ function QuantTab() {
                             : 'var(--stock-down)',
                       }}
                     >
-                      {row.revenue_mom >= 0 ? '+' : ''}
-                      {row.revenue_mom.toFixed(2)}%
+                      {formatPercent(row.revenue_mom)}
                     </td>
                   </tr>
                 ))}
@@ -867,7 +895,7 @@ function QuantTab() {
                       className="py-2 px-4 tabular-nums"
                       style={{ color: 'var(--foreground)' }}
                     >
-                      {row.price.toFixed(2)}
+                      {formatPrice(row.price)}
                     </td>
                     <td
                       className="py-2 px-4 tabular-nums font-semibold"
@@ -892,7 +920,7 @@ function QuantTab() {
                       className="py-2 px-4 tabular-nums"
                       style={{ color: 'var(--muted-foreground)' }}
                     >
-                      {row.breakout_high.toFixed(2)}
+                      {formatPrice(row.breakout_high)}
                     </td>
                   </tr>
                 ))}

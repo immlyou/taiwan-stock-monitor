@@ -41,6 +41,21 @@
   --flow-foreign: #3b82f6; /* 外資（藍） */
   --flow-trust: #f59e0b;   /* 投信（橘） */
   --flow-dealer: #8b5cf6;  /* 自營商（紫） */
+
+  /* 評級色（A→F，取代各頁 getRatingColor 硬編） */
+  --rating-a: #22c55e;
+  --rating-b: #84cc16;
+  --rating-c: #f59e0b;
+  --rating-d: #f97316;
+  --rating-f: #ef4444;
+
+  /* 圖表序列色（指標/多序列，取代各頁硬編線色） */
+  --chart-1: #3b82f6;
+  --chart-2: #f59e0b;
+  --chart-3: #8b5cf6;
+  --chart-4: #10b981;
+  --chart-5: #ec4899;
+  --chart-6: #06b6d4;
 }
 
 @theme inline {
@@ -71,6 +86,17 @@
   --color-flow-foreign: var(--flow-foreign);
   --color-flow-trust: var(--flow-trust);
   --color-flow-dealer: var(--flow-dealer);
+  --color-rating-a: var(--rating-a);
+  --color-rating-b: var(--rating-b);
+  --color-rating-c: var(--rating-c);
+  --color-rating-d: var(--rating-d);
+  --color-rating-f: var(--rating-f);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-sm: calc(var(--radius) - 4px);

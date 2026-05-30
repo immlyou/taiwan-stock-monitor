@@ -5,7 +5,7 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatPercent } from '@/lib/utils/format'
+import { formatCurrency, formatPercent, formatPrice } from '@/lib/utils/format'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -52,24 +52,58 @@ function useHeatmap() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Color helpers                                                      */
+/*  Heat scale (token-derived)                                         */
 /* ------------------------------------------------------------------ */
 
-function getHeatColor(changePct: number): string {
-  if (changePct >= 7) return '#7f1d1d'
-  if (changePct >= 5) return '#991b1b'
-  if (changePct >= 3) return '#b91c1c'
-  if (changePct >= 1) return '#dc2626'
-  if (changePct > 0) return '#ef4444'
-  if (changePct === 0) return '#374151'
-  if (changePct > -1) return '#22c55e'
-  if (changePct > -3) return '#16a34a'
-  if (changePct > -5) return '#15803d'
-  return '#14532d'
+/*
+ * 熱度色由 --stock-up（紅）/ --stock-down（綠）衍生：
+ * 漲跌幅越大，混入越多黑色（越深）。平盤用 --stock-flat。
+ * LEGEND 由同一組 threshold 派生，避免手動同步。
+ */
+
+interface HeatBucket {
+  /** 觸發此色階所需的最小漲跌幅（含），由大到小排列 */
+  min: number
+  /** 混入基底色的百分比（其餘為黑色，數值越低越深） */
+  intensity: number
+  /** 圖例標籤；undefined 表示不在圖例顯示 */
+  legend?: string
 }
 
+const UP_BUCKETS: HeatBucket[] = [
+  { min: 7, intensity: 38, legend: '漲 7%+' },
+  { min: 5, intensity: 48 },
+  { min: 3, intensity: 58, legend: '漲 3-5%' },
+  { min: 1, intensity: 78 },
+  { min: 0, intensity: 100, legend: '漲 0-3%' }, // > 0
+]
+
+const DOWN_BUCKETS: HeatBucket[] = [
+  { min: -1, intensity: 100, legend: '跌 0-3%' }, // > -1
+  { min: -3, intensity: 78 },
+  { min: -5, intensity: 58, legend: '跌 3-5%' },
+  { min: -Infinity, intensity: 38, legend: '跌 5%+' },
+]
+
+/** 由基底 token 與強度混黑衍生熱度色 */
+function heatFromToken(baseVar: string, intensity: number): string {
+  return `color-mix(in srgb, ${baseVar} ${intensity}%, #000)`
+}
+
+function getHeatColor(changePct: number): string {
+  if (changePct === 0) return 'var(--stock-flat)'
+  if (changePct > 0) {
+    const bucket = UP_BUCKETS.find(b => changePct >= b.min) ?? UP_BUCKETS[UP_BUCKETS.length - 1]
+    return heatFromToken('var(--stock-up)', bucket.intensity)
+  }
+  const bucket = DOWN_BUCKETS.find(b => changePct > b.min) ?? DOWN_BUCKETS[DOWN_BUCKETS.length - 1]
+  return heatFromToken('var(--stock-down)', bucket.intensity)
+}
+
+/** 文字色：在深色卡片/標題上以基底漲跌色提亮顯示 */
 function getTextColor(changePct: number): string {
-  return changePct >= 0 ? '#fca5a5' : '#86efac'
+  const baseVar = changePct >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'
+  return `color-mix(in srgb, ${baseVar} 60%, #fff)`
 }
 
 /* ------------------------------------------------------------------ */
@@ -96,14 +130,17 @@ function processIndustries(data: HeatmapData | undefined): ProcessedIndustry[] {
 /*  Legend                                                              */
 /* ------------------------------------------------------------------ */
 
-const LEGEND = [
-  { label: '漲 7%+', color: '#7f1d1d' },
-  { label: '漲 3-5%', color: '#b91c1c' },
-  { label: '漲 0-3%', color: '#ef4444' },
-  { label: '平盤', color: '#374151' },
-  { label: '跌 0-3%', color: '#22c55e' },
-  { label: '跌 3-5%', color: '#15803d' },
-  { label: '跌 5%+', color: '#14532d' },
+/* 由 threshold 常數派生，避免與 getHeatColor 手動同步 */
+const LEGEND: { label: string; color: string }[] = [
+  ...UP_BUCKETS.filter(b => b.legend).map(b => ({
+    label: b.legend as string,
+    color: heatFromToken('var(--stock-up)', b.intensity),
+  })),
+  { label: '平盤', color: 'var(--stock-flat)' },
+  ...DOWN_BUCKETS.filter(b => b.legend).map(b => ({
+    label: b.legend as string,
+    color: heatFromToken('var(--stock-down)', b.intensity),
+  })),
 ]
 
 /* ------------------------------------------------------------------ */
@@ -132,7 +169,7 @@ function IndustryGrid({
           onClick={() => onSelect(ind)}
           style={{
             background: getHeatColor(ind.avgChange),
-            border: '1px solid rgba(255,255,255,0.1)',
+            border: '1px solid color-mix(in srgb, var(--foreground) 10%, transparent)',
             borderRadius: 8,
             padding: '16px 14px',
             cursor: 'pointer',
@@ -147,24 +184,24 @@ function IndustryGrid({
           className="industry-card"
         >
           {/* 產業名稱 */}
-          <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginBottom: 8, textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+          <div style={{ color: 'var(--foreground)', fontWeight: 700, fontSize: 14, marginBottom: 8, textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
             {ind.industry}
           </div>
 
           {/* 平均漲跌幅 */}
-          <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginBottom: 8, textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
-            {ind.avgChange >= 0 ? '+' : ''}{ind.avgChange.toFixed(2)}%
+          <div style={{ color: 'var(--foreground)', fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginBottom: 8, textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
+            {formatPercent(ind.avgChange)}
           </div>
 
           {/* 股數 & 漲跌比 */}
-          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'color-mix(in srgb, var(--foreground) 75%, transparent)' }}>
             <span>{ind.stockCount} 檔</span>
-            <span style={{ color: '#fca5a5' }}>▲{ind.upCount}</span>
-            <span style={{ color: '#86efac' }}>▼{ind.downCount}</span>
+            <span style={{ color: getTextColor(1) }}>▲{ind.upCount}</span>
+            <span style={{ color: getTextColor(-1) }}>▼{ind.downCount}</span>
           </div>
 
           {/* 右下角箭頭 */}
-          <div style={{ position: 'absolute', right: 10, bottom: 10, color: 'rgba(255,255,255,0.3)', fontSize: 18 }}>
+          <div style={{ position: 'absolute', right: 10, bottom: 10, color: 'color-mix(in srgb, var(--foreground) 30%, transparent)', fontSize: 18 }}>
             →
           </div>
         </button>
@@ -226,7 +263,7 @@ function StockGrid({
             fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
           }}>
-            {industry.avgChange >= 0 ? '+' : ''}{industry.avgChange.toFixed(2)}%
+            {formatPercent(industry.avgChange)}
           </span>
           <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
             {industry.stockCount} 檔
@@ -250,7 +287,7 @@ function StockGrid({
             onMouseLeave={() => setTooltip(null)}
             style={{
               background: getHeatColor(stock.change_pct),
-              border: '1px solid rgba(255,255,255,0.08)',
+              border: '1px solid color-mix(in srgb, var(--foreground) 8%, transparent)',
               borderRadius: 4,
               padding: '10px 8px',
               cursor: 'pointer',
@@ -267,17 +304,17 @@ function StockGrid({
             }}
             className="stock-cell"
           >
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 13, textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+            <span style={{ color: 'var(--foreground)', fontWeight: 700, fontSize: 13, textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
               {stock.stock_id}
             </span>
-            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, lineHeight: 1.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'color-mix(in srgb, var(--foreground) 80%, transparent)', fontSize: 10, lineHeight: 1.2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {stock.name}
             </span>
-            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textShadow: '0 1px 2px rgba(0,0,0,0.4)' }}>
+            <span style={{ color: 'color-mix(in srgb, var(--foreground) 90%, transparent)', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textShadow: '0 1px 2px rgba(0,0,0,0.4)' }}>
               {formatPercent(stock.change_pct)}
             </span>
-            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
-              ${stock.price?.toFixed(0)}
+            <span style={{ color: 'color-mix(in srgb, var(--foreground) 60%, transparent)', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
+              ${formatCurrency(stock.price ?? 0)}
             </span>
           </div>
         ))}
@@ -291,20 +328,20 @@ function StockGrid({
           top: tooltip.y + 14,
           zIndex: 9999,
           pointerEvents: 'none',
-          background: '#1e1e2e',
-          border: '1px solid #444',
+          background: 'var(--card)',
+          border: '1px solid var(--border)',
           borderRadius: 8,
           padding: '10px 14px',
           minWidth: 180,
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{tooltip.stock.stock_id}</span>
-            <span style={{ color: '#aaa', fontSize: 12 }}>{tooltip.stock.name}</span>
+            <span style={{ color: 'var(--foreground)', fontWeight: 700, fontSize: 14 }}>{tooltip.stock.stock_id}</span>
+            <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>{tooltip.stock.name}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#fff', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              ${tooltip.stock.price?.toFixed(2)}
+            <span style={{ color: 'var(--foreground)', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              ${formatPrice(tooltip.stock.price ?? 0)}
             </span>
             <span style={{
               color: getHeatColor(tooltip.stock.change_pct),

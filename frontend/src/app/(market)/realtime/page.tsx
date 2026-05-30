@@ -8,6 +8,7 @@ import {
   formatCurrency,
   formatPercent,
   formatChange,
+  formatPrice,
   getChangeColorVar,
 } from '@/lib/utils/format'
 import type { MarketSummary } from '@/lib/types'
@@ -216,15 +217,15 @@ export default function RealtimePage() {
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums font-bold text-base"
-                          style={{ color: getChangeColorVar(q.change_pct) }}
+                          style={{ color: 'var(--foreground)' }}
                         >
-                          {q.price?.toFixed(2) ?? '-'}
+                          {q.price != null ? formatPrice(q.price) : '-'}
                         </td>
                         <td
                           className="px-4 py-3 tabular-nums font-semibold"
                           style={{ color: getChangeColorVar(q.change_pct) }}
                         >
-                          {formatPercent(q.change_pct)}
+                          {formatPercent(q.change_pct, 2, true)}
                         </td>
                       </tr>
                     ))

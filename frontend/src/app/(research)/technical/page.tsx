@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { StockInput } from '@/components/shared/StockInput'
+import { INDICATOR, CHART_SERIES } from '@/lib/constants/chartColors'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Info } from 'lucide-react'
 import {
@@ -235,14 +236,14 @@ export default function TechnicalPage() {
                 />
                 <Legend />
                 <Line type="monotone" dataKey="close" stroke="var(--primary)" dot={false} strokeWidth={2} name="收盤" />
-                <Line type="monotone" dataKey="sma5" stroke="#3b82f6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA5" />
-                <Line type="monotone" dataKey="sma20" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA20" />
-                <Line type="monotone" dataKey="sma60" stroke="#10b981" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA60" />
+                <Line type="monotone" dataKey="sma5" stroke={INDICATOR.ma5} dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA5" />
+                <Line type="monotone" dataKey="sma20" stroke={INDICATOR.ma20} dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA20" />
+                <Line type="monotone" dataKey="sma60" stroke={INDICATOR.ma60} dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA60" />
                 {activeIndicators.includes('boll') && (
                   <>
-                    <Line type="monotone" dataKey="bb_upper" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林上軌" />
-                    <Line type="monotone" dataKey="bb_mid" stroke="#8b5cf6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林中軌" />
-                    <Line type="monotone" dataKey="bb_lower" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林下軌" />
+                    <Line type="monotone" dataKey="bb_upper" stroke={CHART_SERIES[1]} dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林上軌" />
+                    <Line type="monotone" dataKey="bb_mid" stroke={CHART_SERIES[3]} dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林中軌" />
+                    <Line type="monotone" dataKey="bb_lower" stroke={CHART_SERIES[1]} dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林下軌" />
                   </>
                 )}
               </ComposedChart>
@@ -263,8 +264,8 @@ export default function TechnicalPage() {
                   <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <ChartTooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
                   <Bar dataKey="macd_hist" fill="var(--primary)" name="柱狀" />
-                  <Line type="monotone" dataKey="macd" stroke="#ef4444" dot={false} strokeWidth={1.5} name="MACD" />
-                  <Line type="monotone" dataKey="macd_signal" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="Signal" />
+                  <Line type="monotone" dataKey="macd" stroke={INDICATOR.macd} dot={false} strokeWidth={1.5} name="MACD" />
+                  <Line type="monotone" dataKey="macd_signal" stroke={INDICATOR.signal} dot={false} strokeWidth={1.5} name="Signal" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -284,8 +285,8 @@ export default function TechnicalPage() {
                   <YAxis domain={[0, 100]} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <ChartTooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
                   <Legend />
-                  <Line type="monotone" dataKey="kdj_k" stroke="#3b82f6" dot={false} strokeWidth={1.5} name="K" />
-                  <Line type="monotone" dataKey="kdj_d" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="D" />
+                  <Line type="monotone" dataKey="kdj_k" stroke={CHART_SERIES[0]} dot={false} strokeWidth={1.5} name="K" />
+                  <Line type="monotone" dataKey="kdj_d" stroke={CHART_SERIES[1]} dot={false} strokeWidth={1.5} name="D" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -304,7 +305,7 @@ export default function TechnicalPage() {
                   <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <YAxis domain={[0, 100]} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <ChartTooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
-                  <Line type="monotone" dataKey="rsi14" stroke="#8b5cf6" dot={false} strokeWidth={1.5} name="RSI" />
+                  <Line type="monotone" dataKey="rsi14" stroke={INDICATOR.rsi} dot={false} strokeWidth={1.5} name="RSI" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>

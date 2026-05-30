@@ -4,6 +4,8 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { useRouter } from 'next/navigation'
+import { formatPrice } from '@/lib/utils/format'
+import { ratingColor } from '@/lib/constants/chartColors'
 
 interface ValueStock {
   stock_id: string
@@ -82,15 +84,6 @@ export default function ScreenerPage() {
 
   const formatOptional = (value: number | null | undefined, digits = 1) =>
     value == null ? '—' : value.toFixed(digits)
-
-  const ratingColor = (rating: string) => {
-    if (rating === 'A') return '#22c55e'
-    if (rating === 'B') return '#84cc16'
-    if (rating === 'C') return '#f59e0b'
-    if (rating === 'D') return '#f97316'
-    if (rating === 'F') return '#ef4444'
-    return 'var(--muted-foreground)'
-  }
 
   return (
     <div>
@@ -297,11 +290,11 @@ export default function ScreenerPage() {
                     <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
                     <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{row.stock_id}</td>
                     <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{row.name ?? '—'}</td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.price.toFixed(2)}</td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.pe_ratio.toFixed(1)}</td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{row.pb_ratio.toFixed(2)}</td>
+                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatPrice(row.price)}</td>
+                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatOptional(row.pe_ratio, 1)}</td>
+                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatPrice(row.pb_ratio)}</td>
                     <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: 'var(--primary)' }}>
-                      {row.dividend_yield.toFixed(2)}%
+                      {formatOptional(row.dividend_yield, 2)}%
                     </td>
                   </tr>
                 ))}

@@ -6,6 +6,7 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  formatPrice,
   formatCurrency,
   formatPercent,
   formatChange,
@@ -300,7 +301,7 @@ export default function DashboardPage() {
                               className="px-4 py-3 tabular-nums"
                               style={{ color: 'var(--foreground)' }}
                             >
-                              {h.cost_price.toFixed(2)}
+                              {formatPrice(h.cost_price)}
                             </td>
                             <td
                               className="px-4 py-3 tabular-nums font-semibold"
@@ -308,7 +309,7 @@ export default function DashboardPage() {
                                 color: getChangeColorVar(currentPrice - h.cost_price),
                               }}
                             >
-                              {currentPrice.toFixed(2)}
+                              {formatPrice(currentPrice)}
                             </td>
                             <td
                               className="px-4 py-3 tabular-nums"

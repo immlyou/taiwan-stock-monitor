@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
-import { getChangeColorVar } from '@/lib/utils/format'
+import { getChangeColorVar, formatPrice } from '@/lib/utils/format'
+import { FLOW } from '@/lib/constants/chartColors'
 import { StockInput } from '@/components/shared/StockInput'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine
@@ -68,9 +69,9 @@ export default function ChipPage() {
   })
 
   const kpiItems = data ? [
-    { label: '外資買賣超', value: data['外資']?.total_shares ?? 0, color: '#3b82f6' },
-    { label: '投信買賣超', value: data['投信']?.total_shares ?? 0, color: '#8b5cf6' },
-    { label: '自營商買賣超', value: data['自營商']?.total_shares ?? 0, color: '#f59e0b' },
+    { label: '外資買賣超', value: data['外資']?.total_shares ?? 0, color: FLOW.foreign },
+    { label: '投信買賣超', value: data['投信']?.total_shares ?? 0, color: FLOW.trust },
+    { label: '自營商買賣超', value: data['自營商']?.total_shares ?? 0, color: FLOW.dealer },
   ] : []
 
   return (
@@ -146,7 +147,7 @@ export default function ChipPage() {
             >
               <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>外資持股比率</p>
               <p className="text-xl font-bold tabular-nums" style={{ color: 'var(--foreground)' }}>
-                {data.foreign_holding_pct?.toFixed(2) ?? '—'} %
+                {data.foreign_holding_pct != null ? `${formatPrice(data.foreign_holding_pct)} %` : '—'}
               </p>
             </div>
             <div
@@ -187,9 +188,9 @@ export default function ChipPage() {
                   />
                   <Legend />
                   <ReferenceLine y={0} stroke="var(--border)" />
-                  <Bar dataKey="外資" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="投信" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="自營商" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="外資" fill={FLOW.foreign} radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="投信" fill={FLOW.trust} radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="自營商" fill={FLOW.dealer} radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

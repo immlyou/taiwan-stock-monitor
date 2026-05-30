@@ -4,7 +4,8 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { StockInput } from '@/components/shared/StockInput'
-import { getChangeColorVar } from '@/lib/utils/format'
+import { KpiCard } from '@/components/shared/KpiCard'
+import { getChangeColorVar, formatPrice, formatPercent } from '@/lib/utils/format'
 
 interface RadarSignal {
   score: number
@@ -161,7 +162,7 @@ function StockCard({ item, onSelect }: { item: RadarStock; onSelect?: (stockId: 
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <p className="font-semibold" style={{ color: 'var(--primary)' }}>{item.stock_id} {item.name ?? ''}</p>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>{item.industry ?? '—'} / 現價 {item.latest_price.toFixed(2)}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>{item.industry ?? '—'} / 現價 {formatPrice(item.latest_price)}</p>
         </div>
         <span className="px-2 py-1 rounded text-xs font-semibold" style={{ background: 'var(--secondary)', color: actionColor(item.action) }}>
           {item.action}
@@ -179,7 +180,7 @@ function StockCard({ item, onSelect }: { item: RadarStock; onSelect?: (stockId: 
         <div>
           <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>20日</p>
           <p className="text-xl font-bold tabular-nums" style={{ color: getChangeColorVar(item.price_change_20d ?? 0) }}>
-            {item.price_change_20d != null && item.price_change_20d > 0 ? '+' : ''}{item.price_change_20d?.toFixed(1) ?? '—'}%
+            {item.price_change_20d != null ? formatPercent(item.price_change_20d, 1) : '—'}
           </p>
         </div>
       </div>
@@ -236,30 +237,26 @@ export default function TradingRadarPage() {
       ) : (
         <div className="space-y-6">
           <div className="grid md:grid-cols-4 gap-3">
-            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>10日估計命中率</p>
-              <p className="text-2xl font-bold" style={{ color: 'var(--primary)' }}>
-                {tracking?.estimated_10d_hit_rate_pct != null ? `${tracking.estimated_10d_hit_rate_pct.toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>10日平均報酬</p>
-              <p className="text-2xl font-bold" style={{ color: getChangeColorVar(tracking?.estimated_10d_avg_return_pct ?? 0) }}>
-                {tracking?.estimated_10d_avg_return_pct != null ? `${tracking.estimated_10d_avg_return_pct > 0 ? '+' : ''}${tracking.estimated_10d_avg_return_pct.toFixed(2)}%` : '—'}
-              </p>
-            </div>
-            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>持倉健康分</p>
-              <p className="text-2xl font-bold" style={{ color: (portfolioHealth?.health_score ?? 0) >= 70 ? 'var(--primary)' : 'var(--destructive)' }}>
-                {portfolioHealth?.health_score?.toFixed(0) ?? '—'}
-              </p>
-            </div>
-            <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>推播預覽</p>
-              <p className="text-2xl font-bold" style={{ color: (notifications?.total ?? 0) > 0 ? 'var(--destructive)' : 'var(--foreground)' }}>
-                {notifications?.total ?? 0}
-              </p>
-            </div>
+            <KpiCard
+              title="10日估計命中率"
+              value={tracking?.estimated_10d_hit_rate_pct != null ? `${tracking.estimated_10d_hit_rate_pct.toFixed(1)}%` : '—'}
+              accentColor="var(--primary)"
+            />
+            <KpiCard
+              title="10日平均報酬"
+              value={tracking?.estimated_10d_avg_return_pct != null ? formatPercent(tracking.estimated_10d_avg_return_pct, 2) : '—'}
+              accentColor={getChangeColorVar(tracking?.estimated_10d_avg_return_pct ?? 0)}
+            />
+            <KpiCard
+              title="持倉健康分"
+              value={portfolioHealth?.health_score != null ? portfolioHealth.health_score.toFixed(0) : '—'}
+              accentColor={(portfolioHealth?.health_score ?? 0) >= 70 ? 'var(--primary)' : 'var(--destructive)'}
+            />
+            <KpiCard
+              title="推播預覽"
+              value={String(notifications?.total ?? 0)}
+              accentColor={(notifications?.total ?? 0) > 0 ? 'var(--destructive)' : 'var(--foreground)'}
+            />
           </div>
 
           {selected && (
@@ -270,7 +267,7 @@ export default function TradingRadarPage() {
                     {selected.stock_id} {selected.name} 操盤判讀
                   </h2>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
-                    觀察價 {selected.watch_price.toFixed(2)} / 支撐 {selected.support_price.toFixed(2)} / 壓力 {selected.resistance_price.toFixed(2)}
+                    觀察價 {formatPrice(selected.watch_price)} / 支撐 {formatPrice(selected.support_price)} / 壓力 {formatPrice(selected.resistance_price)}
                   </p>
                 </div>
                 <span className="px-3 py-1 rounded text-sm font-semibold" style={{ background: 'var(--secondary)', color: actionColor(selected.action) }}>
@@ -316,8 +313,8 @@ export default function TradingRadarPage() {
                 {pricePlan && (
                   <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                     <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>價格計畫</p>
-                    <p className="text-sm" style={{ color: 'var(--foreground)' }}>進場 {pricePlan.entry_zone.low.toFixed(2)} - {pricePlan.entry_zone.high.toFixed(2)}</p>
-                    <p className="text-sm" style={{ color: 'var(--destructive)' }}>停損 {pricePlan.stop_loss.toFixed(2)}</p>
+                    <p className="text-sm" style={{ color: 'var(--foreground)' }}>進場 {formatPrice(pricePlan.entry_zone.low)} - {formatPrice(pricePlan.entry_zone.high)}</p>
+                    <p className="text-sm" style={{ color: 'var(--destructive)' }}>停損 {formatPrice(pricePlan.stop_loss)}</p>
                     <p className="text-sm" style={{ color: 'var(--primary)' }}>R/R {pricePlan.risk_reward_ratio.toFixed(2)}</p>
                   </div>
                 )}
@@ -354,7 +351,7 @@ export default function TradingRadarPage() {
                   <div key={row.horizon_days} className="flex justify-between text-sm">
                     <span style={{ color: 'var(--muted-foreground)' }}>{row.horizon_days}日</span>
                     <span style={{ color: getChangeColorVar(row.avg_return_pct ?? 0) }}>
-                      勝率 {row.hit_rate_pct?.toFixed(1) ?? '—'}% / {row.avg_return_pct != null && row.avg_return_pct > 0 ? '+' : ''}{row.avg_return_pct?.toFixed(2) ?? '—'}%
+                      勝率 {row.hit_rate_pct != null ? `${row.hit_rate_pct.toFixed(1)}%` : '—'} / {row.avg_return_pct != null ? formatPercent(row.avg_return_pct, 2) : '—'}
                     </span>
                   </div>
                 ))}
