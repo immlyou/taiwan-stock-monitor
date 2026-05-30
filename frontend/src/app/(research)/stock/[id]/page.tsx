@@ -807,6 +807,9 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
 
         {/* Message history */}
         <div
+          role="log"
+          aria-live="polite"
+          aria-label="AI 對話"
           className="flex flex-col gap-3 p-4 overflow-y-auto"
           style={{ height: '320px' }}
         >
@@ -878,6 +881,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
             placeholder="輸入問題…"
+            aria-label="輸入問題"
             disabled={chatLoading}
             className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
             style={{
@@ -889,6 +893,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
           <button
             onClick={sendChat}
             disabled={chatLoading || !chatInput.trim()}
+            aria-label="送出問題"
             className="rounded-lg px-4 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
             style={{
               background: 'var(--primary)',

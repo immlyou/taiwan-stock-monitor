@@ -190,6 +190,7 @@ export default function HiddenGemsPage() {
               stock={stock}
               rank={idx + 1}
               scoreKey={currentTab.scoreKey}
+              scoreLabel={currentTab.label}
             />
           ))}
         </div>
@@ -242,13 +243,16 @@ function StockCard({
   stock,
   rank,
   scoreKey,
+  scoreLabel,
 }: {
   stock: GemStock
   rank: number
   scoreKey: keyof StockScores
+  scoreLabel: string
 }) {
   const score = stock.scores[scoreKey] ?? 0
   const color = scoreColor(score)
+  const scoreValue = Math.round(score)
 
   return (
     <div
@@ -299,6 +303,11 @@ function StockCard({
       {/* 分數條 */}
       <div className="flex items-center gap-2 sm:w-[160px] shrink-0">
         <div
+          role="progressbar"
+          aria-valuenow={scoreValue}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`${stock.stock_id} ${scoreLabel}分數 ${scoreValue} 分（滿分 100）`}
           className="flex-1 h-2 rounded-full overflow-hidden"
           style={{ background: 'var(--secondary)' }}
         >

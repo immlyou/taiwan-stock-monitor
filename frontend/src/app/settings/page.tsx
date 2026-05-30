@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { Switch } from '@/components/ui/switch'
 
 interface Settings {
   telegram: {
@@ -157,16 +158,11 @@ export default function SettingsPage() {
               <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
                 {tg?.enabled ? '已啟用' : '已停用'}
               </span>
-              <button
-                onClick={() => updateTelegram('enabled', !tg?.enabled)}
-                className="relative w-10 h-5 rounded-full transition-colors"
-                style={{ background: tg?.enabled ? 'var(--primary)' : 'var(--secondary)' }}
-              >
-                <span
-                  className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                  style={{ left: tg?.enabled ? '22px' : '2px' }}
-                />
-              </button>
+              <Switch
+                checked={!!tg?.enabled}
+                onCheckedChange={(v) => updateTelegram('enabled', v)}
+                aria-label="Telegram 通知"
+              />
             </label>
           </div>
           {tg?.enabled && (
@@ -220,16 +216,11 @@ export default function SettingsPage() {
                 透過 SMTP 接收 Email 通知
               </p>
             </div>
-            <button
-              onClick={() => updateEmail('enabled', !em?.enabled)}
-              className="relative w-10 h-5 rounded-full transition-colors"
-              style={{ background: em?.enabled ? 'var(--primary)' : 'var(--secondary)' }}
-            >
-              <span
-                className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                style={{ left: em?.enabled ? '22px' : '2px' }}
-              />
-            </button>
+            <Switch
+              checked={!!em?.enabled}
+              onCheckedChange={(v) => updateEmail('enabled', v)}
+              aria-label="Email 通知"
+            />
           </div>
           {em?.enabled && (
             <div className="grid grid-cols-2 gap-3">
@@ -308,16 +299,11 @@ export default function SettingsPage() {
               />
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => updateSystem('autoBacktest', !sys?.autoBacktest)}
-                className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
-                style={{ background: sys?.autoBacktest ? 'var(--primary)' : 'var(--secondary)' }}
-              >
-                <span
-                  className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                  style={{ left: sys?.autoBacktest ? '22px' : '2px' }}
-                />
-              </button>
+              <Switch
+                checked={!!sys?.autoBacktest}
+                onCheckedChange={(v) => updateSystem('autoBacktest', v)}
+                aria-label="自動定期回測"
+              />
               <span className="text-sm" style={{ color: 'var(--foreground)' }}>自動定期回測</span>
             </div>
           </div>

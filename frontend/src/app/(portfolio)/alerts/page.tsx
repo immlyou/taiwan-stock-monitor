@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Alert } from '@/lib/types'
+import { Switch } from '@/components/ui/switch'
 
 const SWR_KEY = '/alerts'
 
@@ -202,19 +203,13 @@ export default function AlertsPage() {
                 }}
               >
                 {/* 開關 */}
-                <button
-                  onClick={() => handleToggle(alert)}
+                <Switch
+                  checked={alert.enabled}
+                  onCheckedChange={() => handleToggle(alert)}
                   disabled={alert.triggered}
-                  className="relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 flex-shrink-0"
-                  style={{
-                    background: alert.enabled ? 'var(--primary)' : 'var(--secondary)',
-                  }}
-                >
-                  <span
-                    className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                    style={{ left: alert.enabled ? '22px' : '2px' }}
-                  />
-                </button>
+                  aria-label={`切換 ${alert.code ?? alert.stock_id} 警報`}
+                  className="flex-shrink-0"
+                />
 
                 {/* 代號 */}
                 <div className="flex-shrink-0">

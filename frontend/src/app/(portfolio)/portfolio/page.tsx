@@ -5,6 +5,14 @@ import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { getChangeColorVar } from '@/lib/utils/format'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 
 interface Holding {
   stock_id: string
@@ -331,92 +339,94 @@ export default function PortfolioPage() {
       )}
 
       {/* 新增/編輯 Dialog */}
-      {dialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
-          <div
-            className="w-full max-w-sm rounded-lg p-6"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--foreground)' }}>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent
+          className="max-w-sm"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--foreground)' }}>
               {editHolding ? '編輯持股' : '新增持股'}
-            </h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
-                <input
-                  type="text"
-                  value={form.stock_id}
-                  onChange={(e) => setForm(p => ({ ...p, stock_id: e.target.value.toUpperCase() }))}
-                  disabled={!!editHolding}
-                  placeholder="例：2330"
-                  className="h-9 w-full rounded-md border px-3 text-sm disabled:opacity-60"
-                  style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>持股張數</label>
-                <input
-                  type="number"
-                  value={form.shares}
-                  onChange={(e) => setForm(p => ({ ...p, shares: e.target.value }))}
-                  placeholder="例：10"
-                  className="h-9 w-full rounded-md border px-3 text-sm"
-                  style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>成本價（元/股）</label>
-                <input
-                  type="number"
-                  value={form.cost_price}
-                  onChange={(e) => setForm(p => ({ ...p, cost_price: e.target.value }))}
-                  placeholder="例：580"
-                  className="h-9 w-full rounded-md border px-3 text-sm"
-                  style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-                />
-              </div>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
+              <input
+                type="text"
+                value={form.stock_id}
+                onChange={(e) => setForm(p => ({ ...p, stock_id: e.target.value.toUpperCase() }))}
+                disabled={!!editHolding}
+                placeholder="例：2330"
+                className="h-9 w-full rounded-md border px-3 text-sm disabled:opacity-60"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
             </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setDialogOpen(false)}
-                className="h-9 px-4 rounded-md text-sm"
-                style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="h-9 px-4 rounded-md text-sm disabled:opacity-60"
-                style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-              >
-                {saving ? '儲存中...' : '儲存'}
-              </button>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>持股張數</label>
+              <input
+                type="number"
+                value={form.shares}
+                onChange={(e) => setForm(p => ({ ...p, shares: e.target.value }))}
+                placeholder="例：10"
+                className="h-9 w-full rounded-md border px-3 text-sm"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>成本價（元/股）</label>
+              <input
+                type="number"
+                value={form.cost_price}
+                onChange={(e) => setForm(p => ({ ...p, cost_price: e.target.value }))}
+                placeholder="例：580"
+                className="h-9 w-full rounded-md border px-3 text-sm"
+                style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+              />
             </div>
           </div>
-        </div>
-      )}
+          <DialogFooter className="mt-4 flex justify-end gap-2">
+            <button
+              onClick={() => setDialogOpen(false)}
+              className="h-9 px-4 rounded-md text-sm"
+              style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="h-9 px-4 rounded-md text-sm disabled:opacity-60"
+              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            >
+              {saving ? '儲存中...' : '儲存'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 刪除確認 */}
-      {deleteStockId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
-          <div
-            className="w-full max-w-sm rounded-lg p-6"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>確認刪除</h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--muted-foreground)' }}>確定要移除 {deleteStockId} 的持股紀錄嗎？</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setDeleteStockId(null)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}>
-                取消
-              </button>
-              <button onClick={() => handleDelete(deleteStockId)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}>
-                刪除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={!!deleteStockId} onOpenChange={(open) => { if (!open) setDeleteStockId(null) }}>
+        <DialogContent
+          className="max-w-sm"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--foreground)' }}>確認刪除</DialogTitle>
+            <DialogDescription style={{ color: 'var(--muted-foreground)' }}>
+              確定要移除 {deleteStockId} 的持股紀錄嗎？
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex justify-end gap-2">
+            <button onClick={() => setDeleteStockId(null)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}>
+              取消
+            </button>
+            <button onClick={() => deleteStockId && handleDelete(deleteStockId)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}>
+              刪除
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
