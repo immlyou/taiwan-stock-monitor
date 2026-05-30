@@ -6,11 +6,10 @@
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import pandas as pd
-import numpy as np
 
-from .base import BaseStrategy, StrategyResult
+from .base import BaseStrategy
 
 
 # 可選欄位（中文名 -> data_key）

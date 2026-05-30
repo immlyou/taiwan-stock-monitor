@@ -8,7 +8,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core import finlab_quota_alerter as alerter_mod
 from core.finlab_quota_alerter import (
     FinLabQuotaAlerter,
     DAILY_QUOTA_MB,

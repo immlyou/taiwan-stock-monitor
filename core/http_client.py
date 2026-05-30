@@ -4,7 +4,7 @@ HTTP 客戶端模組 - 包含重試機制
 import requests
 import time
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from functools import wraps
 
 logger = logging.getLogger(__name__)

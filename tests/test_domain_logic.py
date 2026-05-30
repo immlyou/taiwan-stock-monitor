@@ -3,14 +3,11 @@
 涵蓋：money_flow、optimizer、prediction_tracker、strategies/custom、
       indicators（補齊剩餘）、risk（補齊剩餘）
 """
-import json
-import uuid
 import pytest
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 # ──────────────────────────────────────────────
@@ -229,7 +226,7 @@ class TestGetContinuousBuyStocks:
 # ──────────────────────────────────────────────
 # optimizer (GridSearchOptimizer)
 # ──────────────────────────────────────────────
-from core.optimizer import GridSearchOptimizer, WalkForwardOptimizer, OptimizationResult, quick_optimize
+from core.optimizer import GridSearchOptimizer, WalkForwardOptimizer, OptimizationResult
 from core.strategies.value import ValueStrategy
 
 
@@ -387,7 +384,7 @@ class TestWalkForwardOptimizer:
 # prediction_tracker
 # ──────────────────────────────────────────────
 from core.prediction_tracker import (
-    PredictionTracker, PredictionType, PredictionStatus, Prediction, get_tracker
+    PredictionTracker, PredictionType, PredictionStatus, Prediction
 )
 
 
@@ -549,8 +546,7 @@ class TestPredictionTracker:
 # strategies/custom
 # ──────────────────────────────────────────────
 from core.strategies.custom import (
-    FilterCondition, CustomStrategy, AVAILABLE_FIELDS, OPERATORS,
-    save_custom_strategy, load_all_custom_strategies, delete_custom_strategy,
+    FilterCondition, CustomStrategy, save_custom_strategy, load_all_custom_strategies, delete_custom_strategy,
 )
 
 

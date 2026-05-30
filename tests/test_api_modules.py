@@ -4,7 +4,7 @@
 """
 import pytest
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 
@@ -15,7 +15,7 @@ from core.twse_api import (
     _parse_twse_date, _parse_number,
     fetch_taiex_monthly, fetch_taiex_latest, fetch_taiex_realtime,
     get_taiex,
-    _taiex_cache, _cache_ttl,
+    _taiex_cache,
 )
 
 

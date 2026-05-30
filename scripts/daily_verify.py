@@ -13,7 +13,6 @@
     python scripts/daily_verify.py --stats 30   # 顯示最近30天統計
 """
 import argparse
-from pathlib import Path
 from datetime import datetime
 
 
@@ -115,7 +114,7 @@ def show_statistics(days: int = 30):
     print(f"📊 預測統計 (最近 {days} 天)")
     print("=" * 60)
 
-    print(f"\n📈 總體統計")
+    print("\n📈 總體統計")
     print(f"{'─' * 40}")
     print(f"   總預測數: {stats['total']}")
     print(f"   待驗證: {stats['pending']}")
@@ -127,7 +126,7 @@ def show_statistics(days: int = 30):
 
     # 依類型統計
     if stats['by_type']:
-        print(f"\n📋 依預測類型")
+        print("\n📋 依預測類型")
         print(f"{'─' * 40}")
         type_names = {
             'target_price': '目標價',
@@ -142,7 +141,7 @@ def show_statistics(days: int = 30):
 
     # 依來源統計
     if stats['by_source']:
-        print(f"\n🏷️ 依策略來源")
+        print("\n🏷️ 依策略來源")
         print(f"{'─' * 40}")
         for source, data in stats['by_source'].items():
             print(f"   {source}:")

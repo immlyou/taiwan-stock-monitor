@@ -5,10 +5,8 @@
 追蹤三大法人買賣超、連續買賣超天數、產業資金流向
 """
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 
 @dataclass

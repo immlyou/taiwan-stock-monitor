@@ -2,7 +2,6 @@
 工具函數模組
 """
 import pandas as pd
-import re
 from typing import Dict, List, Optional
 
 

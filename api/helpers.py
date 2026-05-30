@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from functools import wraps
-from typing import Any, Dict
+from typing import Dict
 
 import numpy as np
 import pandas as pd

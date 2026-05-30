@@ -13,26 +13,24 @@ run_strategy 供其他 router（market/after-hours、morning-report、screener�
 """
 from __future__ import annotations
 
-import asyncio
 import logging
+import os
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import verify_api_key
-from api.helpers import _get_stock_name_map, _safe_json, cached_response
+from api.helpers import _get_stock_name_map, cached_response
 from api.state import loader
-from config import STRATEGY_PARAMS, STRATEGY_PRESETS
 from core.data_loader import get_active_stocks
-from core.indicators import calculate_rsi, calculate_sma
+from core.indicators import calculate_rsi
 from core.strategies.value import ValueStrategy
 from core.strategies.growth import GrowthStrategy
 from core.strategies.momentum import MomentumStrategy
-from core.strategies.composite import CompositeStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +269,8 @@ async def strategy_ai_pick_early(
     top_n: int = Query(default=10, ge=1, le=30, description="每策略回傳前 N 檔"),
 ):
     """AI 選股 - 整合三大策略，取各策略前 N 名並進行綜合評分。(路由前置版)"""
+    # Lazy import: backtest.py 已 import strategy.py 的 run_strategy，避免循環
+    from api.routers.backtest import strategy_ai_pick
     return await strategy_ai_pick(top_n=top_n)
 
 
@@ -280,6 +280,7 @@ async def strategy_composite_early(
     top_n: int = Query(default=20, ge=1, le=50),
 ):
     """綜合策略選股 - 計算每支股票在三大策略的綜合排名分數。(路由前置版)"""
+    from api.routers.backtest import strategy_composite
     return await strategy_composite(top_n=top_n)
 
 

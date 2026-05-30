@@ -7,16 +7,13 @@
 - data_sources: 更多 parsing 路徑
 - backtest/engine & metrics: 剩餘邊界情況
 """
-import os
 import sys
-import json
 import pickle
 import pytest
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ──────────────────────────────────────────────
@@ -194,7 +191,7 @@ class TestFinLabLoadSuccess:
 # ──────────────────────────────────────────────
 # hidden_gems — _empty_result、_scan_ownership_shift
 # ──────────────────────────────────────────────
-from core.hidden_gems import HiddenGemsScanner, _latest_row, _last_n_rows
+from core.hidden_gems import HiddenGemsScanner
 
 
 @pytest.fixture(scope="module")
@@ -350,7 +347,7 @@ class TestNotificationImportErrors:
 # ──────────────────────────────────────────────
 # health_check — 補齊更多檢查方法覆蓋
 # ──────────────────────────────────────────────
-from core.health_check import HealthChecker, CheckResult
+from core.health_check import HealthChecker
 
 
 class TestHealthCheckMoreCoverage:
@@ -505,7 +502,7 @@ class TestBacktestEngineRemaining:
 # ──────────────────────────────────────────────
 from core.backtest.metrics import (
     calculate_annualized_return, calculate_sortino_ratio,
-    calculate_profit_factor, calculate_metrics,
+    calculate_profit_factor,
 )
 
 

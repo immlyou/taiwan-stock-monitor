@@ -25,7 +25,7 @@ if env_path.exists():
         import finlab
         finlab.login(os.getenv('FINLAB_API_TOKEN'))
 
-from config import DATA_DIR, DATA_FILES, DATA_REGISTRY
+from config import DATA_DIR, DATA_REGISTRY
 
 # 設定 logging
 logging.basicConfig(
@@ -263,12 +263,12 @@ def main():
     if results:
         try:
             # 產生通知內容
-            notification_content = f"今日選股摘要:\n\n"
+            notification_content = "今日選股摘要:\n\n"
             for strategy_name, result in results.items():
                 notification_content += f"【{strategy_name}】找到 {result['count']} 檔股票\n"
                 if result['stocks'][:5]:
                     notification_content += f"  推薦: {', '.join(result['stocks'][:5])}\n"
-            notification_content += f"\n詳細報告請查看 reports 資料夾"
+            notification_content += "\n詳細報告請查看 reports 資料夾"
 
             send_notification('每日選股完成', notification_content)
         except Exception as e:

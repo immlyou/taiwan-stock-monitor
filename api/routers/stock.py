@@ -16,9 +16,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any, Dict
 
-import numpy as np
-import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import verify_api_key
@@ -27,16 +26,11 @@ from api.state import loader, multi_source
 from core.company_profile import get_company_profile
 from core.data_loader import FinLabQuotaExceededError
 from core.indicators import (
-    calculate_atr,
-    calculate_bias,
     calculate_bollinger_bands,
-    calculate_cci,
-    calculate_ema,
     calculate_kdj,
     calculate_macd,
     calculate_rsi,
     calculate_sma,
-    calculate_williams_r,
 )
 from core.intelligence import calculate_score_history
 from core.stock_score import calculate_stock_score

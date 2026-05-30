@@ -1,7 +1,6 @@
 """參數優化端點：POST /optimizer/run (Grid Search)"""
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Dict
 
@@ -9,7 +8,6 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from api.deps import verify_api_key
 from api.state import loader
-from core.backtest.engine import BacktestEngine
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +18,6 @@ router = APIRouter(tags=["策略"], dependencies=[Depends(verify_api_key)])
 async def optimizer_run(body: Dict[str, Any] = Body(...)):
     """Grid Search 參數優化 — 暴力窮舉回測找最佳參數組合。"""
     import asyncio as _asyncio
-    from core.backtest.engine import BacktestEngine
-    from core.backtest.metrics import calculate_metrics
 
     strategy = body.get("strategy", "ma_crossover")
     stock_code = body.get("stockCode", "2330")

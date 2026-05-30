@@ -7,7 +7,6 @@ import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch
-from pathlib import Path
 
 
 # ──────────────────────────────────────────────
@@ -535,7 +534,7 @@ class TestLogHelpers:
 # ──────────────────────────────────────────────
 # http_client
 # ──────────────────────────────────────────────
-from core.http_client import RetryConfig, HttpClient, get_http_client, http_get, http_post
+from core.http_client import RetryConfig, HttpClient, get_http_client
 
 
 class TestRetryConfig:

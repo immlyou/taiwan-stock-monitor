@@ -17,9 +17,7 @@ OpenClaw 台股戰情中心 Skill
     - "本益比低於 12 殖利率大於 5% 的股票"
 """
 import os
-import json
 import requests
-from datetime import datetime
 
 # ─── 設定 ───────────────────────────────────────────────
 # 台股 API Server 位址（改成你那台電腦的 IP）
@@ -153,7 +151,7 @@ def stock_query(stock_id: str) -> str:
 
     # 技術面
     if tech and "error" not in tech:
-        msg += f"\n📈 *技術面*\n"
+        msg += "\n📈 *技術面*\n"
         msg += f"  趨勢: {tech.get('trend', '—')}\n"
         msg += f"  RSI(14): {tech.get('rsi_14', '—')} ({tech.get('rsi_signal', '')})\n"
         msg += f"  MACD: {tech.get('macd', '—')}\n"
@@ -161,7 +159,7 @@ def stock_query(stock_id: str) -> str:
 
     # 籌碼
     if chip and "error" not in chip:
-        msg += f"\n🏦 *籌碼面*\n"
+        msg += "\n🏦 *籌碼面*\n"
         for label in ("外資", "投信", "自營商"):
             if label in chip:
                 total = chip[label]["total_shares"]
@@ -211,7 +209,7 @@ def custom_screen(**kwargs) -> str:
     filters = data.get("filters_applied", {})
     filter_desc = ", ".join(f"{k}={v}" for k, v in filters.items())
 
-    msg = f"🔍 *自訂篩選結果*\n"
+    msg = "🔍 *自訂篩選結果*\n"
     msg += f"條件: {filter_desc}\n"
     msg += f"共 {data['total_matches']} 檔符合\n"
     msg += "─" * 30 + "\n"

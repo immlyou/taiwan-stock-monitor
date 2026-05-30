@@ -29,7 +29,12 @@
 
 ```text
 taiwan-stock-monitor/
-├── api/                    # FastAPI router、models、deps、response helpers
+├── api/                    # FastAPI 模組化路由層
+│   ├── routers/            # 路由模組（ai, alerts, market, stock …）
+│   ├── deps.py             # 依賴注入
+│   ├── helpers.py          # 工具函式
+│   ├── models.py           # Pydantic 資料模型
+│   └── state.py            # 應用程式狀態
 ├── api_server.py           # FastAPI app 入口
 ├── app/                    # Streamlit 舊版 UI
 ├── core/                   # 資料載入、策略、回測、風險、通知等核心邏輯

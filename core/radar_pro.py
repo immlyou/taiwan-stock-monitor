@@ -7,9 +7,8 @@ price plans, news/revenue interpretation, and chip proxy analysis.
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd

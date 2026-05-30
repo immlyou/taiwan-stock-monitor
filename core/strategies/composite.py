@@ -3,7 +3,6 @@
 """
 from typing import Dict, Any, List, Optional
 import pandas as pd
-import numpy as np
 from .base import BaseStrategy
 from .value import ValueStrategy
 from .growth import GrowthStrategy

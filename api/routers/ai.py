@@ -10,15 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import verify_api_key
-from api.helpers import _get_stock_name_map, _safe_json
 from api.models import (
     JournalReviewRequest,
     NewsSentimentRequest,
@@ -26,7 +22,6 @@ from api.models import (
     StockChatRequest,
 )
 from api.state import loader
-from core.data_loader import get_active_stocks
 from core.intelligence import generate_stock_summary
 
 logger = logging.getLogger(__name__)

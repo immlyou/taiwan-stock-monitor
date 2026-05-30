@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from core.backtest.engine import BacktestEngine, quick_backtest, Trade
+from core.backtest.engine import BacktestEngine, quick_backtest
 from core.backtest.metrics import (
     calculate_metrics,
     calculate_total_return,

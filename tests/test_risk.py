@@ -1,10 +1,8 @@
 """
 風險分析模組測試
 """
-import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
 
 
 from core.risk import (

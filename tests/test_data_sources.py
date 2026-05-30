@@ -6,14 +6,11 @@ data_sources 模組測試（完全 mock，不發出真實 HTTP 請求）
       _twse_institutional、MultiSourceDataProvider
 """
 import time
-import math
 import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch
-from typing import Optional
 
-import core.data_sources as ds
 from core.data_sources import (
     _source_cached, _set_source_cache,
     _safe_float, _parse_twse_number, _safe_json_val,

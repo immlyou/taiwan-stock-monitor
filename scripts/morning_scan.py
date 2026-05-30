@@ -18,7 +18,6 @@
 """
 import sys
 import argparse
-from pathlib import Path
 from datetime import datetime
 
 
@@ -53,7 +52,7 @@ def format_morning_report(report: dict) -> str:
 
     # 摘要
     summary = report['summary']
-    lines.append(f"📊 新聞統計")
+    lines.append("📊 新聞統計")
     lines.append(f"  • 總新聞數: {summary['total_news']}")
     lines.append(f"  • 利多新聞: {summary['positive_count']}")
     lines.append(f"  • 利空新聞: {summary['negative_count']}")
@@ -131,7 +130,7 @@ def main():
         report = scanner.generate_morning_report()
 
         # 輸出摘要
-        logger.info(f"新聞統計:")
+        logger.info("新聞統計:")
         logger.info(f"  - 總數: {report['summary']['total_news']}")
         logger.info(f"  - 利多: {report['summary']['positive_count']}")
         logger.info(f"  - 利空: {report['summary']['negative_count']}")
