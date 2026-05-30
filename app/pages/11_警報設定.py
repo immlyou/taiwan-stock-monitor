@@ -2,7 +2,6 @@
 警報設定頁面 - 價格與指標警報
 """
 import streamlit as st
-import pandas as pd
 import json
 import uuid
 from pathlib import Path
@@ -11,18 +10,25 @@ from datetime import datetime
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
-from core.indicators import rsi as calc_rsi, macd
+from core.indicators import rsi as calc_rsi
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.theme import (
+    COLORS, create_page_title, create_section_header,
+    responsive_columns, format_number,
+)
 
 st.set_page_config(page_title='警報設定', page_icon='🔔', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='alerts')
 
-render_page_header('警報設定', icon='🔔')
+# 全域行情列
+render_global_ticker_bar()
+
+st.markdown(create_page_title('警報設定', subtitle='價格與技術指標自動警報', icon='🔔'), unsafe_allow_html=True)
 
 # 警報檔案路徑
 ALERTS_FILE = Path(__file__).parent.parent.parent / 'data' / 'alerts.json'
@@ -85,23 +91,60 @@ ALERT_TYPES = {
 }
 
 # ========== 建立新警報 ==========
-st.markdown('### ➕ 建立新警報')
+st.markdown(create_section_header('建立新警報', icon='➕'), unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
+alert_stock = st.selectbox('選擇股票', list(stock_options.keys()))
+alert_stock_id = stock_options[alert_stock]
 
-with col1:
-    alert_stock = st.selectbox('選擇股票', list(stock_options.keys()))
-    alert_stock_id = stock_options[alert_stock]
+# 警報類型 3x3 點擊卡片網格選擇器（取代過長下拉）
+st.markdown(
+    f'<div style="color:{COLORS["text_secondary"]};font-size:0.8rem;'
+    f'font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
+    f'margin:0.5rem 0 0.6rem">警報類型</div>',
+    unsafe_allow_html=True,
+)
 
-    alert_type = st.selectbox(
-        '警報類型',
-        list(ALERT_TYPES.keys()),
-        format_func=lambda x: f"{ALERT_TYPES[x]['icon']} {ALERT_TYPES[x]['name']}"
-    )
+# 以 session_state 記錄目前選取的警報類型
+_alert_type_keys = list(ALERT_TYPES.keys())
+if 'alert_type' not in st.session_state or st.session_state['alert_type'] not in ALERT_TYPES:
+    st.session_state['alert_type'] = _alert_type_keys[0]
 
-    st.caption(ALERT_TYPES[alert_type]['description'])
+# 3 欄 x 3 列點擊卡片
+for row_start in range(0, len(_alert_type_keys), 3):
+    grid_cols = responsive_columns(3)
+    for offset, tkey in enumerate(_alert_type_keys[row_start:row_start + 3]):
+        info = ALERT_TYPES[tkey]
+        with grid_cols[offset]:
+            selected = (st.session_state['alert_type'] == tkey)
+            # 選取狀態以 COLORS 統一邊界樣式（頁內自製卡片）
+            border_color = COLORS['accent'] if selected else COLORS['border']
+            bg_color = COLORS['up_bg'] if selected else COLORS['secondary']
+            label_color = COLORS['text_primary'] if selected else COLORS['text_secondary']
+            st.markdown(
+                f'<div style="background:{bg_color};border:1px solid {border_color};'
+                f'border-left:3px solid {COLORS["accent"] if selected else COLORS["border_light"]};'
+                f'border-radius:8px;padding:8px 10px;margin-bottom:4px">'
+                f'<span style="font-size:1.1rem;margin-right:6px">{info["icon"]}</span>'
+                f'<span style="color:{label_color};font-weight:600;font-size:0.85rem">{info["name"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                '✓ 已選' if selected else '選擇',
+                key=f'pick_type_{tkey}',
+                type='primary' if selected else 'secondary',
+                use_container_width=True,
+            ):
+                st.session_state['alert_type'] = tkey
+                st.rerun()
 
-with col2:
+alert_type = st.session_state['alert_type']
+st.caption(ALERT_TYPES[alert_type]['description'])
+
+# 參數設定區（依警報類型顯示對應欄位）
+param_col, _spacer = st.columns(2)
+
+with param_col:
     # 根據警報類型顯示不同的參數設定
     if alert_type in ['price_above', 'price_below']:
         # 取得當前股價作為參考
@@ -116,7 +159,7 @@ with col2:
             max_value=10000.0,
             value=float(current_price),
             step=1.0,
-            help=f'當前股價: {current_price:.2f}'
+            help=f'當前股價: {format_number(current_price, kind="price")}'
         )
 
     elif alert_type in ['rsi_above', 'rsi_below']:
@@ -181,10 +224,47 @@ if st.button('🔔 建立警報', type='primary', use_container_width=True):
     st.success(f'警報已建立！當 {alert_stock_id} {ALERT_TYPES[alert_type]["name"]} {alert_value} 時通知您')
     st.rerun()
 
-st.markdown('---')
+st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
 
 # ========== 警報列表 ==========
-st.markdown('### 📋 警報列表')
+st.markdown(create_section_header('警報列表', icon='📋'), unsafe_allow_html=True)
+
+
+def _render_alert_card(stock_id, name, type_info, value, *, status_label=None,
+                       status_color=None, note=None, extra=None):
+    """頁內自製警報卡片：以 COLORS 統一邊界樣式（深色 token，勿改共用元件）。"""
+    accent = status_color or COLORS['accent']
+    status_html = ''
+    if status_label:
+        status_html = (
+            f'<span style="background:{COLORS["secondary"]};border:1px solid {accent};'
+            f'color:{accent};font-size:0.72rem;font-weight:600;padding:1px 8px;'
+            f'border-radius:4px;margin-left:8px">{status_label}</span>'
+        )
+    note_html = ''
+    if note:
+        note_html = (f'<div style="color:{COLORS["text_muted"]};font-size:0.78rem;'
+                     f'margin-top:6px">備註: {note}</div>')
+    extra_html = ''
+    if extra:
+        extra_html = (f'<div style="color:{COLORS["text_secondary"]};font-size:0.78rem;'
+                      f'margin-top:6px">{extra}</div>')
+    st.markdown(
+        f'<div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};'
+        f'border-left:4px solid {accent};border-radius:8px;padding:0.9rem 1rem;'
+        f'margin-bottom:8px">'
+        f'<div><span style="color:{COLORS["text_primary"]};font-weight:700;font-size:0.95rem">'
+        f'{stock_id} {name}</span>{status_html}</div>'
+        f'<div style="margin-top:6px"><span style="font-size:1.05rem;margin-right:6px">'
+        f'{type_info.get("icon", "")}</span>'
+        f'<span style="color:{COLORS["text_secondary"]};font-size:0.85rem">'
+        f'{type_info.get("name", "")}</span> '
+        f'<span class="num-mono" style="color:{COLORS["accent"]};font-weight:600;'
+        f'font-size:0.85rem;margin-left:4px">{value}</span></div>'
+        f'{note_html}{extra_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 if alerts:
     # 分類顯示
@@ -204,33 +284,30 @@ if alerts:
                 col1, col2, col3 = st.columns([3, 1, 1])
 
                 with col1:
-                    st.markdown(f'''
-                    **{stock_id} {name}**
-                    {alert_type_info.get('icon', '')} {alert_type_info.get('name', alert['type'])} `{alert['value']}`
-                    ''')
-                    if alert.get('note'):
-                        st.caption(f"備註: {alert['note']}")
+                    _extra = None
+                    if stock_id in close.columns:
+                        _cp = close[stock_id].dropna().iloc[-1]
+                        _extra = f'當前價 {format_number(_cp, kind="price")}'
+                    _name = alert_type_info.get('name', alert['type'])
+                    _type_info = dict(alert_type_info, name=_name)
+                    _render_alert_card(
+                        stock_id, name, _type_info, alert['value'],
+                        note=alert.get('note'), extra=_extra,
+                    )
 
                 with col2:
-                    # 檢查當前狀態
-                    if stock_id in close.columns:
-                        current_price = close[stock_id].dropna().iloc[-1]
-                        st.metric('當前價', f'{current_price:.2f}')
-
-                with col3:
-                    if st.button('停用', key=f"disable_{alert['id']}"):
+                    if st.button('停用', key=f"disable_{alert['id']}", use_container_width=True):
                         for a in alerts_data['alerts']:
                             if a['id'] == alert['id']:
                                 a['enabled'] = False
                         save_alerts(alerts_data)
                         st.rerun()
 
-                    if st.button('刪除', key=f"delete_{alert['id']}"):
+                with col3:
+                    if st.button('刪除', key=f"delete_{alert['id']}", use_container_width=True):
                         alerts_data['alerts'] = [a for a in alerts_data['alerts'] if a['id'] != alert['id']]
                         save_alerts(alerts_data)
                         st.rerun()
-
-                st.markdown('---')
         else:
             show_empty_state('目前沒有啟用中的警報', icon='🟢', suggestion='請在上方建立新的警報')
 
@@ -248,22 +325,24 @@ if alerts:
                 col1, col2 = st.columns([4, 1])
 
                 with col1:
-                    st.markdown(f'''
-                    **{stock_id} {name}** - 已觸發
-                    {alert_type_info.get('icon', '')} {alert_type_info.get('name', alert['type'])} `{alert['value']}`
-                    觸發時間: {alert.get('triggered_at', '未知')[:19] if alert.get('triggered_at') else '未知'}
-                    ''')
+                    _triggered_at = (alert.get('triggered_at', '')[:19]
+                                     if alert.get('triggered_at') else '未知')
+                    _name = alert_type_info.get('name', alert['type'])
+                    _type_info = dict(alert_type_info, name=_name)
+                    _render_alert_card(
+                        stock_id, name, _type_info, alert['value'],
+                        status_label='已觸發', status_color=COLORS['up'],
+                        extra=f'觸發時間: {_triggered_at}',
+                    )
 
                 with col2:
-                    if st.button('重新啟用', key=f"reset_{alert['id']}"):
+                    if st.button('重新啟用', key=f"reset_{alert['id']}", use_container_width=True):
                         for a in alerts_data['alerts']:
                             if a['id'] == alert['id']:
                                 a['triggered'] = False
                                 a['triggered_at'] = None
                         save_alerts(alerts_data)
                         st.rerun()
-
-                st.markdown('---')
         else:
             show_empty_state('目前沒有已觸發的警報', icon='🔴')
 
@@ -281,30 +360,30 @@ if alerts:
                 col1, col2 = st.columns([4, 1])
 
                 with col1:
-                    st.markdown(f'''
-                    **{stock_id} {name}** - 已停用
-                    {alert_type_info.get('icon', '')} {alert_type_info.get('name', alert['type'])} `{alert['value']}`
-                    ''')
+                    _name = alert_type_info.get('name', alert['type'])
+                    _type_info = dict(alert_type_info, name=_name)
+                    _render_alert_card(
+                        stock_id, name, _type_info, alert['value'],
+                        status_label='已停用', status_color=COLORS['flat'],
+                    )
 
                 with col2:
-                    if st.button('啟用', key=f"enable_{alert['id']}"):
+                    if st.button('啟用', key=f"enable_{alert['id']}", use_container_width=True):
                         for a in alerts_data['alerts']:
                             if a['id'] == alert['id']:
                                 a['enabled'] = True
                         save_alerts(alerts_data)
                         st.rerun()
-
-                st.markdown('---')
         else:
             show_empty_state('目前沒有已停用的警報', icon='⚪')
 
 else:
     show_empty_state('尚未建立任何警報', icon='🔔', suggestion='請在上方建立您的第一個警報')
 
-st.markdown('---')
+st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
 
 # ========== 立即檢查警報 ==========
-st.markdown('### 🔍 立即檢查警報')
+st.markdown(create_section_header('立即檢查警報', icon='🔍'), unsafe_allow_html=True)
 
 if st.button('檢查所有警報', use_container_width=True):
     with st.spinner('檢查中...'):

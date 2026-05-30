@@ -3,13 +3,12 @@
 """
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 from datetime import datetime, timedelta
 
 
 from core.data_loader import get_loader, load_benchmark, get_active_stocks
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
-from core.backtest.engine import BacktestEngine, quick_backtest
+from core.backtest.engine import BacktestEngine
 from app.components.charts import (
     create_portfolio_chart,
     create_drawdown_chart,
@@ -19,13 +18,20 @@ from config import STRATEGY_PRESETS
 from app.components.strategy_params import render_strategy_params, render_preset_selector
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
+from app.components.theme import (
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    render_data_table,
+    format_number,
+)
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys
 )
 from app.components.portfolio_utils import (
-    get_portfolio_names, create_portfolio, add_holdings_batch, load_portfolios, save_portfolios
+    get_portfolio_names, create_portfolio, load_portfolios, save_portfolios
 )
 
 st.set_page_config(page_title='回測分析', page_icon='📊', layout='wide')
@@ -36,7 +42,10 @@ init_session_state()
 # 渲染側邊欄
 render_sidebar_mini(current_page='backtest')
 
-render_page_header("回測分析", icon="📈")
+# 全域報價列（sidebar 後、標題前呼叫一次）
+render_global_ticker_bar()
+
+st.markdown(create_page_title('回測分析', subtitle='多策略歷史績效回測與投資組合匯入', icon='📈'), unsafe_allow_html=True)
 
 # 顯示資料日期
 try:
@@ -50,7 +59,7 @@ except Exception:
 st.markdown('---')
 
 # ========== 1. 策略選擇 ==========
-st.subheader('1️⃣ 選擇策略')
+st.markdown(create_section_header('選擇策略', icon='1️⃣'), unsafe_allow_html=True)
 
 strategy_cols = st.columns(4)
 strategy_options = {
@@ -75,10 +84,8 @@ for i, (name, info) in enumerate(strategy_options.items()):
 
 strategy_type = get_state(StateKeys.BACKTEST_STRATEGY)
 
-st.markdown('---')
-
 # ========== 2. 回測設定 ==========
-st.subheader('2️⃣ 回測設定')
+st.markdown(create_section_header('回測設定', icon='2️⃣'), unsafe_allow_html=True)
 
 setting_col1, setting_col2, setting_col3 = st.columns(3)
 
@@ -154,10 +161,8 @@ with setting_col3:
         help='券商手續費折扣，0.6 = 六折'
     )
 
-st.markdown('---')
-
 # ========== 3. 風險控制 ==========
-st.subheader('3️⃣ 風險控制')
+st.markdown(create_section_header('風險控制', icon='3️⃣'), unsafe_allow_html=True)
 
 risk_col1, risk_col2, risk_col3 = st.columns(3)
 
@@ -197,10 +202,8 @@ with st.expander('📋 策略參數設定', expanded=False):
         show_help=False,
     )
 
-st.markdown('---')
-
 # ========== 5. 執行回測 ==========
-st.subheader('4️⃣ 執行回測')
+st.markdown(create_section_header('執行回測', icon='4️⃣'), unsafe_allow_html=True)
 
 # 設定摘要
 summary_col1, summary_col2 = st.columns([2, 1])
@@ -298,53 +301,62 @@ if get_state(StateKeys.BACKTEST_RESULT) is not None:
     strategy_name = get_state(StateKeys.RESULT_STRATEGY, '')
 
     st.markdown('---')
-    st.subheader(f'📈 {strategy_name} 回測結果')
+    st.markdown(create_section_header(f'{strategy_name} 回測結果', icon='📊'), unsafe_allow_html=True)
+
+    # 視圖切換
+    result_view = st.radio(
+        '檢視模式',
+        ['簡潔', '詳細'],
+        index=0,
+        horizontal=True,
+        key='bt_result_view',
+        label_visibility='collapsed',
+    )
 
     # 績效指標
     metrics = result.metrics
 
-    st.markdown('#### 績效指標')
+    st.markdown(create_section_header('績效指標', icon='📐'), unsafe_allow_html=True)
 
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-    with metric_col1:
-        st.metric('總報酬率', f'{metrics.total_return:.2f}%',
-                  delta=f'{metrics.total_return:+.2f}%' if metrics.total_return >= 0 else None)
-        st.metric('年化報酬率', f'{metrics.annualized_return:.2f}%')
-
-    with metric_col2:
-        st.metric('最大回撤', f'{metrics.max_drawdown:.2f}%')
-        st.metric('波動率', f'{metrics.volatility:.2f}%')
-
-    with metric_col3:
-        sharpe_color = 'normal' if metrics.sharpe_ratio >= 1 else 'off'
-        st.metric('夏普比率', f'{metrics.sharpe_ratio:.2f}')
-        st.metric('索提諾比率', f'{metrics.sortino_ratio:.2f}')
-
-    with metric_col4:
-        st.metric('勝率', f'{metrics.win_rate:.1f}%')
-        st.metric('總交易次數', metrics.total_trades)
+    render_kpi_row([
+        {
+            'label': '總報酬率',
+            'value': format_number(metrics.total_return, kind='pct'),
+            'delta': format_number(metrics.total_return, kind='pct', signed=True),
+            'delta_color': 'up' if metrics.total_return >= 0 else 'down',
+        },
+        {
+            'label': '年化報酬率',
+            'value': format_number(metrics.annualized_return, kind='pct'),
+            'delta': format_number(metrics.annualized_return, kind='pct', signed=True),
+            'delta_color': 'up' if metrics.annualized_return >= 0 else 'down',
+        },
+        {'label': '最大回撤', 'value': format_number(metrics.max_drawdown, kind='pct')},
+        {'label': '波動率', 'value': format_number(metrics.volatility, kind='pct')},
+        {'label': '夏普比率', 'value': format_number(metrics.sharpe_ratio, kind='price')},
+        {'label': '索提諾比率', 'value': format_number(metrics.sortino_ratio, kind='price')},
+        {'label': '勝率', 'value': format_number(metrics.win_rate, kind='pct')},
+        {'label': '總交易次數', 'value': format_number(metrics.total_trades, kind='int')},
+    ], cols=4)
 
     # 與大盤比較
     if result.benchmark_comparison:
-        st.markdown('#### 與大盤比較')
+        st.markdown(create_section_header('與大盤比較', icon='⚖️'), unsafe_allow_html=True)
         comp = result.benchmark_comparison
-
-        comp_col1, comp_col2, comp_col3 = st.columns(3)
-        with comp_col1:
-            excess = comp.get('excess_return', 0)
-            st.metric(
-                '超額報酬',
-                f'{excess:.2f}%',
-                delta=f'{excess:+.2f}%'
-            )
-        with comp_col2:
-            st.metric('Alpha', f"{comp.get('alpha', 0):.2f}%")
-        with comp_col3:
-            st.metric('Beta', f"{comp.get('beta', 0):.2f}")
+        excess = comp.get('excess_return', 0)
+        render_kpi_row([
+            {
+                'label': '超額報酬',
+                'value': format_number(excess, kind='pct'),
+                'delta': format_number(excess, kind='pct', signed=True),
+                'delta_color': 'up' if excess >= 0 else 'down',
+            },
+            {'label': 'Alpha', 'value': format_number(comp.get('alpha', 0), kind='pct')},
+            {'label': 'Beta', 'value': format_number(comp.get('beta', 0), kind='price')},
+        ], cols=3)
 
     # 淨值走勢圖
-    st.markdown('#### 淨值走勢')
+    st.markdown(create_section_header('淨值走勢', icon='📈'), unsafe_allow_html=True)
 
     benchmark_series = load_benchmark()
     fig = create_portfolio_chart(
@@ -354,25 +366,26 @@ if get_state(StateKeys.BACKTEST_RESULT) is not None:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # 回撤與月報酬
-    chart_col1, chart_col2 = st.columns(2)
+    # 回撤與月報酬（詳細視圖）
+    if result_view == '詳細':
+        chart_col1, chart_col2 = st.columns(2)
 
-    with chart_col1:
-        st.markdown('#### 回撤分析')
-        fig_dd = create_drawdown_chart(result.portfolio_values)
-        st.plotly_chart(fig_dd, use_container_width=True)
+        with chart_col1:
+            st.markdown(create_section_header('回撤分析', icon='📉'), unsafe_allow_html=True)
+            fig_dd = create_drawdown_chart(result.portfolio_values)
+            st.plotly_chart(fig_dd, use_container_width=True)
 
-    with chart_col2:
-        st.markdown('#### 月報酬率')
-        try:
-            returns = result.portfolio_values.pct_change().dropna()
-            fig_monthly = create_monthly_returns_heatmap(returns)
-            st.plotly_chart(fig_monthly, use_container_width=True)
-        except Exception:
-            show_empty_state('月報酬率數據不足', icon='📅')
+        with chart_col2:
+            st.markdown(create_section_header('月報酬率', icon='📅'), unsafe_allow_html=True)
+            try:
+                returns = result.portfolio_values.pct_change().dropna()
+                fig_monthly = create_monthly_returns_heatmap(returns)
+                st.plotly_chart(fig_monthly, use_container_width=True)
+            except Exception:
+                show_empty_state('月報酬率數據不足', icon='📅')
 
     # 交易記錄
-    st.markdown('#### 交易記錄')
+    st.markdown(create_section_header('交易記錄', icon='🧾'), unsafe_allow_html=True)
 
     if len(result.trades) > 0:
         trades_df = result.trades.copy()
@@ -386,11 +399,11 @@ if get_state(StateKeys.BACKTEST_RESULT) is not None:
         trades_df.columns = ['股票', '買入日期', '買入價', '賣出日期', '賣出價',
                             '股數', '損益', '報酬率(%)', '持有天數']
 
-        st.dataframe(
+        render_data_table(
             trades_df,
-            use_container_width=True,
-            hide_index=True,
-            height=300,
+            freeze_cols=1,
+            numeric_cols=['買入價', '賣出價', '股數', '損益', '報酬率(%)', '持有天數'],
+            height=500,
         )
 
         # 下載
@@ -406,7 +419,7 @@ if get_state(StateKeys.BACKTEST_RESULT) is not None:
 
     # ========== 以最後持倉建立投資組合 ==========
     st.markdown('---')
-    st.markdown('#### 💼 以最後持倉建立投資組合')
+    st.markdown(create_section_header('以最後持倉建立投資組合', icon='💼'), unsafe_allow_html=True)
 
     # 從交易記錄取得「尚未賣出」的持倉（exit_date 為 NaT 的記錄即為最後持倉）
     last_positions = []
@@ -505,7 +518,7 @@ if get_state(StateKeys.BACKTEST_RESULT) is not None:
         with st.expander('預覽最後持倉清單'):
             preview_df = pd.DataFrame(last_positions)
             preview_df.columns = ['股票代號', '股數', '成本價']
-            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+            render_data_table(preview_df, freeze_cols=1, numeric_cols=['股數', '成本價'])
     else:
         st.info('回測結束時無未平倉持倉，無法匯入投資組合。（提示：若所有股票在回測結束前均已賣出，最後持倉為空。）')
 

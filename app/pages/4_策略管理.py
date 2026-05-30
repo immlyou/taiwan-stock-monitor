@@ -7,19 +7,19 @@ import json
 from pathlib import Path
 
 
-from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
 from config import STRATEGY_PARAMS
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.session_manager import set_state, StateKeys
+from app.components.theme import COLORS, create_page_title, create_section_header
 
 st.set_page_config(page_title='策略管理', page_icon='⚙️', layout='wide')
 render_sidebar_mini(current_page='strategy')
 
-render_page_header("策略管理", icon="🎯")
-st.markdown('---')
+render_global_ticker_bar()
+st.markdown(create_page_title('策略管理', subtitle='建立、管理與比較自訂選股策略', icon='🎯'), unsafe_allow_html=True)
 
 # 策略設定檔路徑
 STRATEGIES_FILE = Path(__file__).parent.parent.parent / 'saved_strategies.json'
@@ -47,7 +47,7 @@ tab1, tab2, tab3 = st.tabs(['建立策略', '已儲存策略', '策略比較'])
 
 # ==================== 建立策略 ====================
 with tab1:
-    st.subheader('建立自訂策略')
+    st.markdown(create_section_header('建立自訂策略', icon='🛠️'), unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 2])
 
@@ -65,7 +65,7 @@ with tab1:
         )
 
     with col2:
-        st.markdown('### 參數設定')
+        st.markdown(create_section_header('參數設定', icon='⚙️'), unsafe_allow_html=True)
 
         params = {}
 
@@ -148,9 +148,9 @@ with tab1:
                 params['use_momentum'] = st.checkbox('使用動能因子', value=True, key='c_mom')
 
     # 儲存按鈕
-    st.markdown('---')
+    st.markdown(create_section_header('儲存', icon='💾'), unsafe_allow_html=True)
 
-    if st.button('儲存策略', type='primary'):
+    if st.button('儲存策略', type='primary', use_container_width=True):
         if strategy_name:
             saved_strategies[strategy_name] = {
                 'type': strategy_type,
@@ -165,36 +165,76 @@ with tab1:
 
 # ==================== 已儲存策略 ====================
 with tab2:
-    st.subheader('已儲存的策略')
+    st.markdown(create_section_header('已儲存的策略', icon='📚'), unsafe_allow_html=True)
 
     if saved_strategies:
         for name, strategy in saved_strategies.items():
             with st.expander(f'📋 {name}'):
+                # 策略資訊卡片（深色 token 樣式）
+                st.markdown(
+                    f'''
+                    <div style="
+                        background:{COLORS['secondary']};
+                        border:1px solid {COLORS['border']};
+                        border-left:3px solid {COLORS['accent']};
+                        border-radius:8px;
+                        padding:12px 14px;
+                        margin-bottom:10px;
+                    ">
+                        <div style="color:{COLORS['text_muted']};font-size:0.78rem;margin-bottom:2px">類型</div>
+                        <div style="color:{COLORS['text_primary']};font-size:0.95rem;font-weight:600;margin-bottom:8px">{strategy['type']}</div>
+                        <div style="color:{COLORS['text_muted']};font-size:0.78rem;margin-bottom:2px">描述</div>
+                        <div style="color:{COLORS['text_secondary']};font-size:0.9rem">{strategy['description']}</div>
+                    </div>
+                    ''',
+                    unsafe_allow_html=True,
+                )
+
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
-                    st.markdown(f"**類型:** {strategy['type']}")
-                    st.markdown(f"**描述:** {strategy['description']}")
-                    st.markdown('**參數:**')
+                    st.markdown(f'**參數:**')
                     st.json(strategy['params'])
 
                 with col2:
-                    if st.button('載入', key=f'load_{name}'):
+                    # 載入：主要動作，primary 樣式
+                    if st.button('🚀 載入策略', key=f'load_{name}', type='primary', use_container_width=True):
                         set_state(StateKeys.LOADED_STRATEGY, strategy)
                         st.toast(f'已載入策略 "{name}"')
                         st.switch_page('pages/1_選股篩選.py')
 
-                    if st.button('刪除', key=f'delete_{name}'):
-                        del saved_strategies[name]
-                        save_strategies(saved_strategies)
-                        st.warning(f'已刪除策略 "{name}"')
-                        st.rerun()
+                    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+
+                    # 刪除：危險動作，二次確認避免誤觸
+                    confirm_key = f'confirm_delete_{name}'
+                    if not st.session_state.get(confirm_key):
+                        if st.button('🗑️ 刪除', key=f'delete_{name}', use_container_width=True):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
+                    else:
+                        st.markdown(
+                            f'<div style="color:{COLORS["danger"]};font-size:0.82rem;font-weight:600;'
+                            f'margin-bottom:4px">⚠️ 確定刪除「{name}」？此動作無法復原</div>',
+                            unsafe_allow_html=True,
+                        )
+                        dc1, dc2 = st.columns(2)
+                        with dc1:
+                            if st.button('確認刪除', key=f'delete_confirm_{name}', type='primary', use_container_width=True):
+                                del saved_strategies[name]
+                                save_strategies(saved_strategies)
+                                st.session_state.pop(confirm_key, None)
+                                st.warning(f'已刪除策略 "{name}"')
+                                st.rerun()
+                        with dc2:
+                            if st.button('取消', key=f'delete_cancel_{name}', use_container_width=True):
+                                st.session_state.pop(confirm_key, None)
+                                st.rerun()
     else:
         show_empty_state('尚未儲存任何策略', icon='📋', suggestion='請在「建立策略」分頁中建立並儲存策略')
 
 # ==================== 策略比較 ====================
 with tab3:
-    st.subheader('策略比較')
+    st.markdown(create_section_header('策略比較', icon='⚖️'), unsafe_allow_html=True)
 
     if len(saved_strategies) >= 2:
         strategies_to_compare = st.multiselect(
@@ -243,8 +283,8 @@ with tab3:
         show_empty_state('需要至少儲存 2 個策略才能進行比較', icon='⚖️', suggestion='請先在「建立策略」分頁中建立更多策略')
 
 # 預設策略說明
-st.markdown('---')
-st.subheader('預設策略參數')
+st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+st.markdown(create_section_header('預設策略參數', icon='🧾'), unsafe_allow_html=True)
 
 with st.expander('查看系統預設參數'):
     st.json(STRATEGY_PARAMS)

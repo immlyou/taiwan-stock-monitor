@@ -3,10 +3,6 @@
 技術分析頁面 — K 線圖 + MACD / KD / RSI / 布林通道
 """
 import streamlit as st
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -15,16 +11,21 @@ from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.indicators import sma, rsi, macd, bollinger_bands, kdj
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    format_number,
+)
 from app.components.charts import apply_dark_theme
-from app.components.theme import COLORS, DEFAULT_PLOTLY_LAYOUT
 from app.components.session_manager import get_stock_to_analyze
 
 st.set_page_config(page_title='技術分析', page_icon='📉', layout='wide')
 render_sidebar_mini(current_page='technical')
-render_page_header('技術分析', icon='📉')
 
 # ─── 資料載入 ─────────────────────────────────────────
 @st.cache_data(ttl=CACHE_TTL.get('daily', 86400))
@@ -74,6 +75,12 @@ if selected_stock is None:
     show_empty_state('請選擇一檔股票')
     st.stop()
 
+render_global_ticker_bar(active_stock=selected_stock)
+st.markdown(
+    create_page_title('技術分析', subtitle=f'{selected_stock} K 線 / MACD / KD / RSI / 布林通道', icon='📉'),
+    unsafe_allow_html=True,
+)
+
 # ─── 截取資料 ─────────────────────────────────────────
 try:
     c = close[selected_stock].dropna().iloc[-n_days:]
@@ -89,21 +96,51 @@ if c.empty:
     show_empty_state(f'{selected_stock} 資料為空')
     st.stop()
 
-# ─── 指標選擇 ─────────────────────────────────────────
-st.markdown(f'<div style="margin-top:4px"></div>', unsafe_allow_html=True)
-indicator_cols = st.columns(5)
-show_ma = indicator_cols[0].checkbox('均線 (MA)', value=True, key='ta_ma')
-show_boll = indicator_cols[1].checkbox('布林通道', value=False, key='ta_boll')
-show_macd = indicator_cols[2].checkbox('MACD', value=True, key='ta_macd')
-show_kd = indicator_cols[3].checkbox('KD', value=True, key='ta_kd')
-show_rsi = indicator_cols[4].checkbox('RSI', value=False, key='ta_rsi')
+# ─── 指標選擇（按用途分類）─────────────────────────────
+st.markdown(create_section_header('指標設定', icon='⚙️'), unsafe_allow_html=True)
+ind_cols = st.columns(3)
 
-# 計算副圖數量
+# 趨勢類（疊加於 K 線主圖）
+trend_options = {'均線 (MA)': 'ma', '布林通道': 'boll', '均線 + 布林': 'ma_boll', '不顯示': 'none'}
+trend_choice = ind_cols[0].selectbox(
+    '趨勢指標', options=list(trend_options.keys()), index=0, key='ta_trend',
+)
+trend_val = trend_options[trend_choice]
+show_ma = trend_val in ('ma', 'ma_boll')
+show_boll = trend_val in ('boll', 'ma_boll')
+
+# 動能類（副圖擇一）
+momentum_options = {'MACD': 'macd', 'KD': 'kd', 'RSI': 'rsi', '不顯示': 'none'}
+momentum_choice = ind_cols[1].selectbox(
+    '動能指標', options=list(momentum_options.keys()), index=0, key='ta_momentum',
+)
+momentum_val = momentum_options[momentum_choice]
+show_macd = momentum_val == 'macd'
+show_kd = momentum_val == 'kd'
+show_rsi = momentum_val == 'rsi'
+
+# 量能類（成交量副圖）
+volume_options = {'成交量': 'vol', '不顯示': 'none'}
+volume_choice = ind_cols[2].selectbox(
+    '量能指標', options=list(volume_options.keys()), index=0, key='ta_volume',
+)
+show_volume = volume_options[volume_choice] == 'vol'
+
+# 計算副圖數量（K 線主圖 + 可選成交量 + 可選動能副指標）
+vol_has_data = v is not None and not v.isna().all()
+draw_volume = show_volume and vol_has_data
 sub_count = sum([show_macd, show_kd, show_rsi])
-total_rows = 1 + 1 + sub_count  # K 線 + 成交量 + 副指標
-row_heights = [0.45] + [0.15] + [0.4 / max(sub_count, 1)] * max(sub_count, 0)
-if sub_count == 0:
-    row_heights = [0.7, 0.3]
+total_rows = 1 + (1 if draw_volume else 0) + sub_count
+row_heights = [0.45] if (draw_volume or sub_count) else [1.0]
+if draw_volume:
+    row_heights += [0.15]
+if sub_count:
+    row_heights += [0.4 / sub_count] * sub_count
+# 重新正規化主圖高度，避免列數變動時比例失衡
+if len(row_heights) == 1:
+    row_heights = [1.0]
+elif not draw_volume and sub_count == 0:
+    row_heights = [1.0]
 
 # ─── 繪製圖表 ─────────────────────────────────────────
 fig = make_subplots(
@@ -113,8 +150,8 @@ fig = make_subplots(
 )
 
 # === K 線圖 ===
-colors_up = '#ef4444'   # 台股紅漲
-colors_down = '#22c55e'  # 台股綠跌
+colors_up = COLORS['up']     # 台股紅漲
+colors_down = COLORS['down']  # 台股綠跌
 
 fig.add_trace(go.Candlestick(
     x=c.index, open=o, high=h, low=l, close=c,
@@ -126,7 +163,7 @@ fig.add_trace(go.Candlestick(
 # 均線
 if show_ma:
     ma_periods = [5, 20, 60]
-    ma_colors = ['#fbbf24', '#3b82f6', '#a855f7']
+    ma_colors = [COLORS['flow_trust'], COLORS['flow_foreign'], COLORS['flow_dealer']]
     close_df = c.to_frame(name=selected_stock)
     for period, color in zip(ma_periods, ma_colors):
         ma_val = sma(close_df, period)[selected_stock].reindex(c.index)
@@ -144,25 +181,28 @@ if show_boll:
     bb_upper = bb[f'{selected_stock}_upper'].reindex(c.index)
     bb_lower = bb[f'{selected_stock}_lower'].reindex(c.index)
 
+    bb_line = COLORS['flow_dealer']
     fig.add_trace(go.Scatter(x=c.index, y=bb_upper, mode='lines',
-                             line=dict(width=1, color='rgba(168,85,247,0.5)'), name='BB Upper', showlegend=False), row=1, col=1)
+                             line=dict(width=1, color=bb_line), opacity=0.5, name='BB Upper', showlegend=False), row=1, col=1)
     fig.add_trace(go.Scatter(x=c.index, y=bb_lower, mode='lines',
-                             line=dict(width=1, color='rgba(168,85,247,0.5)'), fill='tonexty',
-                             fillcolor='rgba(168,85,247,0.08)', name='布林通道'), row=1, col=1)
+                             line=dict(width=1, color=bb_line), opacity=0.5, fill='tonexty',
+                             fillcolor='rgba(139, 92, 246, 0.08)', name='布林通道'), row=1, col=1)
     fig.add_trace(go.Scatter(x=c.index, y=bb_mid, mode='lines',
-                             line=dict(width=1, dash='dash', color='#a855f7'), name='BB Mid', showlegend=False), row=1, col=1)
+                             line=dict(width=1, dash='dash', color=bb_line), name='BB Mid', showlegend=False), row=1, col=1)
 
 # === 成交量 ===
-vol_row = 2
-if v is not None and not v.isna().all():
+next_row = 2
+if draw_volume:
     vol_colors = [colors_up if c.iloc[i] >= o.iloc[i] else colors_down for i in range(len(c))]
     fig.add_trace(go.Bar(
         x=c.index, y=v, marker_color=vol_colors,
         name='成交量', showlegend=False, opacity=0.7,
-    ), row=vol_row, col=1)
+    ), row=next_row, col=1)
+    fig.update_yaxes(title_text='成交量', row=next_row, col=1)
+    next_row += 1
 
 # === 副指標 ===
-current_row = 3
+current_row = next_row
 
 if show_macd:
     close_df = c.to_frame(name=selected_stock)
@@ -173,8 +213,8 @@ if show_macd:
 
     hist_colors = [colors_up if val >= 0 else colors_down for val in hist.fillna(0)]
     fig.add_trace(go.Bar(x=c.index, y=hist, marker_color=hist_colors, name='MACD Hist', showlegend=False, opacity=0.6), row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=c.index, y=macd_line, mode='lines', line=dict(width=1.2, color='#3b82f6'), name='MACD'), row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=c.index, y=signal_line, mode='lines', line=dict(width=1.2, color='#f97316'), name='Signal'), row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=c.index, y=macd_line, mode='lines', line=dict(width=1.2, color=COLORS['flow_foreign']), name='MACD'), row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=c.index, y=signal_line, mode='lines', line=dict(width=1.2, color=COLORS['flow_trust']), name='Signal'), row=current_row, col=1)
     fig.update_yaxes(title_text='MACD', row=current_row, col=1)
     current_row += 1
 
@@ -188,11 +228,11 @@ if show_kd:
     k_val = kd_result[f'{selected_stock}_K'].reindex(c.index)
     d_val = kd_result[f'{selected_stock}_D'].reindex(c.index)
 
-    fig.add_trace(go.Scatter(x=c.index, y=k_val, mode='lines', line=dict(width=1.2, color='#3b82f6'), name='K'), row=current_row, col=1)
-    fig.add_trace(go.Scatter(x=c.index, y=d_val, mode='lines', line=dict(width=1.2, color='#f97316'), name='D'), row=current_row, col=1)
-    # 超買超賣線
-    fig.add_hline(y=80, line_dash='dot', line_color='rgba(239,68,68,0.4)', row=current_row, col=1)
-    fig.add_hline(y=20, line_dash='dot', line_color='rgba(34,197,94,0.4)', row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=c.index, y=k_val, mode='lines', line=dict(width=1.2, color=COLORS['flow_foreign']), name='K'), row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=c.index, y=d_val, mode='lines', line=dict(width=1.2, color=COLORS['flow_trust']), name='D'), row=current_row, col=1)
+    # 超買超賣線（紅=超買、綠=超賣）
+    fig.add_hline(y=80, line_dash='dot', line_color=COLORS['up_weak'], row=current_row, col=1)
+    fig.add_hline(y=20, line_dash='dot', line_color=COLORS['down_weak'], row=current_row, col=1)
     fig.update_yaxes(title_text='KD', range=[0, 100], row=current_row, col=1)
     current_row += 1
 
@@ -200,37 +240,44 @@ if show_rsi:
     close_df = c.to_frame(name=selected_stock)
     rsi_val = rsi(close_df, period=14)[selected_stock].reindex(c.index)
 
-    fig.add_trace(go.Scatter(x=c.index, y=rsi_val, mode='lines', line=dict(width=1.5, color='#a855f7'), name='RSI(14)'), row=current_row, col=1)
-    fig.add_hline(y=70, line_dash='dot', line_color='rgba(239,68,68,0.4)', row=current_row, col=1)
-    fig.add_hline(y=30, line_dash='dot', line_color='rgba(34,197,94,0.4)', row=current_row, col=1)
+    fig.add_trace(go.Scatter(x=c.index, y=rsi_val, mode='lines', line=dict(width=1.5, color=COLORS['flow_dealer']), name='RSI(14)'), row=current_row, col=1)
+    fig.add_hline(y=70, line_dash='dot', line_color=COLORS['up_weak'], row=current_row, col=1)
+    fig.add_hline(y=30, line_dash='dot', line_color=COLORS['down_weak'], row=current_row, col=1)
     fig.update_yaxes(title_text='RSI', range=[0, 100], row=current_row, col=1)
 
-# === 統一排版 ===
-chart_height = 500 + sub_count * 150
-fig.update_layout(
-    **DEFAULT_PLOTLY_LAYOUT,
+# === 統一排版（深色主題 + 十字線 hover）===
+chart_height = 500 + (150 if draw_volume else 0) + sub_count * 150
+apply_dark_theme(
+    fig,
     height=chart_height,
+    unified_hover=True,
     title=dict(text=f'{selected_stock} 技術分析', font=dict(size=16)),
     xaxis_rangeslider_visible=False,
-    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1, font=dict(size=11)),
 )
 fig.update_xaxes(type='category', nticks=12)
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ─── KPI 摘要 ──────────────────────────────────────────
-st.markdown(f'<div style="margin-top:0.5rem"></div>', unsafe_allow_html=True)
+st.markdown(create_section_header('價格摘要', icon='📊'), unsafe_allow_html=True)
 latest_price = c.iloc[-1]
 prev_price = c.iloc[-2] if len(c) > 1 else latest_price
 change_pct = (latest_price / prev_price - 1) * 100
 high_n = h.max()
 low_n = l.min()
 
-kpi_cols = st.columns(5)
-kpi_cols[0].metric('最新收盤', f'{latest_price:,.2f}', f'{change_pct:+.2f}%')
-kpi_cols[1].metric(f'{period_label}最高', f'{high_n:,.2f}')
-kpi_cols[2].metric(f'{period_label}最低', f'{low_n:,.2f}')
-kpi_cols[3].metric('振幅', f'{(high_n / low_n - 1) * 100:.1f}%')
+kpi_items = [
+    {
+        'label': '最新收盤',
+        'value': format_number(latest_price, kind='price'),
+        'delta': format_number(change_pct, kind='pct', signed=True),
+        'delta_color': 'up' if change_pct >= 0 else 'down',
+    },
+    {'label': f'{period_label}最高', 'value': format_number(high_n, kind='price')},
+    {'label': f'{period_label}最低', 'value': format_number(low_n, kind='price')},
+    {'label': '振幅', 'value': format_number((high_n / low_n - 1) * 100, kind='pct')},
+]
 if v is not None and not v.isna().all():
-    avg_vol = v.mean()
-    kpi_cols[4].metric('日均量', f'{avg_vol / 1000:,.0f}K')
+    kpi_items.append({'label': '日均量', 'value': format_number(v.mean(), kind='volume')})
+
+render_kpi_row(kpi_items)

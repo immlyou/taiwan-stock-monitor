@@ -3,6 +3,7 @@
 """
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import json
 import uuid
 from pathlib import Path
@@ -12,12 +13,17 @@ from datetime import datetime, date
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
 from app.components.portfolio_utils import (
     get_portfolio_names, load_portfolios, save_portfolios
 )
+from app.components.theme import (
+    COLORS, create_page_title, create_section_header,
+    render_kpi_row, responsive_columns, format_number,
+)
+from app.components.charts import apply_dark_theme
 from core.ai_models import TradingJournalAnalyzer
 
 st.set_page_config(page_title='交易日誌', page_icon='📝', layout='wide')
@@ -25,7 +31,13 @@ st.set_page_config(page_title='交易日誌', page_icon='📝', layout='wide')
 # 渲染側邊欄
 render_sidebar_mini(current_page='journal')
 
+# 全域報價列（sidebar 後、標題前呼叫一次）
+render_global_ticker_bar()
+
 render_page_header('交易日誌', icon='📝')
+
+st.markdown(create_page_title('交易日誌', subtitle='記錄交易決策與心得', icon='📝'),
+            unsafe_allow_html=True)
 
 # 日誌檔案路徑
 JOURNAL_FILE = Path(__file__).parent.parent.parent / 'data' / 'trading_journal.json'
@@ -73,35 +85,40 @@ tab1, tab2, tab3 = st.tabs(['📝 新增日誌', '📋 日誌列表', '📊 統�
 
 # ========== 新增日誌 ==========
 with tab1:
-    st.markdown('### 新增交易日誌')
+    st.markdown(create_section_header('新增交易日誌', icon='📝'), unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-
-    with col1:
+    # 第 1 行：基本資訊（日期 / 類型 / 股票）
+    row1_c1, row1_c2, row1_c3 = responsive_columns(3)
+    with row1_c1:
         entry_date = st.date_input('日期', value=date.today())
-
+    with row1_c2:
         entry_type = st.selectbox(
             '交易類型',
             ['買入', '賣出', '加碼', '減碼', '觀察', '心得']
         )
-
+    with row1_c3:
         entry_stock = st.selectbox(
             '相關股票 (選填)',
             stock_options
         )
 
+    # 第 2 行：標題（寬）+ 價格 + 股數
+    row2_c1, row2_c2, row2_c3 = responsive_columns([2, 1, 1])
+    with row2_c1:
+        entry_title = st.text_input('標題', placeholder='例如：2330 突破壓力位買入')
+    with row2_c2:
+        entry_price = st.number_input('價格 (選填)', 0.0, 10000.0, 0.0, 1.0)
+    with row2_c3:
+        entry_shares = st.number_input('股數 (選填)', 0, 100000, 0, 100)
+
+    # 第 3 行：標籤 + 交易原因
+    row3_c1, row3_c2 = responsive_columns([1, 2])
+    with row3_c1:
         tags = st.multiselect(
             '標籤',
             ['技術分析', '基本面', '消息面', '情緒', '風控', '策略', '檢討', '計畫'],
         )
-
-    with col2:
-        entry_title = st.text_input('標題', placeholder='例如：2330 突破壓力位買入')
-
-        entry_price = st.number_input('價格 (選填)', 0.0, 10000.0, 0.0, 1.0)
-
-        entry_shares = st.number_input('股數 (選填)', 0, 100000, 0, 100)
-
+    with row3_c2:
         entry_reason = st.text_area(
             '交易原因/觀察重點',
             placeholder='為什麼進行這筆交易？或者觀察到什麼重要訊號？',
@@ -130,8 +147,8 @@ with tab1:
     if is_trade_type and entry_stock_id:
         portfolio_names = get_portfolio_names()
         if portfolio_names:
-            st.markdown('---')
-            sync_col1, sync_col2 = st.columns([1, 2])
+            st.markdown(create_section_header('同步投資組合', icon='🔄'), unsafe_allow_html=True)
+            sync_col1, sync_col2 = responsive_columns([1, 2])
             with sync_col1:
                 sync_to_portfolio = st.checkbox(
                     '同步更新投資組合',
@@ -226,10 +243,10 @@ with tab1:
 
 # ========== 日誌列表 ==========
 with tab2:
-    st.markdown('### 日誌列表')
+    st.markdown(create_section_header('日誌列表', icon='📋'), unsafe_allow_html=True)
 
     # 篩選器
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    filter_col1, filter_col2, filter_col3 = responsive_columns(3)
 
     with filter_col1:
         filter_type = st.selectbox('交易類型', ['全部', '買入', '賣出', '加碼', '減碼', '觀察', '心得'])
@@ -263,7 +280,7 @@ with tab2:
     if filtered_entries:
         for entry in filtered_entries[:20]:  # 最多顯示 20 筆
             with st.expander(f"**{entry['date']}** | {entry['type']} | {entry['title']}"):
-                col1, col2 = st.columns([3, 1])
+                col1, col2 = responsive_columns([3, 1])
 
                 with col1:
                     # 股票資訊
@@ -274,10 +291,10 @@ with tab2:
                         st.markdown(f"**股票：** {stock_id} {name}")
 
                     if entry.get('price'):
-                        st.markdown(f"**價格：** {entry['price']:.2f}")
+                        st.markdown(f"**價格：** {format_number(entry['price'], kind='price')}")
 
                     if entry.get('shares'):
-                        st.markdown(f"**股數：** {entry['shares']}")
+                        st.markdown(f"**股數：** {format_number(entry['shares'], kind='int')}")
 
                     # 標籤
                     if entry.get('tags'):
@@ -291,7 +308,7 @@ with tab2:
                         save_journal(journal_data)
                         st.rerun()
 
-                st.markdown('---')
+                st.divider()
 
                 # 交易原因
                 if entry.get('reason'):
@@ -313,7 +330,7 @@ with tab2:
 
 # ========== 統計分析 ==========
 with tab3:
-    st.markdown('### 統計分析')
+    st.markdown(create_section_header('統計分析', icon='📊'), unsafe_allow_html=True)
 
     if entries:
         # 交易類型統計
@@ -334,60 +351,72 @@ with tab3:
             entry_date = entry.get('date', '')[:7]  # YYYY-MM
             monthly_counts[entry_date] = monthly_counts.get(entry_date, 0) + 1
 
-        col1, col2 = st.columns(2)
+        # === KPI 摘要列 ===
+        buy_count = type_counts.get('買入', 0) + type_counts.get('加碼', 0)
+        sell_count = type_counts.get('賣出', 0) + type_counts.get('減碼', 0)
+        lesson_count = sum(1 for e in entries if e.get('lesson'))
+        render_kpi_row([
+            {'label': '總日誌數', 'value': format_number(len(entries), kind='int')},
+            {'label': '買入/加碼次數', 'value': format_number(buy_count, kind='int'),
+             'delta': '進場', 'delta_color': 'up'},
+            {'label': '賣出/減碼次數', 'value': format_number(sell_count, kind='int'),
+             'delta': '出場', 'delta_color': 'down'},
+            {'label': '有記錄教訓', 'value': format_number(lesson_count, kind='int')},
+        ])
 
-        with col1:
-            st.markdown('#### 交易類型分布')
-            type_df = pd.DataFrame({
-                '類型': list(type_counts.keys()),
-                '次數': list(type_counts.values())
-            })
-            st.bar_chart(type_df.set_index('類型'))
-
-        with col2:
-            st.markdown('#### 標籤使用頻率')
-            if tag_counts:
-                tag_df = pd.DataFrame({
-                    '標籤': list(tag_counts.keys()),
-                    '次數': list(tag_counts.values())
-                }).sort_values('次數', ascending=False)
-                st.bar_chart(tag_df.set_index('標籤'))
-
-        # 月度趨勢
-        st.markdown('#### 月度日誌數量')
+        # === 月趨勢全寬圖 ===
+        st.markdown(create_section_header('月度日誌數量', icon='📈'), unsafe_allow_html=True)
         if monthly_counts:
             monthly_df = pd.DataFrame({
                 '月份': list(monthly_counts.keys()),
                 '日誌數': list(monthly_counts.values())
             }).sort_values('月份')
-            st.line_chart(monthly_df.set_index('月份'))
+            fig_monthly = go.Figure()
+            fig_monthly.add_trace(go.Scatter(
+                x=monthly_df['月份'], y=monthly_df['日誌數'],
+                mode='lines+markers', fill='tozeroy',
+                line=dict(color=COLORS['accent'], width=2),
+                marker=dict(color=COLORS['accent'], size=7),
+                name='日誌數',
+            ))
+            apply_dark_theme(fig_monthly, height=320)
+            st.plotly_chart(fig_monthly, use_container_width=True)
 
-        # 統計摘要
-        st.markdown('#### 統計摘要')
-
-        col1, col2, col3, col4 = st.columns(4)
+        # === 類型 / 標籤並排 ===
+        col1, col2 = responsive_columns(2)
 
         with col1:
-            st.metric('總日誌數', len(entries))
+            st.markdown(create_section_header('交易類型分布', icon='🧭'), unsafe_allow_html=True)
+            type_df = pd.DataFrame({
+                '類型': list(type_counts.keys()),
+                '次數': list(type_counts.values())
+            }).sort_values('次數', ascending=True)
+            fig_type = go.Figure(go.Bar(
+                x=type_df['次數'], y=type_df['類型'],
+                orientation='h', marker_color=COLORS['flow_foreign'],
+            ))
+            apply_dark_theme(fig_type, height=320)
+            st.plotly_chart(fig_type, use_container_width=True)
 
         with col2:
-            buy_count = type_counts.get('買入', 0) + type_counts.get('加碼', 0)
-            st.metric('買入/加碼次數', buy_count)
-
-        with col3:
-            sell_count = type_counts.get('賣出', 0) + type_counts.get('減碼', 0)
-            st.metric('賣出/減碼次數', sell_count)
-
-        with col4:
-            lesson_count = sum(1 for e in entries if e.get('lesson'))
-            st.metric('有記錄教訓', lesson_count)
+            st.markdown(create_section_header('標籤使用頻率', icon='🏷️'), unsafe_allow_html=True)
+            if tag_counts:
+                tag_df = pd.DataFrame({
+                    '標籤': list(tag_counts.keys()),
+                    '次數': list(tag_counts.values())
+                }).sort_values('次數', ascending=True)
+                fig_tag = go.Figure(go.Bar(
+                    x=tag_df['次數'], y=tag_df['標籤'],
+                    orientation='h', marker_color=COLORS['flow_trust'],
+                ))
+                apply_dark_theme(fig_tag, height=320)
+                st.plotly_chart(fig_tag, use_container_width=True)
 
     else:
         show_empty_state('尚無日誌數據', icon='📝', suggestion='開始記錄您的交易，累積寶貴的交易經驗')
 
     # ========== AI 交易回顧 ==========
-    st.markdown('---')
-    st.markdown('#### 🤖 AI 交易行為回顧')
+    st.markdown(create_section_header('AI 交易行為回顧', icon='🤖'), unsafe_allow_html=True)
 
     if entries:
         if st.button('🧠 產生 AI 回顧報告', key='ai_journal_review'):
@@ -405,10 +434,9 @@ with tab3:
         st.caption('累積交易記錄後即可使用 AI 回顧功能')
 
 # ========== 匯出功能 ==========
-st.markdown('---')
-st.markdown('### 📤 匯出日誌')
+st.markdown(create_section_header('匯出日誌', icon='📤'), unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
+col1, col2 = responsive_columns(2)
 
 with col1:
     if entries:

@@ -6,23 +6,26 @@
 """
 import streamlit as st
 import pandas as pd
-from pathlib import Path
-from datetime import datetime
-import json
 
 
 from config import STREAMLIT_CONFIG
 from core.realtime_quote import (
     fetch_realtime_quote,
     fetch_realtime_quotes,
-    clear_quote_cache,
     StockQuote,
 )
-from core.twse_api import get_taiex, fetch_taiex_realtime
+from core.twse_api import fetch_taiex_realtime
 from core.data_loader import get_loader
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    render_data_table,
+    format_number,
+)
 
 # 頁面設定
 st.set_page_config(
@@ -45,34 +48,34 @@ except Exception:
 def format_compact_quote(quote: StockQuote):
     """格式化緊湊報價卡片"""
     if quote.is_up:
-        color = '#ef4444'
+        color = COLORS['up']
         arrow = '▲'
-        bg = 'rgba(239, 83, 80, 0.05)'
+        bg = COLORS['up_bg']
     elif quote.is_down:
-        color = '#22c55e'
+        color = COLORS['down']
         arrow = '▼'
-        bg = 'rgba(38, 166, 154, 0.05)'
+        bg = COLORS['down_bg']
     else:
-        color = '#888'
+        color = COLORS['flat']
         arrow = '─'
-        bg = '#252b3d;border:1px solid #374151'
+        bg = COLORS['secondary']
 
     limit_tag = ''
     if quote.is_limit_up:
-        limit_tag = '<span style="color:#fff;background:#ef4444;padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">漲停</span>'
+        limit_tag = f'<span style="color:#fff;background:{COLORS["up"]};padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">漲停</span>'
     elif quote.is_limit_down:
-        limit_tag = '<span style="color:#fff;background:#22c55e;padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">跌停</span>'
+        limit_tag = f'<span style="color:#fff;background:{COLORS["down"]};padding:1px 4px;border-radius:3px;font-size:10px;margin-left:4px">跌停</span>'
 
     # 使用單行 HTML 避免 Streamlit markdown 解析問題
-    html = f'<div style="background:{bg};padding:12px;border-radius:8px;margin-bottom:8px;border-left:4px solid {color}">'
-    html += f'<div style="display:flex;justify-content:space-between;align-items:center">'
-    html += f'<div><span style="font-weight:bold;font-size:14px">{quote.stock_id}</span>'
-    html += f'<span style="color:#94a3b8;font-size:12px;margin-left:4px">{quote.name}</span>{limit_tag}</div>'
-    html += f'<span style="font-size:11px;color:#94a3b8">{quote.time}</span></div>'
-    html += f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px">'
-    html += f'<span style="font-size:22px;font-weight:bold;color:{color}">{quote.price:,.2f}</span>'
-    html += f'<span style="font-size:14px;color:{color}">{arrow} {quote.change:+.2f} ({quote.change_pct:+.2f}%)</span></div>'
-    html += f'<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#94a3b8">'
+    html = f'<div class="stock-card" style="background:{bg};border:1px solid {COLORS["border"]};padding:12px;border-radius:8px;margin-bottom:8px;border-left:4px solid {color}">'
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">'
+    html += f'<div><span style="font-weight:bold;font-size:14px;color:{COLORS["text_primary"]}">{quote.stock_id}</span>'
+    html += f'<span style="color:{COLORS["text_secondary"]};font-size:12px;margin-left:4px">{quote.name}</span>{limit_tag}</div>'
+    html += f'<span style="font-size:11px;color:{COLORS["text_muted"]}">{quote.time}</span></div>'
+    html += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px">'
+    html += f'<span class="num-mono" style="font-size:22px;font-weight:bold;color:{color}">{format_number(quote.price, "price")}</span>'
+    html += f'<span class="num-mono" style="font-size:14px;color:{color}">{arrow} {quote.change:+.2f} ({quote.change_pct:+.2f}%)</span></div>'
+    html += f'<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:{COLORS["text_muted"]}" class="num-mono">'
     html += f'<span>開:{quote.open:,.1f}</span><span>高:{quote.high:,.1f}</span>'
     html += f'<span>低:{quote.low:,.1f}</span><span>量:{quote.volume_lots:,}張</span></div></div>'
     return html
@@ -82,16 +85,15 @@ from app.components.watchlist_utils import load_watchlists as load_watchlist
 
 
 # ========== 頁面標題 ==========
-render_page_header('即時報價', icon='💹')
+render_global_ticker_bar()
+st.markdown(create_page_title('即時報價', subtitle='大盤指數、個股查詢與自選股即時報價', icon='💹'), unsafe_allow_html=True)
 
 # ========== 第一行：大盤指數 + 個股查詢 ==========
-st.markdown('---')
-
-row1_col1, row1_col2 = st.columns([1, 3])
+row1_col1, row1_col2 = st.columns([1.5, 2.5])
 
 # 大盤指數
 with row1_col1:
-    st.markdown('##### 大盤指數')
+    st.markdown(create_section_header('大盤指數', icon='📊'), unsafe_allow_html=True)
     taiex_data = fetch_taiex_realtime()
     if taiex_data:
         taiex_index = taiex_data['index']
@@ -111,7 +113,7 @@ with row1_col1:
 
 # 個股查詢
 with row1_col2:
-    st.markdown('##### 個股查詢')
+    st.markdown(create_section_header('個股查詢', icon='🔍'), unsafe_allow_html=True)
 
     search_col1, search_col2 = st.columns([4, 1])
 
@@ -128,11 +130,11 @@ with row1_col2:
 
     # 快速選擇
     quick_stocks = [('2330', '台積電'), ('2317', '鴻海'), ('2454', '聯發科'), ('0050', '元大50'), ('2881', '富邦金'), ('2303', '聯電')]
-    quick_cols = st.columns(6)
+    quick_cols = st.columns(3)
 
     selected_quick = None
     for i, (sid, sname) in enumerate(quick_stocks):
-        with quick_cols[i]:
+        with quick_cols[i % 3]:
             if st.button(f'{sid}', key=f'quick_{sid}', use_container_width=True, help=sname):
                 selected_quick = sid
 
@@ -154,13 +156,11 @@ with row1_col2:
             st.warning(f'找不到 {search_stock}')
 
 # ========== 第二行：自選股報價 + 熱門股報價 ==========
-st.markdown('---')
-
 row2_col1, row2_col2 = st.columns(2)
 
 # 自選股報價
 with row2_col1:
-    st.markdown('##### ⭐ 自選股報價')
+    st.markdown(create_section_header('自選股報價', icon='⭐'), unsafe_allow_html=True)
 
     watchlists = load_watchlist()
 
@@ -210,7 +210,7 @@ with row2_col1:
 
 # 更多熱門股
 with row2_col2:
-    st.markdown('##### 🔥 熱門股票')
+    st.markdown(create_section_header('熱門股票', icon='🔥'), unsafe_allow_html=True)
 
     hot_stocks = ['2881', '2882', '2884', '2891', '0050', '0056', '00878', '00919', '2603', '2609', '3037', '6669']
 
@@ -227,8 +227,6 @@ with row2_col2:
         show_empty_state('非交易時段', icon='🕐', suggestion='交易時段為 09:00 - 13:30，非交易時段顯示收盤資料')
 
 # ========== 第三行：批次查詢 ==========
-st.markdown('---')
-
 with st.expander('📋 批次查詢', expanded=False):
     batch_input = st.text_area(
         '輸入多支股票代號 (用逗號、空格或換行分隔)',
@@ -257,12 +255,20 @@ with st.expander('📋 批次查詢', expanded=False):
                             data.append({
                                 '代號': q.stock_id,
                                 '名稱': q.name,
-                                '現價': f'{q.price:,.2f}',
+                                '現價': format_number(q.price, 'price'),
                                 '漲跌幅': f'{arrow} {q.change_pct:+.2f}%',
-                                '量(張)': f'{q.volume_lots:,}',
+                                '開': format_number(q.open, 'price'),
+                                '高': format_number(q.high, 'price'),
+                                '低': format_number(q.low, 'price'),
+                                '量(張)': format_number(q.volume_lots, 'int'),
+                                '成交額': format_number(q.amount, 'amount'),
                             })
 
-                    st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+                    render_data_table(
+                        pd.DataFrame(data),
+                        freeze_cols=1,
+                        dense=True,
+                    )
                 else:
                     st.warning('無法取得報價')
 

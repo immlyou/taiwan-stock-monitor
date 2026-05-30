@@ -4,28 +4,42 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pathlib import Path
 
 
-from core.data_loader import get_loader, get_active_stocks
+from core.data_loader import get_loader
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy
-from core.optimizer import GridSearchOptimizer, OptimizationResult
+from core.optimizer import GridSearchOptimizer
 from app.components.sidebar import render_sidebar_mini
 from app.components.error_handler import show_error
-from app.components.page_header import render_page_header
-from app.components.empty_state import show_empty_state
+from app.components.page_header import render_global_ticker_bar
 from app.components.session_manager import set_state, StateKeys
+from app.components.theme import (
+    create_page_title,
+    create_section_header,
+    render_data_table,
+    format_number,
+)
+from app.components.charts import apply_dark_theme
 
 st.set_page_config(page_title='參數優化', page_icon='🎯', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='optimizer')
 
-render_page_header("參數優化", icon="⚙️")
-st.markdown('---')
+# 全域報價列（sidebar 後、標題前）
+render_global_ticker_bar()
+
+st.markdown(
+    create_page_title(
+        '參數優化',
+        subtitle='Grid Search 網格搜索，系統性找出最佳策略參數組合',
+        icon='⚙️',
+    ),
+    unsafe_allow_html=True,
+)
 
 # ========== 策略選擇 ==========
-st.subheader('1️⃣ 選擇策略')
+st.markdown(create_section_header('選擇策略', icon='1️⃣'), unsafe_allow_html=True)
 
 strategy_type = st.selectbox(
     '選擇要優化的策略',
@@ -39,10 +53,8 @@ strategy_class_map = {
     '動能投資': MomentumStrategy,
 }
 
-st.markdown('---')
-
 # ========== 參數範圍設定 ==========
-st.subheader('2️⃣ 設定參數搜索範圍')
+st.markdown(create_section_header('設定參數搜索範圍', icon='2️⃣'), unsafe_allow_html=True)
 
 param_grid = {}
 
@@ -89,11 +101,10 @@ elif strategy_type == '成長投資':
 
     with col3:
         st.markdown('**連續成長月數**')
-        months_options = st.multiselect(
-            '選擇要測試的月數',
-            [1, 2, 3, 4, 5, 6],
-            default=[2, 3, 4],
-        )
+        months_min = st.number_input('最小值', 1, 6, 2, 1, key='months_min')
+        months_max = st.number_input('最大值', 1, 6, 4, 1, key='months_max')
+        months_step = st.number_input('間距', 1, 3, 1, 1, key='months_step')
+        months_options = [int(v) for v in np.arange(months_min, months_max + 0.1, months_step)]
         param_grid['consecutive_months'] = months_options if months_options else [3]
 
 elif strategy_type == '動能投資':
@@ -101,11 +112,10 @@ elif strategy_type == '動能投資':
 
     with col1:
         st.markdown('**突破天數**')
-        breakout_options = st.multiselect(
-            '選擇要測試的天數',
-            [5, 10, 20, 40, 60],
-            default=[10, 20, 40],
-        )
+        bd_min = st.number_input('最小值', 5, 60, 10, 5, key='bd_min')
+        bd_max = st.number_input('最大值', 5, 60, 40, 5, key='bd_max')
+        bd_step = st.number_input('間距', 5, 20, 10, 5, key='bd_step')
+        breakout_options = [int(v) for v in np.arange(bd_min, bd_max + 0.1, bd_step)]
         param_grid['breakout_days'] = breakout_options if breakout_options else [20]
 
     with col2:
@@ -116,10 +126,16 @@ elif strategy_type == '動能投資':
         param_grid['volume_ratio_min'] = list(np.arange(vol_min, vol_max + 0.01, vol_step))
 
     with col3:
-        st.markdown('**RSI 範圍**')
-        rsi_min_options = st.multiselect('RSI 下限', [30, 40, 50, 60], default=[40, 50])
-        rsi_max_options = st.multiselect('RSI 上限', [60, 70, 80, 90], default=[70, 80])
+        st.markdown('**RSI 下限**')
+        rsi_min_lo = st.number_input('起始值', 30, 60, 40, 10, key='rsi_min_lo')
+        rsi_min_hi = st.number_input('結束值', 30, 60, 50, 10, key='rsi_min_hi')
+        rsi_min_options = [int(v) for v in np.arange(rsi_min_lo, rsi_min_hi + 0.1, 10)]
         param_grid['rsi_min'] = rsi_min_options if rsi_min_options else [50]
+
+        st.markdown('**RSI 上限**')
+        rsi_max_lo = st.number_input('起始值', 60, 90, 70, 10, key='rsi_max_lo')
+        rsi_max_hi = st.number_input('結束值', 60, 90, 80, 10, key='rsi_max_hi')
+        rsi_max_options = [int(v) for v in np.arange(rsi_max_lo, rsi_max_hi + 0.1, 10)]
         param_grid['rsi_max'] = rsi_max_options if rsi_max_options else [80]
 
 # 計算總組合數
@@ -127,12 +143,8 @@ total_combinations = 1
 for values in param_grid.values():
     total_combinations *= len(values)
 
-st.info(f'📊 總共 **{total_combinations}** 種參數組合')
-
-st.markdown('---')
-
 # ========== 評估指標設定 ==========
-st.subheader('3️⃣ 評估設定')
+st.markdown(create_section_header('評估設定', icon='3️⃣'), unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 
@@ -162,10 +174,22 @@ with col2:
         }[x],
     )
 
-st.markdown('---')
-
 # ========== 執行優化 ==========
-st.subheader('4️⃣ 執行優化')
+st.markdown(create_section_header('執行優化', icon='4️⃣'), unsafe_allow_html=True)
+
+# 執行前資訊：參數組合數 × 預估耗時
+_secs_per_combo = 0.8  # 單組合預估耗時（秒）
+_est_seconds = total_combinations * _secs_per_combo
+if _est_seconds < 60:
+    _est_label = f'約 {_est_seconds:.0f} 秒'
+else:
+    _est_label = f'約 {_est_seconds / 60:.1f} 分鐘'
+
+st.info(
+    f'📊 參數組合數 **{format_number(total_combinations, kind="int")}** 種'
+    f'　×　⏱ 預估耗時 **{_est_label}**　'
+    f'（單組合約 {_secs_per_combo:.1f} 秒）'
+)
 
 if st.button('🚀 開始優化', type='primary', use_container_width=True):
     if total_combinations > 500:
@@ -293,7 +317,7 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
             st.success('✅ 參數優化完成！')
 
             # 最佳參數
-            st.markdown('### 🏆 最佳參數組合')
+            st.markdown(create_section_header('最佳參數組合', icon='🏆'), unsafe_allow_html=True)
 
             col1, col2 = st.columns([2, 1])
 
@@ -301,7 +325,7 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
                 params_df = pd.DataFrame([best_params]).T
                 params_df.columns = ['最佳值']
                 params_df.index.name = '參數'
-                st.dataframe(params_df, use_container_width=True)
+                render_data_table(params_df, freeze_cols=1, dense=True)
 
             with col2:
                 metric_names = {
@@ -313,7 +337,7 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
                 st.metric(metric_names[metric], f'{best_score:.4f}')
 
             # 所有結果排行
-            st.markdown('### 📊 參數組合排行')
+            st.markdown(create_section_header('參數組合排行', icon='📊'), unsafe_allow_html=True)
 
             # 排序
             sorted_df = results_df.sort_values('score', ascending=not higher_is_better)
@@ -321,11 +345,11 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
             sorted_df.index = sorted_df.index + 1
             sorted_df.index.name = '排名'
 
-            st.dataframe(sorted_df.head(20), use_container_width=True)
+            render_data_table(sorted_df.head(20), freeze_cols=1, dense=True)
 
             # 參數敏感度分析
             if len(param_grid) >= 2:
-                st.markdown('### 🔍 參數敏感度分析')
+                st.markdown(create_section_header('參數敏感度分析', icon='🔍'), unsafe_allow_html=True)
 
                 param_names = list(param_grid.keys())[:2]
 
@@ -343,8 +367,9 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
                         pivot_df,
                         labels=dict(x=param_names[1], y=param_names[0], color='Score'),
                         title=f'{param_names[0]} vs {param_names[1]} 參數熱力圖',
-                        color_continuous_scale='RdYlGn' if higher_is_better else 'RdYlGn_r',
+                        color_continuous_scale='RdYlGn_r' if higher_is_better else 'RdYlGn',
                     )
+                    fig = apply_dark_theme(fig)
                     st.plotly_chart(fig, use_container_width=True)
 
             # 儲存結果
@@ -357,7 +382,7 @@ if st.button('🚀 開始優化', type='primary', use_container_width=True):
             })
 
             # 一鍵套用按鈕
-            st.markdown('### 🎯 套用最佳參數')
+            st.markdown(create_section_header('套用最佳參數', icon='🎯'), unsafe_allow_html=True)
 
             apply_col1, apply_col2 = st.columns(2)
 

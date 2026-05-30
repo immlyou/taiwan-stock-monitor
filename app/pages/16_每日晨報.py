@@ -7,9 +7,6 @@
 """
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import json
-from pathlib import Path
 from datetime import datetime, timedelta
 
 
@@ -17,12 +14,20 @@ from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from core.news_scanner import NewsScanner, RSS_FEEDS
 from core.ai_models import ClaudeNewsSentimentAnalyzer
-from core.hot_stocks import HotStockAnalyzer, get_hot_stocks_integrated
+from core.hot_stocks import HotStockAnalyzer
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
 from app.components.session_manager import set_state, StateKeys
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    render_data_table,
+    format_number,
+)
 
 st.set_page_config(
     page_title=f"{STREAMLIT_CONFIG['page_title']} - 每日晨報",
@@ -32,6 +37,9 @@ st.set_page_config(
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='morning_report')
+
+# 全域報價跑馬燈（sidebar 後、標題前呼叫一次）
+render_global_ticker_bar()
 
 
 # ========== 資料載入 ==========
@@ -74,7 +82,10 @@ set_state(StateKeys.NEWS_SCANNER, scanner)
 
 
 # ========== 頁面標題 ==========
-render_page_header('每日晨報', icon='🌅')
+st.markdown(
+    create_page_title('每日晨報', subtitle='新聞掃描 · 開盤提醒 · 整合熱度分析', icon='🌅'),
+    unsafe_allow_html=True,
+)
 
 if st.button('🔄 更新新聞', type='primary'):
     with st.spinner('正在抓取新聞...'):
@@ -99,9 +110,117 @@ if not scanner.news_cache:
 # 產生晨報
 report = scanner.generate_morning_report(refresh=False)
 
-# ========== AI 新聞情緒分析 ==========
-st.markdown('---')
-st.markdown('##### 🤖 AI 新聞情緒分析')
+# ========== 區塊 1：總覽 KPI ==========
+st.markdown(create_section_header('市場總覽', icon='📊'), unsafe_allow_html=True)
+
+_pos = report['summary']['positive_count']
+_neg = report['summary']['negative_count']
+if _pos + _neg > 0:
+    _ratio = _pos / (_pos + _neg) * 100
+    _ratio_delta_color = 'up' if _ratio >= 50 else 'down'
+else:
+    _ratio = 50
+    _ratio_delta_color = 'flat'
+
+render_kpi_row([
+    {'label': '📰 新聞總數', 'value': format_number(report['summary']['total_news'], kind='int')},
+    {'label': '📈 利多', 'value': format_number(_pos, kind='int'), 'delta_color': 'up'},
+    {'label': '📉 利空', 'value': format_number(_neg, kind='int'), 'delta_color': 'down'},
+    {'label': '🎯 多空比', 'value': f'{_ratio:.0f}%', 'delta_color': _ratio_delta_color},
+    {'label': '🔥 熱門股', 'value': format_number(len(report['hot_stocks']), kind='int')},
+    {'label': '📊 涉及標的', 'value': format_number(report['summary'].get('unique_stocks', 0), kind='int')},
+])
+
+# ========== 區塊 2：新聞（利多 / 利空，上下堆疊避免高度不齊） ==========
+st.markdown(create_section_header('新聞快訊', icon='📰'), unsafe_allow_html=True)
+
+
+def _render_news_block(news_items, empty_msg, empty_icon):
+    """以固定高度容器渲染新聞清單，避免利多/利空兩欄高度不齊。"""
+    if not news_items:
+        show_empty_state(empty_msg, icon=empty_icon)
+        return
+    for news in news_items[:4]:
+        with st.container():
+            title = news['title'][:50] + '...' if len(news['title']) > 50 else news['title']
+            st.markdown(f"**{title}**")
+            if news.get('summary'):
+                summary = news['summary'][:80] + '...' if len(news['summary']) > 80 else news['summary']
+                st.caption(summary)
+            tag_col1, tag_col2 = st.columns([3, 1])
+            with tag_col1:
+                if news['stocks']:
+                    stock_tags = ' '.join([f"`{s}`" for s in news['stocks'][:3]])
+                    st.markdown(stock_tags)
+            with tag_col2:
+                st.caption(f"📡{news['source'][:6]}")
+            st.markdown(f"[閱讀全文]({news['link']})")
+            st.markdown('---')
+
+
+news_tab_pos, news_tab_neg = st.tabs(['📈 利多消息', '📉 利空消息'])
+with news_tab_pos:
+    with st.container(height=180):
+        _render_news_block(report['positive_news'], '目前無利多新聞', '📈')
+with news_tab_neg:
+    with st.container(height=180):
+        _render_news_block(report['negative_news'], '目前無利空新聞', '📉')
+
+# ========== 區塊 3：熱門股票 ==========
+st.markdown(create_section_header('熱門股票 Top 10', icon='🔥'), unsafe_allow_html=True)
+
+if report['hot_stocks']:
+    for stock in report['hot_stocks'][:10]:
+        stock_id = stock['stock_id']
+        name = get_stock_name(stock_id)
+        trend = stock.get('trend', 'neutral')
+
+        # 趨勢圖示
+        trend_icon = {'bullish': '🟢', 'bearish': '🔴', 'neutral': '⚪'}.get(trend, '⚪')
+
+        # 情緒分數（紅漲綠跌 → 利多紅、利空綠）
+        pos = stock.get('positive', 0)
+        neg = stock.get('negative', 0)
+
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;align-items:center;"
+            f"padding:6px 0;border-bottom:1px solid {COLORS['border']}'>"
+            f"<div>"
+            f"<span style='font-weight:bold;color:{COLORS['text_primary']}'>{stock_id}</span> "
+            f"<span style='color:{COLORS['text_secondary']};font-size:12px'>{name[:4]}</span>"
+            f"</div>"
+            f"<div style='font-size:12px'>"
+            f"{trend_icon} "
+            f"<span style='color:{COLORS['up']}'>📈{pos}</span>/"
+            f"<span style='color:{COLORS['down']}'>📉{neg}</span>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+
+    # 查看詳情
+    st.markdown('')
+    selected_hot = st.selectbox(
+        '選擇查看詳情',
+        [f"{s['stock_id']} {get_stock_name(s['stock_id'])}" for s in report['hot_stocks'][:10]],
+        key='hot_stock_select',
+        label_visibility='collapsed',
+    )
+
+    if selected_hot:
+        sel_stock_id = selected_hot.split(' ')[0]
+        stock_news = scanner.get_stock_news(sel_stock_id, 48)
+
+        if stock_news:
+            st.markdown(f'**{selected_hot} 近期新聞**')
+            for news in stock_news[:3]:
+                icon = {'positive': '📈', 'negative': '📉', 'neutral': '➖'}.get(news.sentiment, '➖')
+                st.markdown(f"{icon} [{news.title[:30]}...]({news.link})")
+else:
+    show_empty_state('暫無熱門股票', icon='🔥', suggestion='請先更新新聞資料')
+
+# ========== 區塊 4：AI 新聞情緒分析 ==========
+st.markdown(create_section_header('AI 新聞情緒分析', icon='🤖'), unsafe_allow_html=True)
 
 if st.button('🔍 啟動 AI 情緒分析', key='ai_sentiment_btn'):
     with st.spinner('AI 正在分析新聞情緒...'):
@@ -134,16 +253,14 @@ if 'ai_sentiment_results' in st.session_state:
     neg_count = sum(1 for r in results if r.get('sentiment') == 'negative')
     avg_score = sum(r.get('score', 0) for r in results) / len(results) if results else 0
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric('AI 判定利多', pos_count)
-    with col2:
-        st.metric('AI 判定利空', neg_count)
-    with col3:
-        color = 'normal' if avg_score >= 0 else 'inverse'
-        st.metric('情緒分數', f'{avg_score:+.2f}', delta_color=color)
+    render_kpi_row([
+        {'label': 'AI 判定利多', 'value': format_number(pos_count, kind='int'), 'delta_color': 'up'},
+        {'label': 'AI 判定利空', 'value': format_number(neg_count, kind='int'), 'delta_color': 'down'},
+        {'label': '情緒分數', 'value': f'{avg_score:+.2f}',
+         'delta_color': 'up' if avg_score >= 0 else 'down'},
+    ])
 
-    # 詳細結果
+    # 詳細結果（🟢=正面紅、🔴=負面綠 由 icon 表達；分數正負保留符號）
     for r in results:
         sentiment_icon = '🟢' if r.get('sentiment') == 'positive' else ('🔴' if r.get('sentiment') == 'negative' else '⚪')
         score = r.get('score', 0)
@@ -156,156 +273,8 @@ if 'ai_sentiment_results' in st.session_state:
             + (f" | 相關：{stocks}" if stocks else ""),
         )
 
-# ========== KPI 統計列 ==========
-st.markdown('---')
-
-kpi_cols = st.columns(6)
-
-with kpi_cols[0]:
-    st.metric('📰 新聞總數', report['summary']['total_news'])
-
-with kpi_cols[1]:
-    st.metric('📈 利多', report['summary']['positive_count'])
-
-with kpi_cols[2]:
-    st.metric('📉 利空', report['summary']['negative_count'])
-
-with kpi_cols[3]:
-    # 情緒比例
-    pos = report['summary']['positive_count']
-    neg = report['summary']['negative_count']
-    if pos + neg > 0:
-        ratio = pos / (pos + neg) * 100
-        color = 'normal' if ratio >= 50 else 'inverse'
-    else:
-        ratio = 50
-        color = 'off'
-    st.metric('🎯 多空比', f'{ratio:.0f}%', delta_color=color)
-
-with kpi_cols[4]:
-    st.metric('🔥 熱門股', len(report['hot_stocks']))
-
-with kpi_cols[5]:
-    st.metric('📊 涉及標的', report['summary'].get('unique_stocks', 0))
-
-# ========== 主要區塊：利多利空 + 熱門股 ==========
-st.markdown('---')
-
-main_col1, main_col2 = st.columns([2, 1])
-
-with main_col1:
-    # 利多/利空並排
-    news_col1, news_col2 = st.columns(2)
-
-    with news_col1:
-        st.markdown('##### 📈 利多消息')
-        if report['positive_news']:
-            for i, news in enumerate(report['positive_news'][:4]):
-                with st.container():
-                    # 標題 (可點擊)
-                    title = news['title'][:50] + '...' if len(news['title']) > 50 else news['title']
-                    st.markdown(f"**{title}**")
-
-                    # 摘要
-                    if news.get('summary'):
-                        summary = news['summary'][:80] + '...' if len(news['summary']) > 80 else news['summary']
-                        st.caption(summary)
-
-                    # 股票標籤 + 來源
-                    tag_col1, tag_col2 = st.columns([3, 1])
-                    with tag_col1:
-                        if news['stocks']:
-                            stock_tags = ' '.join([f"`{s}`" for s in news['stocks'][:3]])
-                            st.markdown(stock_tags)
-                    with tag_col2:
-                        st.caption(f"📡{news['source'][:6]}")
-
-                    st.markdown(f"[閱讀全文]({news['link']})")
-                    st.markdown('---')
-        else:
-            show_empty_state('目前無利多新聞', icon='📈')
-
-    with news_col2:
-        st.markdown('##### 📉 利空消息')
-        if report['negative_news']:
-            for i, news in enumerate(report['negative_news'][:4]):
-                with st.container():
-                    title = news['title'][:50] + '...' if len(news['title']) > 50 else news['title']
-                    st.markdown(f"**{title}**")
-
-                    if news.get('summary'):
-                        summary = news['summary'][:80] + '...' if len(news['summary']) > 80 else news['summary']
-                        st.caption(summary)
-
-                    tag_col1, tag_col2 = st.columns([3, 1])
-                    with tag_col1:
-                        if news['stocks']:
-                            stock_tags = ' '.join([f"`{s}`" for s in news['stocks'][:3]])
-                            st.markdown(stock_tags)
-                    with tag_col2:
-                        st.caption(f"📡{news['source'][:6]}")
-
-                    st.markdown(f"[閱讀全文]({news['link']})")
-                    st.markdown('---')
-        else:
-            show_empty_state('目前無利空新聞', icon='📉')
-
-with main_col2:
-    st.markdown('##### 🔥 熱門股票 Top 10')
-
-    if report['hot_stocks']:
-        for stock in report['hot_stocks'][:10]:
-            stock_id = stock['stock_id']
-            name = get_stock_name(stock_id)
-            trend = stock.get('trend', 'neutral')
-
-            # 趨勢圖示
-            trend_icon = {'bullish': '🟢', 'bearish': '🔴', 'neutral': '⚪'}.get(trend, '⚪')
-
-            # 情緒分數
-            pos = stock.get('positive', 0)
-            neg = stock.get('negative', 0)
-
-            st.markdown(
-                f"<div style='display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #374151'>"
-                f"<div>"
-                f"<span style='font-weight:bold'>{stock_id}</span> "
-                f"<span style='color:#94a3b8;font-size:12px'>{name[:4]}</span>"
-                f"</div>"
-                f"<div style='font-size:12px'>"
-                f"{trend_icon} "
-                f"<span style='color:#22c55e'>📈{pos}</span>/"
-                f"<span style='color:#ef4444'>📉{neg}</span>"
-                f"</div>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-        # 查看詳情
-        st.markdown('')
-        selected_hot = st.selectbox(
-            '選擇查看詳情',
-            [f"{s['stock_id']} {get_stock_name(s['stock_id'])}" for s in report['hot_stocks'][:10]],
-            key='hot_stock_select',
-            label_visibility='collapsed',
-        )
-
-        if selected_hot:
-            sel_stock_id = selected_hot.split(' ')[0]
-            stock_news = scanner.get_stock_news(sel_stock_id, 48)
-
-            if stock_news:
-                st.markdown(f'**{selected_hot} 近期新聞**')
-                for news in stock_news[:3]:
-                    icon = {'positive': '📈', 'negative': '📉', 'neutral': '➖'}.get(news.sentiment, '➖')
-                    st.markdown(f"{icon} [{news.title[:30]}...]({news.link})")
-    else:
-        show_empty_state('暫無熱門股票', icon='🔥', suggestion='請先更新新聞資料')
-
 # ========== 整合分析：新聞+成交量+動能 ==========
-st.markdown('---')
-
-st.markdown('### 🎯 需要關注股票 (整合分析)')
+st.markdown(create_section_header('需要關注股票（整合分析）', icon='🎯'), unsafe_allow_html=True)
 st.caption('結合新聞熱度、成交量異常、價格動能三大面向')
 
 try:
@@ -336,18 +305,15 @@ try:
 
     if integrated_hot_stocks:
         # 顯示統計
-        stat_cols = st.columns(4)
-        with stat_cols[0]:
-            st.metric('分析股票數', len(integrated_hot_stocks))
-        with stat_cols[1]:
-            high_vol_count = sum(1 for s in integrated_hot_stocks if s.is_high_volume)
-            st.metric('爆量股', high_vol_count)
-        with stat_cols[2]:
-            pos_news_count = sum(1 for s in integrated_hot_stocks if s.is_positive_news)
-            st.metric('正面新聞', pos_news_count)
-        with stat_cols[3]:
-            strong_count = sum(1 for s in integrated_hot_stocks if s.price_change_5d >= 5)
-            st.metric('短線強勢', strong_count)
+        high_vol_count = sum(1 for s in integrated_hot_stocks if s.is_high_volume)
+        pos_news_count = sum(1 for s in integrated_hot_stocks if s.is_positive_news)
+        strong_count = sum(1 for s in integrated_hot_stocks if s.price_change_5d >= 5)
+        render_kpi_row([
+            {'label': '分析股票數', 'value': format_number(len(integrated_hot_stocks), kind='int')},
+            {'label': '爆量股', 'value': format_number(high_vol_count, kind='int')},
+            {'label': '正面新聞', 'value': format_number(pos_news_count, kind='int'), 'delta_color': 'up'},
+            {'label': '短線強勢', 'value': format_number(strong_count, kind='int'), 'delta_color': 'up'},
+        ])
 
         st.markdown('')
 
@@ -389,7 +355,7 @@ try:
             })
 
         df_hot = pd.DataFrame(data_rows)
-        st.dataframe(df_hot, use_container_width=True, hide_index=True)
+        render_data_table(df_hot, freeze_cols=2, dense=True)
 
         # 詳細資訊展開
         with st.expander('📊 詳細分數說明'):
@@ -424,12 +390,11 @@ except Exception as e:
     st.warning(f'整合分析暫時無法使用: {e}')
 
 # ========== 自選股警示 ==========
-st.markdown('---')
+st.markdown(create_section_header('自選股新聞警示', icon='⭐'), unsafe_allow_html=True)
 
 watchlists = load_watchlist()
 
 if watchlists:
-    st.markdown('##### ⭐ 自選股新聞警示')
 
     # 取得所有自選股
     all_watchlist_stocks = []
@@ -476,7 +441,7 @@ else:
     st.caption('💡 建立自選股清單可追蹤關注標的的新聞')
 
 # ========== 市場要聞 ==========
-st.markdown('---')
+st.markdown(create_section_header('市場要聞 / 進階工具', icon='🗞️'), unsafe_allow_html=True)
 
 with st.expander('📋 市場最新要聞', expanded=False):
     for news in report['market_news'][:12]:
@@ -494,8 +459,6 @@ with st.expander('📋 市場最新要聞', expanded=False):
             st.caption(f"{news['source'][:6]}\n{news['published']}")
 
 # ========== 新聞篩選器 ==========
-st.markdown('---')
-
 with st.expander('🔍 進階新聞篩選'):
     filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
 

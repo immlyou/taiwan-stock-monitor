@@ -6,7 +6,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from pathlib import Path
 
 
 from config import CACHE_TTL
@@ -14,16 +13,27 @@ from core.data_loader import get_loader, get_active_stocks
 from core.strategies import ValueStrategy, GrowthStrategy, MomentumStrategy, CompositeStrategy
 from core.risk import RiskAnalyzer
 from app.components.sidebar import render_sidebar_mini
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
-from app.components.page_header import render_page_header
+from app.components.error_handler import show_error, create_error_boundary
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    render_data_table,
+    format_number,
+)
+from app.components.charts import apply_dark_theme, CHART_CONFIG
 
 st.set_page_config(page_title='比較分析', page_icon='📊', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='compare')
 
-render_page_header('比較分析', icon='📊')
+# 全域行情列（sidebar 後、標題前呼叫一次）
+render_global_ticker_bar()
+
+st.markdown(create_page_title('比較分析', subtitle='多策略與多股票比較', icon='📊'), unsafe_allow_html=True)
 
 # 載入數據
 @st.cache_data(ttl=CACHE_TTL['daily'], show_spinner='載入數據中...')
@@ -61,8 +71,8 @@ tab1, tab2 = st.tabs(['📈 策略比較', '📊 股票比較'])
 
 # ========== 策略比較 ==========
 with tab1:
-    st.markdown('### 策略績效比較')
-    st.markdown('比較不同策略在相同期間的表現')
+    st.markdown(create_section_header('策略績效比較', icon='📈'), unsafe_allow_html=True)
+    st.caption('比較不同策略在相同期間的表現')
 
     col1, col2 = st.columns(2)
 
@@ -138,34 +148,39 @@ with tab1:
 
                 if results:
                     # 顯示績效比較表
-                    st.markdown('#### 📋 績效比較表')
+                    st.markdown(create_section_header('績效比較表', icon='📋'), unsafe_allow_html=True)
 
                     comparison_df = pd.DataFrame(results).T
                     comparison_df.columns = ['選股數', '期間報酬%', '年化報酬%', '波動率%', 'Sharpe', '最大回撤%']
 
                     # 格式化
                     display_df = comparison_df.copy()
+                    display_df.insert(0, '策略', display_df.index)
                     display_df['選股數'] = display_df['選股數'].astype(int)
                     for col in ['期間報酬%', '年化報酬%', '波動率%', '最大回撤%']:
-                        display_df[col] = display_df[col].apply(lambda x: f'{x:.2f}')
-                    display_df['Sharpe'] = display_df['Sharpe'].apply(lambda x: f'{x:.2f}')
+                        display_df[col] = display_df[col].apply(lambda x: format_number(x, kind='pct', signed=True))
+                    display_df['Sharpe'] = display_df['Sharpe'].apply(lambda x: format_number(x, kind='price'))
 
-                    st.dataframe(display_df, use_container_width=True)
+                    render_data_table(
+                        display_df,
+                        freeze_cols=1,
+                        numeric_cols=['選股數', '期間報酬%', '年化報酬%', '波動率%', 'Sharpe', '最大回撤%'],
+                    )
 
                     # 累積報酬走勢圖
-                    st.markdown('#### 📈 累積報酬走勢')
+                    st.markdown(create_section_header('累積報酬走勢', icon='📈'), unsafe_allow_html=True)
 
                     with create_error_boundary('累積報酬走勢圖'):
                         fig = go.Figure()
 
-                        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+                        line_colors = [COLORS['accent'], COLORS['flow_trust'], COLORS['flow_dealer'], COLORS['up']]
                         for i, (name, cumulative) in enumerate(returns_data.items()):
                             fig.add_trace(go.Scatter(
                                 x=cumulative.index,
                                 y=(cumulative - 1) * 100,
                                 name=name,
                                 mode='lines',
-                                line=dict(color=colors[i % len(colors)], width=2),
+                                line=dict(color=line_colors[i % len(line_colors)], width=2),
                             ))
 
                         # 加入大盤比較
@@ -176,21 +191,22 @@ with tab1:
                             y=(benchmark_norm - 1) * 100,
                             name='大盤',
                             mode='lines',
-                            line=dict(color='gray', width=1, dash='dash'),
+                            line=dict(color=COLORS['text_muted'], width=1, dash='dash'),
                         ))
 
-                        fig.update_layout(
+                        apply_dark_theme(
+                            fig,
+                            height=CHART_CONFIG['height_md'],
+                            unified_hover=True,
                             title=f'{compare_period} 累積報酬比較',
                             xaxis_title='日期',
                             yaxis_title='累積報酬 (%)',
-                            height=450,
-                            hovermode='x unified',
                         )
 
                         st.plotly_chart(fig, use_container_width=True)
 
                     # 風險報酬散佈圖
-                    st.markdown('#### 🎯 風險報酬分析')
+                    st.markdown(create_section_header('風險報酬分析', icon='🎯'), unsafe_allow_html=True)
 
                     with create_error_boundary('風險報酬散佈圖'):
                         scatter_df = comparison_df[['年化報酬%', '波動率%', 'Sharpe']].astype(float)
@@ -203,12 +219,12 @@ with tab1:
                             text='策略',
                             size='Sharpe',
                             color='Sharpe',
-                            color_continuous_scale='RdYlGn',
+                            color_continuous_scale=CHART_CONFIG['diverging_scale'],
                             title='風險報酬散佈圖 (圓點大小 = Sharpe Ratio)'
                         )
 
                         fig_scatter.update_traces(textposition='top center')
-                        fig_scatter.update_layout(height=400)
+                        apply_dark_theme(fig_scatter, height=CHART_CONFIG['height_md'])
 
                         st.plotly_chart(fig_scatter, use_container_width=True)
 
@@ -217,8 +233,8 @@ with tab1:
 
 # ========== 股票比較 ==========
 with tab2:
-    st.markdown('### 股票比較分析')
-    st.markdown('比較多檔股票的技術面與基本面')
+    st.markdown(create_section_header('股票比較分析', icon='📊'), unsafe_allow_html=True)
+    st.caption('比較多檔股票的技術面與基本面')
 
     col1, col2 = st.columns([3, 1])
 
@@ -287,24 +303,36 @@ with tab2:
 
         if stock_data:
             # 基本資料比較表
-            st.markdown('#### 📋 基本面比較')
+            st.markdown(create_section_header('基本面比較', icon='📋'), unsafe_allow_html=True)
 
             compare_df = pd.DataFrame([{k: v for k, v in d.items() if k != 'close_series'} for d in stock_data])
 
-            display_cols = ['代號', '名稱', '產業', '現價', '期間報酬%', '波動率%', 'PE', 'PB', '殖利率%']
+            display_cols = ['代號', '名稱', '產業', '現價', '期間報酬%', '波動率%', '最大回撤%', 'PE', 'PB', '殖利率%']
             display_df = compare_df[display_cols].copy()
 
-            for col in ['現價', '期間報酬%', '波動率%', 'PE', 'PB', '殖利率%']:
-                display_df[col] = display_df[col].apply(lambda x: f'{x:.2f}' if pd.notnull(x) else '-')
+            for col in ['現價', 'PE', 'PB']:
+                display_df[col] = display_df[col].apply(lambda x: format_number(x, kind='price') if pd.notnull(x) else 'N/A')
+            for col in ['期間報酬%', '最大回撤%']:
+                display_df[col] = display_df[col].apply(lambda x: format_number(x, kind='pct', signed=True) if pd.notnull(x) else 'N/A')
+            for col in ['波動率%', '殖利率%']:
+                display_df[col] = display_df[col].apply(lambda x: format_number(x, kind='pct') if pd.notnull(x) else 'N/A')
 
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            # 9 欄比較表水平捲動，sticky 表頭 + 凍結代號欄
+            render_data_table(
+                display_df,
+                freeze_cols=1,
+                numeric_cols=['現價', '期間報酬%', '波動率%', '最大回撤%', 'PE', 'PB', '殖利率%'],
+            )
 
             # 價格走勢比較
-            st.markdown('#### 📈 價格走勢比較 (標準化)')
+            st.markdown(create_section_header('價格走勢比較 (標準化)', icon='📈'), unsafe_allow_html=True)
 
             fig_price = go.Figure()
 
-            colors = px.colors.qualitative.Set1
+            line_palette = [
+                COLORS['accent'], COLORS['flow_trust'], COLORS['flow_dealer'],
+                COLORS['up'], COLORS['down'],
+            ]
             for i, d in enumerate(stock_data):
                 normalized = d['close_series'] / d['close_series'].iloc[0] * 100
                 fig_price.add_trace(go.Scatter(
@@ -312,21 +340,22 @@ with tab2:
                     y=normalized.values,
                     name=f"{d['代號']} {d['名稱']}",
                     mode='lines',
-                    line=dict(color=colors[i % len(colors)], width=2),
+                    line=dict(color=line_palette[i % len(line_palette)], width=2),
                 ))
 
-            fig_price.update_layout(
+            apply_dark_theme(
+                fig_price,
+                height=CHART_CONFIG['height_md'],
+                unified_hover=True,
                 title=f'{stock_period} 標準化價格走勢 (起始=100)',
                 xaxis_title='日期',
                 yaxis_title='標準化價格',
-                height=400,
-                hovermode='x unified',
             )
 
             st.plotly_chart(fig_price, use_container_width=True)
 
             # 報酬率長條圖比較
-            st.markdown('#### 📊 報酬率比較')
+            st.markdown(create_section_header('報酬率比較', icon='📊'), unsafe_allow_html=True)
 
             returns_df = pd.DataFrame([{
                 '股票': f"{d['代號']} {d['名稱']}",
@@ -338,52 +367,65 @@ with tab2:
                 x='股票',
                 y='期間報酬%',
                 color='期間報酬%',
-                color_continuous_scale='RdYlGn',
+                color_continuous_scale=CHART_CONFIG['diverging_scale'],
                 title=f'{stock_period} 報酬率比較'
             )
+
+            apply_dark_theme(fig_bar, height=CHART_CONFIG['height_md'])
 
             st.plotly_chart(fig_bar, use_container_width=True)
 
             # 基本面雷達圖
             if all(d.get('PE') and d.get('PB') and d.get('殖利率%') for d in stock_data):
-                st.markdown('#### 🎯 基本面雷達圖')
+                st.markdown(create_section_header('基本面雷達圖', icon='🎯'), unsafe_allow_html=True)
 
-                # 標準化數據 (0-100)
+                # 標準化數據 (0-100)，缺值以 N/A（None）標記不參與標準化
                 pe_values = [d['PE'] for d in stock_data]
                 pb_values = [d['PB'] for d in stock_data]
                 dy_values = [d['殖利率%'] for d in stock_data]
                 return_values = [d['期間報酬%'] for d in stock_data]
 
                 def normalize(values, inverse=False):
-                    min_v, max_v = min(values), max(values)
+                    valid = [v for v in values if v is not None and pd.notnull(v)]
+                    if not valid:
+                        return ['N/A'] * len(values)
+                    min_v, max_v = min(valid), max(valid)
                     if max_v == min_v:
-                        return [50] * len(values)
-                    if inverse:
-                        return [100 - (v - min_v) / (max_v - min_v) * 100 for v in values]
-                    return [(v - min_v) / (max_v - min_v) * 100 for v in values]
+                        return [50 if (v is not None and pd.notnull(v)) else 'N/A' for v in values]
+                    out = []
+                    for v in values:
+                        if v is None or not pd.notnull(v):
+                            out.append('N/A')
+                        elif inverse:
+                            out.append(100 - (v - min_v) / (max_v - min_v) * 100)
+                        else:
+                            out.append((v - min_v) / (max_v - min_v) * 100)
+                    return out
 
                 fig_radar = go.Figure()
 
                 categories = ['PE (越低越好)', 'PB (越低越好)', '殖利率', '期間報酬']
 
+                pe_n = normalize(pe_values, inverse=True)
+                pb_n = normalize(pb_values, inverse=True)
+                dy_n = normalize(dy_values)
+                ret_n = normalize(return_values)
+
                 for i, d in enumerate(stock_data):
                     fig_radar.add_trace(go.Scatterpolar(
-                        r=[
-                            normalize(pe_values, inverse=True)[i],
-                            normalize(pb_values, inverse=True)[i],
-                            normalize(dy_values)[i],
-                            normalize(return_values)[i],
-                        ],
+                        r=[pe_n[i], pb_n[i], dy_n[i], ret_n[i]],
                         theta=categories,
                         fill='toself',
                         name=f"{d['代號']} {d['名稱']}",
+                        line=dict(color=COLORS['accent']),
                     ))
 
-                fig_radar.update_layout(
+                apply_dark_theme(
+                    fig_radar,
+                    height=CHART_CONFIG['height_md'],
                     polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
                     showlegend=True,
                     title='基本面雷達圖比較',
-                    height=450,
                 )
 
                 st.plotly_chart(fig_radar, use_container_width=True)
