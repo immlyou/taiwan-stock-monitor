@@ -3,6 +3,7 @@
 import { useAppStore } from '@/store/useAppStore'
 import { useQuotaStatus } from '@/lib/hooks/useQuotaStatus'
 import { QUOTA_BANNER_HEIGHT } from '@/components/shared/QuotaBanner'
+import { MARKET_TICKER_HEIGHT } from '@/components/layout/MarketTicker'
 
 export function MainContent({ children }: { children: React.ReactNode }) {
   const { sidebarCollapsed, isMobile } = useAppStore()
@@ -16,7 +17,8 @@ export function MainContent({ children }: { children: React.ReactNode }) {
       className="min-h-screen transition-all duration-300"
       style={{
         marginLeft,
-        paddingTop: 56 + (isExceeded ? QUOTA_BANNER_HEIGHT : 0),
+        // Header = 行情列 + (額度橫幅) + 主列(56)
+        paddingTop: MARKET_TICKER_HEIGHT + 56 + (isExceeded ? QUOTA_BANNER_HEIGHT : 0),
       }}
     >
       {/* 手機版用較小的 padding */}

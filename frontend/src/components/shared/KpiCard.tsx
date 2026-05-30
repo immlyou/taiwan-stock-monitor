@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Sparkline } from '@/components/shared/Sparkline'
 
 interface KpiCardProps {
   title: string
@@ -10,6 +11,8 @@ interface KpiCardProps {
   accentColor?: string
   isLoading?: boolean
   className?: string
+  /** 迷你走勢資料，顯示於卡片右下角 */
+  sparkline?: number[]
 }
 
 export function KpiCard({
@@ -21,6 +24,7 @@ export function KpiCard({
   accentColor = 'var(--primary)',
   isLoading = false,
   className,
+  sparkline,
 }: KpiCardProps) {
   const changeColor =
     change !== undefined
@@ -55,6 +59,13 @@ export function KpiCard({
         className="absolute top-0 left-0 right-0 h-1 rounded-t-lg"
         style={{ background: accentColor }}
       />
+
+      {/* 右下角迷你走勢 */}
+      {sparkline && sparkline.length >= 2 && (
+        <div className="absolute right-3 bottom-3 opacity-80">
+          <Sparkline data={sparkline} autoColor />
+        </div>
+      )}
 
       {/* 標題 */}
       <p className="text-xs font-medium mb-2 mt-1" style={{ color: 'var(--muted-foreground)' }}>
