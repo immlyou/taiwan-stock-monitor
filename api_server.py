@@ -121,25 +121,20 @@ async def _lifespan(app: FastAPI):
             loaded, skipped, failed,
         )
 
-    # 資料預熱策略（避免 Railway 啟動 502）：
-    # - 本地 pickle 模式：背景非阻塞預熱，加速首次查詢。
-    # - 雲端（FinLab API）模式：完全略過啟動預熱。雲端預熱需逐一從 FinLab 下載
-    #   多個全市場大資料集（合計 1–2GB），會在啟動瞬間撐爆 Railway 記憶體造成
-    #   OOM，導致容器反覆重啟、healthcheck 失敗而回 502。改為請求時 lazy load
-    #   （單一資料集、且有快取），記憶體峰值可控。
+    # 資料預熱：背景非阻塞執行（含雲端 FinLab 模式）。
+    # 註：先前曾在雲端模式略過預熱以「避免 OOM」，但後續證實 Railway 502 是平台層
+    # 未自動重啟所致、與記憶體無關（實測 import 僅 ~100MB，且快取 14 個資料集運作
+    # 正常）。略過預熱反而使每個頁面首次查詢都需即時下載 → 載入緩慢。
+    # 故恢復背景預熱：啟動即在背景預載常用資料集填入快取，startup 立即 yield
+    # （不阻塞 healthcheck），預熱完成後首次查詢即快取命中。
     def _safe_load() -> None:
         try:
             _load()
         except Exception:  # noqa: BLE001 — 背景任務不可讓例外逸出
             _log.exception("背景資料預熱發生未預期錯誤")
 
-    from core.data_loader import is_streamlit_cloud
-
-    if is_streamlit_cloud():
-        _log.info("雲端模式：略過啟動資料預熱，改為 lazy load（避免記憶體 OOM）")
-    else:
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, _safe_load)  # 本地模式：背景預熱，不阻塞啟動
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _safe_load)  # 背景預熱（含雲端），不阻塞啟動
 
     yield  # 應用程式運行中
 
