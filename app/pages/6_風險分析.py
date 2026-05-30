@@ -4,26 +4,30 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pathlib import Path
 
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
-from core.risk import RiskAnalyzer, calculate_portfolio_var, stress_test, monte_carlo_simulation
+from core.risk import RiskAnalyzer, monte_carlo_simulation
 from app.components.sidebar import render_sidebar_mini
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.error_handler import show_error, create_error_boundary
 from app.components.page_header import render_page_header
 from app.components.empty_state import show_empty_state
 from app.components.session_manager import get_state, set_state, StateKeys
-from app.components.charts import apply_dark_theme
+from app.components.charts import apply_dark_theme, CHART_CONFIG
+from app.components.theme import (
+    COLORS, create_page_title, create_section_header,
+    render_kpi_row, format_number,
+)
+from app.components.page_header import render_global_ticker_bar
 
 st.set_page_config(page_title='風險分析', page_icon='⚠️', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='risk')
 
-render_page_header("風險分析", icon="🛡️")
-st.markdown('---')
+render_global_ticker_bar()
+st.markdown(create_page_title('風險分析', subtitle='VaR、CVaR 及投資組合風險評估', icon='🛡️'), unsafe_allow_html=True)
 
 # 載入數據
 @st.cache_data(ttl=CACHE_TTL['daily'])
@@ -42,7 +46,7 @@ except Exception as e:
     st.stop()
 
 # ========== 分析模式選擇 ==========
-st.subheader('1️⃣ 選擇分析模式')
+st.markdown(create_section_header('選擇分析模式', icon='1️⃣'), unsafe_allow_html=True)
 
 analysis_mode = st.radio(
     '分析對象',
@@ -50,10 +54,8 @@ analysis_mode = st.radio(
     horizontal=True,
 )
 
-st.markdown('---')
-
 # ========== 股票/投資組合選擇 ==========
-st.subheader('2️⃣ 選擇分析標的')
+st.markdown(create_section_header('選擇分析標的', icon='2️⃣'), unsafe_allow_html=True)
 
 active_stocks = get_active_stocks()
 stock_info = data['stock_info']
@@ -127,10 +129,8 @@ else:  # 投資組合
         selected_stocks = []
         weights = {}
 
-st.markdown('---')
-
 # ========== 分析期間 ==========
-st.subheader('3️⃣ 分析期間')
+st.markdown(create_section_header('分析期間', icon='3️⃣'), unsafe_allow_html=True)
 
 period = st.selectbox(
     '選擇分析期間',
@@ -141,10 +141,8 @@ period = st.selectbox(
 
 period_days = {'1Y': 252, '2Y': 504, '3Y': 756, '5Y': 1260}[period]
 
-st.markdown('---')
-
 # ========== 執行分析 ==========
-st.subheader('4️⃣ 風險分析結果')
+st.markdown(create_section_header('風險分析結果', icon='4️⃣'), unsafe_allow_html=True)
 
 if selected_stocks and weights:
     close = data['close']
@@ -189,196 +187,206 @@ if selected_stocks and weights:
 
         # ========== 顯示結果 ==========
 
-        # 主要風險指標
-        st.markdown('### 📊 主要風險指標')
+        import plotly.graph_objects as go
 
-        col1, col2, col3, col4 = st.columns(4)
+        # --- 頂部摘要：3 張核心風險 KPI 卡 ---
+        render_kpi_row([
+            {
+                'label': '95% VaR (日)',
+                'value': format_number(var_95 * 100, kind='pct', signed=True),
+                'delta': '單日最大可能損失',
+                'delta_color': 'down',
+            },
+            {
+                'label': '年化波動率',
+                'value': format_number(volatility * 100, kind='pct'),
+                'delta': '報酬率標準差（年化）',
+                'delta_color': 'flat',
+            },
+            {
+                'label': '最大回撤',
+                'value': format_number(max_dd * 100, kind='pct', signed=True),
+                'delta': '歷史最大跌幅',
+                'delta_color': 'down',
+            },
+        ])
 
-        with col1:
-            st.metric('95% VaR (日)', f'{var_95 * 100:.2f}%',
-                      help='在 95% 信心水準下，單日最大可能損失')
+        # --- 詳細指標：漸進式揭露 ---
+        with st.expander('🔬 詳細風險指標', expanded=False):
+            st.markdown(create_section_header('主要風險指標', icon='📊'), unsafe_allow_html=True)
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric('95% VaR (日)', format_number(var_95 * 100, kind='pct'),
+                          help='在 95% 信心水準下，單日最大可能損失')
+            with col2:
+                st.metric('95% CVaR (日)', format_number(cvar_95 * 100, kind='pct'),
+                          help='超過 VaR 時的平均損失（更保守的風險估計）')
+            with col3:
+                st.metric('年化波動率', format_number(volatility * 100, kind='pct'),
+                          help='報酬率的標準差（年化）')
+            with col4:
+                st.metric('最大回撤', format_number(max_dd * 100, kind='pct'),
+                          help='歷史最大跌幅')
 
-        with col2:
-            st.metric('95% CVaR (日)', f'{cvar_95 * 100:.2f}%',
-                      help='超過 VaR 時的平均損失（更保守的風險估計）')
+            st.markdown(create_section_header('進階風險指標', icon='📈'), unsafe_allow_html=True)
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric('99% VaR (日)', format_number(var_99 * 100, kind='pct'))
+            with col2:
+                st.metric('下行波動率', format_number(downside_vol * 100, kind='pct'),
+                          help='只計算負報酬的波動率')
+            with col3:
+                st.metric('Beta', format_number(beta, kind='price'),
+                          help='相對大盤的波動程度，>1 表示比大盤更劇烈')
+            with col4:
+                st.metric('追蹤誤差', format_number(tracking_error * 100, kind='pct'),
+                          help='與大盤報酬的偏離程度')
 
-        with col3:
-            st.metric('年化波動率', f'{volatility * 100:.2f}%',
-                      help='報酬率的標準差（年化）')
-
-        with col4:
-            st.metric('最大回撤', f'{max_dd * 100:.2f}%',
-                      help='歷史最大跌幅')
-
-        # 進階風險指標
-        st.markdown('### 📈 進階風險指標')
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric('99% VaR (日)', f'{var_99 * 100:.2f}%')
-
-        with col2:
-            st.metric('下行波動率', f'{downside_vol * 100:.2f}%',
-                      help='只計算負報酬的波動率')
-
-        with col3:
-            st.metric('Beta', f'{beta:.2f}',
-                      help='相對大盤的波動程度，>1 表示比大盤更劇烈')
-
-        with col4:
-            st.metric('追蹤誤差', f'{tracking_error * 100:.2f}%',
-                      help='與大盤報酬的偏離程度')
+        # --- 圖表：分頁呈現 ---
+        tab_trend, tab_dd, tab_stress, tab_mc = st.tabs([
+            '📈 投資組合走勢', '📉 回撤分析', '🔥 壓力測試', '🎲 蒙地卡羅模擬',
+        ])
 
         # 走勢圖
-        st.markdown('### 📉 投資組合走勢')
+        with tab_trend:
+            with create_error_boundary('投資組合走勢圖'):
+                # 正規化基準
+                benchmark_normalized = benchmark_period / benchmark_period.iloc[0]
 
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=portfolio_value.index,
+                    y=portfolio_value.values,
+                    name='投資組合',
+                    line=dict(color=COLORS['accent'], width=2),
+                ))
+                fig.add_trace(go.Scatter(
+                    x=benchmark_normalized.index,
+                    y=benchmark_normalized.values,
+                    name='大盤指數',
+                    line=dict(color=COLORS['text_muted'], width=1, dash='dash'),
+                ))
 
-        with create_error_boundary('投資組合走勢圖'):
-            # 正規化基準
-            benchmark_normalized = benchmark_period / benchmark_period.iloc[0]
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=portfolio_value.index,
-                y=portfolio_value.values,
-                name='投資組合',
-                line=dict(color='blue', width=2),
-            ))
-            fig.add_trace(go.Scatter(
-                x=benchmark_normalized.index,
-                y=benchmark_normalized.values,
-                name='大盤指數',
-                line=dict(color='gray', width=1, dash='dash'),
-            ))
-
-            fig.update_layout(
-                title='投資組合 vs 大盤',
-                xaxis_title='日期',
-                yaxis_title='累積報酬 (初始=1)',
-                hovermode='x unified',
-                height=400,
-            )
-
-            apply_dark_theme(fig, height=400)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # 回撤分析
-        st.markdown('### 📉 回撤分析')
-
-        with create_error_boundary('回撤分析圖'):
-            drawdown = (portfolio_value - portfolio_value.cummax()) / portfolio_value.cummax()
-
-            fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(
-                x=drawdown.index,
-                y=drawdown.values * 100,
-                fill='tozeroy',
-                name='回撤',
-                line=dict(color='red'),
-            ))
-
-            fig_dd.update_layout(
-                title='歷史回撤',
-                xaxis_title='日期',
-                yaxis_title='回撤 (%)',
-                height=300,
-            )
-
-            apply_dark_theme(fig_dd, height=300)
-            st.plotly_chart(fig_dd, use_container_width=True)
-
-            if peak_date and trough_date:
-                st.caption(f'最大回撤發生於 {peak_date.strftime("%Y-%m-%d")} 至 {trough_date.strftime("%Y-%m-%d")}')
-
-        # 壓力測試
-        st.markdown('### 🔥 壓力測試')
-
-        scenarios = {
-            '輕度下跌 (-5%)': -0.05,
-            '中度下跌 (-10%)': -0.10,
-            '大幅下跌 (-20%)': -0.20,
-            '崩盤 (-30%)': -0.30,
-            '小幅上漲 (+5%)': 0.05,
-            '中幅上漲 (+10%)': 0.10,
-        }
-
-        current_value = portfolio_value.iloc[-1]
-        initial_investment = 1000000  # 假設投資 100 萬
-
-        stress_data = []
-        for scenario_name, change in scenarios.items():
-            new_value = current_value * (1 + change)
-            pnl = initial_investment * (new_value - current_value)
-            stress_data.append({
-                '情境': scenario_name,
-                '變動幅度': f'{change * 100:+.0f}%',
-                '損益 (元)': f'{pnl:+,.0f}',
-            })
-
-        stress_df = pd.DataFrame(stress_data)
-        st.dataframe(stress_df, use_container_width=True, hide_index=True)
-
-        # 蒙地卡羅模擬
-        st.markdown('### 🎲 蒙地卡羅模擬（未來 252 交易日）')
-
-        with create_error_boundary('蒙地卡羅模擬'):
-            with st.spinner('執行蒙地卡羅模擬...'):
-                simulations = monte_carlo_simulation(
-                    portfolio_returns,
-                    days=252,
-                    simulations=500,
-                    initial_value=1.0,
+                fig.update_layout(
+                    title='投資組合 vs 大盤',
+                    xaxis_title='日期',
+                    yaxis_title='累積報酬 (初始=1)',
                 )
 
-                # 計算統計
-                final_values = simulations.iloc[-1]
-                percentiles = [5, 25, 50, 75, 95]
-                percentile_values = np.percentile(final_values, percentiles)
+                apply_dark_theme(fig, height=CHART_CONFIG['height_md'], unified_hover=True)
+                st.plotly_chart(fig, use_container_width=True)
 
-                sim_col1, sim_col2 = st.columns(2)
+        # 回撤分析
+        with tab_dd:
+            with create_error_boundary('回撤分析圖'):
+                drawdown = (portfolio_value - portfolio_value.cummax()) / portfolio_value.cummax()
 
-                with sim_col1:
-                    st.markdown('**模擬結果分佈**')
-                    percentile_df = pd.DataFrame({
-                        '百分位': [f'{p}%' for p in percentiles],
-                        '預期報酬': [f'{(v - 1) * 100:+.1f}%' for v in percentile_values],
-                    })
-                    st.dataframe(percentile_df, use_container_width=True, hide_index=True)
+                fig_dd = go.Figure()
+                fig_dd.add_trace(go.Scatter(
+                    x=drawdown.index,
+                    y=drawdown.values * 100,
+                    fill='tozeroy',
+                    name='回撤',
+                    line=dict(color=COLORS['down']),
+                ))
 
-                with sim_col2:
-                    st.markdown('**模擬走勢圖**')
+                fig_dd.update_layout(
+                    title='歷史回撤',
+                    xaxis_title='日期',
+                    yaxis_title='回撤 (%)',
+                )
 
-                    fig_mc = go.Figure()
+                apply_dark_theme(fig_dd, height=CHART_CONFIG['height_sm'], unified_hover=True)
+                st.plotly_chart(fig_dd, use_container_width=True)
 
-                    # 畫出部分模擬路徑
-                    for i in range(min(50, len(simulations.columns))):
-                        fig_mc.add_trace(go.Scatter(
-                            y=simulations.iloc[:, i].values,
-                            mode='lines',
-                            line=dict(width=0.5, color='lightblue'),
-                            showlegend=False,
-                        ))
+                if peak_date and trough_date:
+                    st.caption(f'最大回撤發生於 {peak_date.strftime("%Y-%m-%d")} 至 {trough_date.strftime("%Y-%m-%d")}')
 
-                    # 畫出中位數
-                    median_path = simulations.median(axis=1)
-                    fig_mc.add_trace(go.Scatter(
-                        y=median_path.values,
-                        mode='lines',
-                        line=dict(width=2, color='blue'),
-                        name='中位數',
-                    ))
+        # 壓力測試
+        with tab_stress:
+            scenarios = {
+                '輕度下跌 (-5%)': -0.05,
+                '中度下跌 (-10%)': -0.10,
+                '大幅下跌 (-20%)': -0.20,
+                '崩盤 (-30%)': -0.30,
+                '小幅上漲 (+5%)': 0.05,
+                '中幅上漲 (+10%)': 0.10,
+            }
 
-                    fig_mc.update_layout(
-                        xaxis_title='交易日',
-                        yaxis_title='投資組合價值',
-                        height=300,
+            current_value = portfolio_value.iloc[-1]
+            initial_investment = 1000000  # 假設投資 100 萬
+
+            stress_data = []
+            for scenario_name, change in scenarios.items():
+                new_value = current_value * (1 + change)
+                pnl = initial_investment * (new_value - current_value)
+                stress_data.append({
+                    '情境': scenario_name,
+                    '變動幅度': f'{change * 100:+.0f}%',
+                    '損益 (元)': f'{pnl:+,.0f}',
+                })
+
+            stress_df = pd.DataFrame(stress_data)
+            st.dataframe(stress_df, use_container_width=True, hide_index=True)
+
+        # 蒙地卡羅模擬
+        with tab_mc:
+            st.caption('🎲 蒙地卡羅模擬（未來 252 交易日）')
+
+            with create_error_boundary('蒙地卡羅模擬'):
+                with st.spinner('執行蒙地卡羅模擬...'):
+                    simulations = monte_carlo_simulation(
+                        portfolio_returns,
+                        days=252,
+                        simulations=500,
+                        initial_value=1.0,
                     )
 
-                    apply_dark_theme(fig_mc, height=300)
-                    st.plotly_chart(fig_mc, use_container_width=True)
+                    # 計算統計
+                    final_values = simulations.iloc[-1]
+                    percentiles = [5, 25, 50, 75, 95]
+                    percentile_values = np.percentile(final_values, percentiles)
+
+                    sim_col1, sim_col2 = st.columns(2)
+
+                    with sim_col1:
+                        st.markdown('**模擬結果分佈**')
+                        percentile_df = pd.DataFrame({
+                            '百分位': [f'{p}%' for p in percentiles],
+                            '預期報酬': [f'{(v - 1) * 100:+.1f}%' for v in percentile_values],
+                        })
+                        st.dataframe(percentile_df, use_container_width=True, hide_index=True)
+
+                    with sim_col2:
+                        st.markdown('**模擬走勢圖**')
+
+                        fig_mc = go.Figure()
+
+                        # 畫出部分模擬路徑
+                        for i in range(min(50, len(simulations.columns))):
+                            fig_mc.add_trace(go.Scatter(
+                                y=simulations.iloc[:, i].values,
+                                mode='lines',
+                                line=dict(width=0.5, color=COLORS['border_light']),
+                                showlegend=False,
+                            ))
+
+                        # 畫出中位數
+                        median_path = simulations.median(axis=1)
+                        fig_mc.add_trace(go.Scatter(
+                            y=median_path.values,
+                            mode='lines',
+                            line=dict(width=2, color=COLORS['accent']),
+                            name='中位數',
+                        ))
+
+                        fig_mc.update_layout(
+                            xaxis_title='交易日',
+                            yaxis_title='投資組合價值',
+                        )
+
+                        apply_dark_theme(fig_mc, height=CHART_CONFIG['height_sm'])
+                        st.plotly_chart(fig_mc, use_container_width=True)
 
     else:
         show_empty_state('所選股票無可用數據', icon='⚠️', suggestion='請嘗試選擇其他股票')

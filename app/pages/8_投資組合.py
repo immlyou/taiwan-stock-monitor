@@ -3,9 +3,6 @@
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
-import json
-from pathlib import Path
 from datetime import datetime, date
 
 
@@ -13,14 +10,25 @@ from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from core.risk import RiskAnalyzer
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.theme import (
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    render_data_table,
+    format_number,
+    COLORS,
+)
 
 st.set_page_config(page_title='投資組合', page_icon='💼', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='portfolio')
+
+# 全域行情列（sidebar 之後、頁面標題之前）
+render_global_ticker_bar()
 
 render_page_header('投資組合', icon='💼')
 
@@ -101,11 +109,17 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
     portfolio = portfolios[selected_portfolio]
     holdings = portfolio.get('holdings', [])
 
-    st.subheader(f'📊 {selected_portfolio}')
-    st.caption(f"建立於: {portfolio.get('created_at', '未知')[:10]}")
+    st.markdown(
+        create_page_title(
+            selected_portfolio,
+            subtitle=f"建立於: {portfolio.get('created_at', '未知')[:10]}",
+            icon='📊',
+        ),
+        unsafe_allow_html=True,
+    )
 
     # ========== 新增持股 ==========
-    st.markdown('### ➕ 新增持股')
+    st.markdown(create_section_header('新增持股', icon='➕'), unsafe_allow_html=True)
 
     col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
 
@@ -136,11 +150,9 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
         st.success(f'已新增 {stock_id}')
         st.rerun()
 
-    st.markdown('---')
-
     # ========== 持股列表 ==========
     if holdings:
-        st.markdown('### 📋 持股明細')
+        st.markdown(create_section_header('持股明細', icon='📋'), unsafe_allow_html=True)
 
         holdings_data = []
         total_cost = 0
@@ -189,12 +201,13 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
 
         # 格式化顯示
         display_holdings = holdings_df[['代號', '名稱', '股數', '成本價', '現價', '損益', '報酬率']].copy()
-        display_holdings['成本價'] = display_holdings['成本價'].apply(lambda x: f'{x:.2f}')
-        display_holdings['現價'] = display_holdings['現價'].apply(lambda x: f'{x:.2f}')
-        display_holdings['損益'] = display_holdings['損益'].apply(lambda x: f'{x:+,.0f}')
-        display_holdings['報酬率'] = display_holdings['報酬率'].apply(lambda x: f'{x:+.2f}%')
+        display_holdings['股數'] = display_holdings['股數'].apply(lambda x: format_number(x, kind='int'))
+        display_holdings['成本價'] = display_holdings['成本價'].apply(lambda x: format_number(x, kind='price'))
+        display_holdings['現價'] = display_holdings['現價'].apply(lambda x: format_number(x, kind='price'))
+        display_holdings['損益'] = display_holdings['損益'].apply(lambda x: format_number(x, kind='int', signed=True))
+        display_holdings['報酬率'] = display_holdings['報酬率'].apply(lambda x: format_number(x, kind='pct', signed=True))
 
-        st.dataframe(display_holdings, use_container_width=True, hide_index=True)
+        render_data_table(display_holdings, freeze_cols=1)
 
         # 刪除持股
         delete_idx = st.selectbox(
@@ -208,28 +221,30 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
             save_portfolios(portfolios)
             st.rerun()
 
-        st.markdown('---')
-
         # ========== 投資組合摘要 ==========
-        st.markdown('### 📊 投資組合摘要')
+        st.markdown(create_section_header('投資組合摘要', icon='📊'), unsafe_allow_html=True)
 
         total_pnl = total_value - total_cost
         total_pnl_pct = (total_value / total_cost - 1) * 100 if total_cost > 0 else 0
 
-        col1, col2, col3, col4 = st.columns(4)
+        pnl_color = 'up' if total_pnl >= 0 else 'down'
+        # 總損益加粗加色強調
+        pnl_value_html = (
+            f'<span style="color:{COLORS[pnl_color]};font-weight:800">'
+            f'{format_number(total_pnl, kind="int", signed=True)}</span>'
+        )
 
-        with col1:
-            st.metric('總成本', f'{total_cost:,.0f}')
-
-        with col2:
-            st.metric('總市值', f'{total_value:,.0f}')
-
-        with col3:
-            st.metric('總損益', f'{total_pnl:+,.0f}',
-                      delta=f'{total_pnl_pct:+.2f}%')
-
-        with col4:
-            st.metric('持股數', f'{len(holdings)} 檔')
+        render_kpi_row([
+            {'label': '總成本', 'value': format_number(total_cost, kind='int')},
+            {'label': '總市值', 'value': format_number(total_value, kind='int')},
+            {
+                'label': '總損益',
+                'value': pnl_value_html,
+                'delta': format_number(total_pnl_pct, kind='pct', signed=True),
+                'delta_color': pnl_color,
+            },
+            {'label': '持股數', 'value': f'{len(holdings)} 檔'},
+        ], cols=2)
 
         # ========== 匯出報告 ==========
         export_col1, export_col2, export_col3 = st.columns([2, 1, 1])
@@ -276,10 +291,8 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
                 key='download_portfolio_excel'
             )
 
-        st.markdown('---')
-
         # ========== 持股佔比 ==========
-        st.markdown('### 🥧 持股佔比')
+        st.markdown(create_section_header('持股佔比', icon='🥧'), unsafe_allow_html=True)
 
         import plotly.express as px
 
@@ -296,10 +309,8 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
 
         st.plotly_chart(fig_pie, use_container_width=True)
 
-        st.markdown('---')
-
         # ========== 績效追蹤 ==========
-        st.markdown('### 📈 績效追蹤')
+        st.markdown(create_section_header('績效追蹤', icon='📈'), unsafe_allow_html=True)
 
         # 計算投資組合歷史績效
         weights = {}
@@ -353,28 +364,23 @@ if selected_portfolio != '-- 新建投資組合 --' and selected_portfolio in po
             st.plotly_chart(fig_perf, use_container_width=True)
 
             # 績效統計
-            col1, col2, col3, col4 = st.columns(4)
-
             analyzer = RiskAnalyzer()
             benchmark_returns = benchmark_period.pct_change().dropna()
 
             vol = analyzer.calculate_volatility(portfolio_returns)
             max_dd, _, _ = analyzer.calculate_max_drawdown(portfolio_value)
             beta = analyzer.calculate_beta(portfolio_returns, benchmark_returns)
+            annual_return = portfolio_returns.mean() * 252
+            sharpe = annual_return / vol if vol > 0 else 0
 
-            with col1:
-                annual_return = portfolio_returns.mean() * 252
-                st.metric('年化報酬', f'{annual_return * 100:.2f}%')
-
-            with col2:
-                st.metric('年化波動率', f'{vol * 100:.2f}%')
-
-            with col3:
-                st.metric('最大回撤', f'{max_dd * 100:.2f}%')
-
-            with col4:
-                sharpe = annual_return / vol if vol > 0 else 0
-                st.metric('Sharpe Ratio', f'{sharpe:.2f}')
+            render_kpi_row([
+                {'label': '年化報酬', 'value': format_number(annual_return * 100, kind='pct'),
+                 'delta_color': 'up' if annual_return >= 0 else 'down'},
+                {'label': '年化波動率', 'value': format_number(vol * 100, kind='pct')},
+                {'label': '最大回撤', 'value': format_number(max_dd * 100, kind='pct'),
+                 'delta_color': 'down'},
+                {'label': 'Sharpe Ratio', 'value': format_number(sharpe, kind='price')},
+            ], cols=2)
 
     else:
         show_empty_state('此投資組合尚無持股', icon='📭', suggestion='請在上方新增持股')

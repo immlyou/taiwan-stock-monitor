@@ -7,11 +7,7 @@
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
-from datetime import datetime
 
 
 from config import STREAMLIT_CONFIG, CACHE_TTL
@@ -24,10 +20,17 @@ from core.money_flow import (
     get_continuous_buy_stocks,
 )
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
-from app.components.charts import apply_dark_theme
+from app.components.charts import apply_dark_theme, CHART_CONFIG
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    format_number,
+)
 
 # 頁面設定
 st.set_page_config(
@@ -39,8 +42,14 @@ st.set_page_config(
 # 渲染側邊欄
 render_sidebar_mini(current_page='money_flow')
 
+# 全域行情列
+render_global_ticker_bar()
+
 # 標題
-render_page_header('資金流向', icon='💰')
+st.markdown(
+    create_page_title('資金流向', subtitle='三大法人買賣超追蹤 (Money Flow Analysis)', icon='💰'),
+    unsafe_allow_html=True,
+)
 
 
 @st.cache_data(ttl=CACHE_TTL['intraday'])
@@ -104,8 +113,8 @@ def create_flow_bar_chart(flows, flow_type='foreign', title='外資買賣超排�
         y=df['stock'],
         x=df['value'],
         orientation='h',
-        marker_color=['#ef4444' if v > 0 else '#22c55e' for v in df['value']],
-        text=[f"{v:+,.0f}" for v in df['value']],
+        marker_color=[COLORS['up'] if v > 0 else COLORS['down'] for v in df['value']],
+        text=[format_number(v, kind='int', signed=True) for v in df['value']],
         textposition='outside',
     ))
 
@@ -113,9 +122,9 @@ def create_flow_bar_chart(flows, flow_type='foreign', title='外資買賣超排�
         title=title,
         xaxis_title='買賣超 (張)',
         yaxis_title='',
-        height=500,
-        margin=dict(l=150, r=50, t=50, b=50),
-        yaxis=dict(autorange='reversed'),
+        # 單欄全寬：股名軸給足空間不截斷
+        margin=dict(l=160, r=80, t=50, b=50),
+        yaxis=dict(autorange='reversed', automargin=True),
     )
 
     return fig
@@ -128,7 +137,12 @@ def create_trend_chart(trend_df):
 
     fig = go.Figure()
 
-    colors = {'外資': '#2196F3', '投信': '#FF9800', '自營商': '#9C27B0', '合計': '#4CAF50'}
+    colors = {
+        '外資': COLORS['flow_foreign'],
+        '投信': COLORS['flow_trust'],
+        '自營商': COLORS['flow_dealer'],
+        '合計': COLORS['success'],
+    }
 
     for col in trend_df.columns:
         fig.add_trace(go.Scatter(
@@ -136,7 +150,7 @@ def create_trend_chart(trend_df):
             y=trend_df[col],
             name=col,
             mode='lines+markers',
-            line=dict(color=colors.get(col, '#666666')),
+            line=dict(color=colors.get(col, COLORS['flat'])),
         ))
 
     fig.update_layout(
@@ -148,7 +162,7 @@ def create_trend_chart(trend_df):
     )
 
     # 添加零線
-    fig.add_hline(y=0, line_dash='dash', line_color='gray')
+    fig.add_hline(y=0, line_dash='dash', line_color=COLORS['flat'])
 
     return fig
 
@@ -167,21 +181,21 @@ def create_sector_chart(sector_df):
         name='外資',
         x=top_sectors['產業'],
         y=top_sectors['外資'],
-        marker_color='#2196F3',
+        marker_color=COLORS['flow_foreign'],
     ))
 
     fig.add_trace(go.Bar(
         name='投信',
         x=top_sectors['產業'],
         y=top_sectors['投信'],
-        marker_color='#FF9800',
+        marker_color=COLORS['flow_trust'],
     ))
 
     fig.add_trace(go.Bar(
         name='自營商',
         x=top_sectors['產業'],
         y=top_sectors['自營商'],
-        marker_color='#9C27B0',
+        marker_color=COLORS['flow_dealer'],
     ))
 
     fig.update_layout(
@@ -253,58 +267,38 @@ if not flows:
     st.stop()
 
 # ===== 今日總覽 =====
-st.markdown('---')
-st.subheader('📊 今日三大法人總買賣超')
+st.markdown(create_section_header('今日三大法人淨流入', icon='📊'), unsafe_allow_html=True)
 
 total_foreign = sum(f.foreign_net for f in flows.values())
 total_investment_trust = sum(f.investment_trust_net for f in flows.values())
 total_dealer = sum(f.dealer_net for f in flows.values())
 total_all = total_foreign + total_investment_trust + total_dealer
 
-summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
 
-with summary_col1:
-    delta_color = 'normal' if total_foreign >= 0 else 'inverse'
-    st.metric(
-        '🌍 外資',
-        f'{total_foreign:+,.0f} 張',
-        f'約 {total_foreign * 50 / 100000000:+,.1f} 億',
-        delta_color=delta_color,
-    )
+def _flow_kpi(label, net):
+    """以紅漲綠跌語義組裝一張資金流 KPI（買超=up/紅、賣超=down/綠）。"""
+    amount = net * 50  # 張 -> 約略金額（元）
+    return {
+        'label': label,
+        'value': f"{format_number(net, kind='int', signed=True)} 張",
+        'delta': f"約 {format_number(amount, kind='amount', signed=True)}",
+        'delta_color': 'up' if net >= 0 else 'down',
+    }
 
-with summary_col2:
-    delta_color = 'normal' if total_investment_trust >= 0 else 'inverse'
-    st.metric(
-        '🏦 投信',
-        f'{total_investment_trust:+,.0f} 張',
-        f'約 {total_investment_trust * 50 / 100000000:+,.1f} 億',
-        delta_color=delta_color,
-    )
 
-with summary_col3:
-    delta_color = 'normal' if total_dealer >= 0 else 'inverse'
-    st.metric(
-        '🏢 自營商',
-        f'{total_dealer:+,.0f} 張',
-        f'約 {total_dealer * 50 / 100000000:+,.1f} 億',
-        delta_color=delta_color,
-    )
-
-with summary_col4:
-    delta_color = 'normal' if total_all >= 0 else 'inverse'
-    st.metric(
-        '📈 三大法人合計',
-        f'{total_all:+,.0f} 張',
-        f'約 {total_all * 50 / 100000000:+,.1f} 億',
-        delta_color=delta_color,
-    )
+render_kpi_row([
+    _flow_kpi('🌍 外資', total_foreign),
+    _flow_kpi('🏦 投信', total_investment_trust),
+    _flow_kpi('🏢 自營商', total_dealer),
+    _flow_kpi('📈 三大法人合計', total_all),
+])
 
 # ===== 分頁 =====
 tab1, tab2, tab3, tab4 = st.tabs(['📊 買賣超排行', '📈 趨勢分析', '🏭 產業流向', '🔥 連續買超'])
 
 # ===== Tab 1: 買賣超排行 =====
 with tab1:
-    st.markdown('### 三大法人買賣超排行')
+    st.markdown(create_section_header('三大法人買賣超排行', icon='📊'), unsafe_allow_html=True)
 
     rank_type = st.radio(
         '選擇法人',
@@ -322,27 +316,24 @@ with tab1:
 
     flow_type = type_map[rank_type]
 
-    rank_col1, rank_col2 = st.columns(2)
+    # 單欄全寬呈現，股名不截斷（原本擠在 2 欄會被截斷）
+    st.markdown(create_section_header(f'{rank_type}買超 Top 15', icon='🔥'), unsafe_allow_html=True)
+    top_buy = get_top_flows(flows, flow_type=flow_type, top_n=15, ascending=False)
+    fig = create_flow_bar_chart(top_buy, flow_type, f'{rank_type}買超 Top 15')
+    if fig:
+        apply_dark_theme(fig, height=CHART_CONFIG['height_lg'])
+        st.plotly_chart(fig, use_container_width=True)
 
-    with rank_col1:
-        st.markdown('#### 🔥 買超排行')
-        top_buy = get_top_flows(flows, flow_type=flow_type, top_n=15, ascending=False)
-        fig = create_flow_bar_chart(top_buy, flow_type, f'{rank_type}買超 Top 15')
-        if fig:
-            apply_dark_theme(fig, height=500)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with rank_col2:
-        st.markdown('#### 💧 賣超排行')
-        top_sell = get_top_flows(flows, flow_type=flow_type, top_n=15, ascending=True)
-        fig = create_flow_bar_chart(top_sell, flow_type, f'{rank_type}賣超 Top 15')
-        if fig:
-            apply_dark_theme(fig, height=500)
-            st.plotly_chart(fig, use_container_width=True)
+    st.markdown(create_section_header(f'{rank_type}賣超 Top 15', icon='💧'), unsafe_allow_html=True)
+    top_sell = get_top_flows(flows, flow_type=flow_type, top_n=15, ascending=True)
+    fig = create_flow_bar_chart(top_sell, flow_type, f'{rank_type}賣超 Top 15')
+    if fig:
+        apply_dark_theme(fig, height=CHART_CONFIG['height_lg'])
+        st.plotly_chart(fig, use_container_width=True)
 
 # ===== Tab 2: 趨勢分析 =====
 with tab2:
-    st.markdown('### 三大法人買賣超趨勢')
+    st.markdown(create_section_header('三大法人買賣超趨勢 (近 20 日)', icon='📈'), unsafe_allow_html=True)
 
     trend_df = calculate_flow_trend(
         foreign_df=foreign_df,
@@ -354,7 +345,7 @@ with tab2:
     if len(trend_df) > 0:
         fig = create_trend_chart(trend_df)
         if fig:
-            apply_dark_theme(fig, height=400)
+            apply_dark_theme(fig, height=CHART_CONFIG['height_md'], unified_hover=True)
             st.plotly_chart(fig, use_container_width=True)
 
         # 顯示數據表
@@ -369,18 +360,18 @@ with tab2:
 
 # ===== Tab 3: 產業流向 =====
 with tab3:
-    st.markdown('### 產業資金流向')
+    st.markdown(create_section_header('產業資金流向 (Top 10)', icon='🏭'), unsafe_allow_html=True)
 
     sector_df = get_sector_flow(flows)
 
     if len(sector_df) > 0:
         fig = create_sector_chart(sector_df)
         if fig:
-            apply_dark_theme(fig, height=400)
+            apply_dark_theme(fig, height=CHART_CONFIG['height_md'])
             st.plotly_chart(fig, use_container_width=True)
 
         # 顯示表格
-        st.markdown('#### 產業資金流向明細')
+        st.markdown(create_section_header('產業資金流向明細', icon='📋'), unsafe_allow_html=True)
         sector_display = sector_df.copy()
         for col in ['外資', '投信', '自營商', '合計']:
             sector_display[col] = sector_display[col].apply(lambda x: f'{x:+,.0f}')
@@ -390,7 +381,7 @@ with tab3:
 
 # ===== Tab 4: 連續買超 =====
 with tab4:
-    st.markdown('### 連續買超追蹤')
+    st.markdown(create_section_header('連續買超追蹤', icon='🔥'), unsafe_allow_html=True)
     st.caption('追蹤外資連續買超的股票')
 
     min_days = st.slider('最少連續天數', 2, 10, 3, key='min_days')
@@ -419,7 +410,6 @@ with tab4:
         show_empty_state(f'沒有股票連續買超 {min_days} 天以上', icon='🔥', suggestion='嘗試降低連續天數條件')
 
 # 頁尾說明
-st.markdown('---')
 with st.expander('📖 使用說明'):
     st.markdown('''
     ### 資金流向分析說明

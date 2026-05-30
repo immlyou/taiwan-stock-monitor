@@ -14,17 +14,26 @@ COLORS = {
     'secondary': '#252b3d',    # 次深藍 (卡片)
     'accent': '#3b82f6',       # 亮藍 (強調)
 
-    # 漲跌色
-    'up': '#ef4444',           # 紅色 (上漲)
-    'up_bg': 'rgba(239, 68, 68, 0.1)',
-    'down': '#22c55e',         # 綠色 (下跌)
-    'down_bg': 'rgba(34, 197, 94, 0.1)',
-    'flat': '#6b7280',         # 灰色 (平盤)
+    # 漲跌色（紅漲綠跌，中飽和防盯盤疲勞）
+    'up': '#f6465d',           # 紅色 (上漲)
+    'up_bg': 'rgba(246, 70, 93, 0.12)',
+    'up_strong': '#ff2d4b',    # 漲停強調
+    'up_weak': 'rgba(246, 70, 93, 0.45)',  # 同色相淺色（承載強弱深淺）
+    'down': '#2ebd85',         # 綠色 (下跌)
+    'down_bg': 'rgba(46, 189, 133, 0.12)',
+    'down_strong': '#0ecb81',  # 跌停強調
+    'down_weak': 'rgba(46, 189, 133, 0.45)',
+    'flat': '#7a8699',         # 灰色 (平盤)
+
+    # 非價格分類色（三大法人 / 資金流向，取代各頁硬編色）
+    'flow_foreign': '#3b82f6', # 外資（藍）
+    'flow_trust': '#f59e0b',   # 投信（橘）
+    'flow_dealer': '#8b5cf6',  # 自營商（紫）
 
     # 文字色
     'text_primary': '#f1f5f9',   # 主文字
-    'text_secondary': '#94a3b8', # 次文字
-    'text_muted': '#64748b',     # 淡文字
+    'text_secondary': '#a3aec0', # 次文字
+    'text_muted': '#8b95a6',     # 淡文字（提升對比至 ~WCAG AA）
 
     # 邊框
     'border': '#374151',
@@ -33,15 +42,56 @@ COLORS = {
     # 狀態色
     'success': '#10b981',
     'warning': '#f59e0b',
-    'danger': '#ef4444',
+    'danger': '#f6465d',
     'info': '#3b82f6',
 }
 
 
-def inject_professional_theme():
-    """注入專業金融主題 CSS"""
+# ===== 字級 Token（全站統一字級，取代散落 inline 值）=====
+TYPO = {
+    'page_title': '1.8rem',
+    'section_title': '1.1rem',
+    'kpi_value': '1.75rem',
+    'kpi_value_lg': '2rem',
+    'label': '0.8rem',       # KPI/欄位標籤（由 0.7rem 提升避免截斷）
+    'body': '0.95rem',
+    'caption': '0.8rem',
+    'mono': "'IBM Plex Mono', 'SF Mono', 'Roboto Mono', ui-monospace, monospace",  # 數字等寬
+}
+
+# ===== 間距 Token =====
+SPACE = {
+    'card_gap': '12px',
+    'card_pad': '1.25rem',
+    'section_gap': '2rem',
+    'row_gap': '1.5rem',
+}
+
+
+def inject_professional_theme(force: bool = False):
+    """注入專業金融主題 CSS
+
+    註：Streamlit 多頁應用每次換頁/rerun 都會重建 DOM，故 CSS 必須每次注入；
+    不可用 session_state 做「單次注入」guard（否則第一頁之後會失去樣式）。
+    `force` 參數保留以相容呼叫端。
+    """
     st.markdown(f"""
     <style>
+    /* ===== CSS 變數（單一色彩來源，手刻 HTML 與 class 共用）===== */
+    :root {{
+        --color-primary: {COLORS['primary']};
+        --color-secondary: {COLORS['secondary']};
+        --color-accent: {COLORS['accent']};
+        --color-up: {COLORS['up']};
+        --color-down: {COLORS['down']};
+        --color-flat: {COLORS['flat']};
+        --text-primary: {COLORS['text_primary']};
+        --text-secondary: {COLORS['text_secondary']};
+        --text-muted: {COLORS['text_muted']};
+        --color-border: {COLORS['border']};
+        --font-mono: {TYPO['mono']};
+    }}
+
     /* ===== 全域樣式 ===== */
     .stApp {{
         background: linear-gradient(135deg, {COLORS['primary']} 0%, #0f172a 100%);
@@ -373,20 +423,58 @@ def inject_professional_theme():
         position: fixed;
     }}
 
-    /* ===== 響應式排版 ===== */
-    @media (max-width: 768px) {{
-      [data-testid="stHorizontalBlock"] > div {{ flex: 1 0 48% !important; min-width: 140px; }}
-      .main .block-container {{ padding: 1rem !important; }}
+    /* ===== 按鈕語義（primary 藍 / secondary 灰 / danger 紅）===== */
+    .stButton > button[kind="secondary"] {{
+        background: {COLORS['secondary']} !important;
+        color: {COLORS['text_secondary']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        box-shadow: none;
     }}
+    .stButton > button[kind="secondary"]:hover {{
+        border-color: {COLORS['accent']} !important;
+        color: {COLORS['text_primary']} !important;
+    }}
+    /* 危險操作：以 .danger-btn 包裹的下一顆按鈕轉紅 */
+    .danger-btn + div .stButton > button {{
+        background: linear-gradient(135deg, {COLORS['danger']} 0%, #c81e3a 100%) !important;
+        box-shadow: 0 2px 4px rgba(246, 70, 93, 0.3);
+    }}
+
+    /* ===== 等寬數字（價格/漲跌/金額右對齊）===== */
+    .num-mono {{ font-family: {TYPO['mono']}; font-variant-numeric: tabular-nums; }}
+    .stDataFrame tbody td {{ font-variant-numeric: tabular-nums; }}
+
+    /* ===== 高密度表格（dense）===== */
+    .dense-table .stDataFrame tbody td {{ padding-top: 4px !important; padding-bottom: 4px !important; }}
+
+    /* ===== 響應式排版（KPI/卡片列依寬度自動換行；超寬放大內距）===== */
+    /* 平板：5-6 欄列 → 約 3 欄 */
+    @media (max-width: 1024px) {{
+      [data-testid="stHorizontalBlock"] > div {{ flex: 1 1 31% !important; min-width: 160px; }}
+    }}
+    /* 小平板/大手機：→ 2 欄 */
+    @media (max-width: 768px) {{
+      [data-testid="stHorizontalBlock"] > div {{ flex: 1 1 48% !important; min-width: 140px; }}
+      .main .block-container {{ padding: 1rem !important; }}
+      [data-testid="stMetricValue"] {{ font-size: 1.4rem !important; }}
+      h1 {{ font-size: 1.4rem !important; }}
+    }}
+    /* 手機：單欄 */
     @media (max-width: 480px) {{
-      [data-testid="stHorizontalBlock"] > div {{ flex: 1 0 100% !important; }}
+      [data-testid="stHorizontalBlock"] > div {{ flex: 1 1 100% !important; }}
+      .js-plotly-plot {{ min-height: 240px; }}
+    }}
+    /* 超寬螢幕：放寬內容區與卡片內距 */
+    @media (min-width: 1600px) {{
+      .main .block-container {{ max-width: 1680px; }}
     }}
 
     </style>
     """, unsafe_allow_html=True)
 
 
-def create_kpi_card(label: str, value: str, delta: str = None, delta_color: str = None):
+def create_kpi_card(label: str, value: str, delta: str = None, delta_color: str = None,
+                    sparkline: list = None):
     """
     建立專業 KPI 卡片
 
@@ -400,6 +488,8 @@ def create_kpi_card(label: str, value: str, delta: str = None, delta_color: str 
         變化值
     delta_color : str
         'up', 'down', 或 'flat'
+    sparkline : list, optional
+        迷你走勢資料（接入卡片右下角）
     """
     # 決定顏色
     if delta_color == 'up':
@@ -417,12 +507,17 @@ def create_kpi_card(label: str, value: str, delta: str = None, delta_color: str 
 
     delta_html = f'<div style="color:{color};font-size:0.85rem;font-weight:600;margin-top:4px">{arrow} {delta}</div>' if delta else ''
 
+    spark_html = ''
+    if sparkline:
+        spark_html = f'<div style="position:absolute;right:12px;bottom:10px;opacity:0.85">{create_mini_sparkline(sparkline, color if delta_color in ("up", "down") else None)}</div>'
+
+    # label 提升至 TYPO['label']（0.8rem）並單行省略，避免 23_AI 等頁被截成「平…」
     html = f'''
     <div class="kpi-card" style="
         background:{COLORS['secondary']};
         border:1px solid {COLORS['border']};
         border-radius:12px;
-        padding:1.25rem;
+        padding:{SPACE['card_pad']};
         box-shadow:0 4px 6px rgba(0,0,0,0.3);
         position:relative;
         overflow:hidden;
@@ -433,12 +528,123 @@ def create_kpi_card(label: str, value: str, delta: str = None, delta_color: str 
             height:3px;
             background:linear-gradient(90deg,{COLORS['accent']},transparent);
         "></div>
-        <div style="color:{COLORS['text_secondary']};font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:8px">{label}</div>
-        <div style="color:{COLORS['text_primary']};font-size:1.75rem;font-weight:700">{value}</div>
+        <div style="color:{COLORS['text_secondary']};font-size:{TYPO['label']};text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{label}</div>
+        <div class="num-mono" style="color:{COLORS['text_primary']};font-size:{TYPO['kpi_value']};font-weight:700">{value}</div>
         {delta_html}
+        {spark_html}
     </div>
     '''
     return html
+
+
+def responsive_columns(n, gap: str = "small"):
+    """建立會在窄螢幕自動換行的欄位列（搭配 theme.py 的 @media flex 規則）。
+
+    Streamlit 無法在伺服端得知視窗寬度，故「響應式」由 CSS flex-wrap 達成：
+    寬螢幕 n 欄、平板約 3 欄、手機 2→1 欄。此 helper 統一全站 KPI/卡片列呼叫。
+    """
+    return st.columns(n, gap=gap)
+
+
+def render_kpi_row(items, cols=None, gap: str = "small"):
+    """渲染一整列 KPI 卡片。
+
+    Parameters
+    ----------
+    items : list[dict]
+        每張卡片參數，支援鍵：label, value, delta, delta_color, sparkline
+    cols : int, optional
+        欄數，預設等於 items 數量
+    """
+    if not items:
+        return
+    n = cols or len(items)
+    columns = responsive_columns(n, gap=gap)
+    for i, item in enumerate(items):
+        with columns[i % n]:
+            st.markdown(create_kpi_card(
+                item.get('label', ''),
+                item.get('value', '-'),
+                item.get('delta'),
+                item.get('delta_color'),
+                item.get('sparkline'),
+            ), unsafe_allow_html=True)
+
+
+def create_page_title(title: str, subtitle: str = None, icon: str = None):
+    """統一頁面主標題（取代各頁手刻 HTML <h1>，與 render_page_header 對齊視覺）。"""
+    icon_html = f'<span style="font-size:1.6rem;margin-right:10px">{icon}</span>' if icon else ''
+    subtitle_html = f'<p style="margin:2px 0 0;color:{COLORS["text_muted"]};font-size:0.85rem">{subtitle}</p>' if subtitle else ''
+    return f'''
+    <div style="display:flex;align-items:center;gap:6px;border-bottom:2px solid {COLORS['accent']};padding-bottom:0.5rem;margin-bottom:1rem">
+        {icon_html}
+        <div>
+            <h1 style="margin:0;padding:0;border:none;font-size:{TYPO['page_title']};font-weight:700;color:{COLORS['text_primary']}">{title}</h1>
+            {subtitle_html}
+        </div>
+    </div>
+    '''
+
+
+def format_number(value, kind: str = 'price', signed: bool = False):
+    """統一數值格式化（取代散落 f-string / lambda / .style.format）。
+
+    kind: 'price'（兩位小數）, 'pct'（百分比）, 'volume'（張，含萬/億在地化）,
+          'amount'（金額，含萬/億）, 'int'（整數千分位）
+    signed: 是否強制顯示正負號
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return '-'
+    if value is None or (isinstance(v, float) and (v != v)):  # NaN
+        return '-'
+
+    sign = '+' if signed else ''
+    if kind == 'pct':
+        return f'{v:{sign}.2f}%'
+    if kind == 'price':
+        return f'{v:{sign},.2f}'
+    if kind == 'int':
+        return f'{v:{sign},.0f}'
+    if kind in ('volume', 'amount'):
+        suffix = ''
+        unit = 1
+        av = abs(v)
+        if av >= 1e8:
+            unit, suffix = 1e8, '億'
+        elif av >= 1e4:
+            unit, suffix = 1e4, '萬'
+        return f'{v / unit:{sign},.2f}{suffix}'
+    return f'{v:{sign},.2f}'
+
+
+def render_data_table(df, *, freeze_cols: int = 1, dense: bool = False,
+                      numeric_cols=None, height: int = None, column_config: dict = None):
+    """統一資料表格：數字右對齊等寬、sticky 表頭、可凍結識別欄、密度切換。
+
+    以 st.dataframe 為底（內建虛擬捲動與 sticky 表頭），全站表格一律走此函式。
+    """
+    import pandas as pd  # 局部 import 避免增加模組載入成本
+
+    cfg = dict(column_config or {})
+    if numeric_cols:
+        for c in numeric_cols:
+            if c not in cfg and c in getattr(df, 'columns', []):
+                cfg[c] = st.column_config.NumberColumn(c)
+
+    wrapper_cls = 'dense-table' if dense else ''
+    if wrapper_cls:
+        st.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        height=height,
+        column_config=cfg or None,
+    )
+    if wrapper_cls:
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def create_section_header(title: str, icon: str = None):

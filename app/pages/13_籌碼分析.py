@@ -4,23 +4,26 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from datetime import datetime, timedelta
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
-from app.components.page_header import render_page_header
+from app.components.error_handler import show_error
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
+from app.components.theme import (
+    COLORS, create_page_title, create_section_header,
+    render_kpi_row, format_number,
+)
+from app.components.charts import apply_dark_theme, CHART_CONFIG
 
 st.set_page_config(page_title='籌碼分析', page_icon='💰', layout='wide')
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='margin')
-
-render_page_header('籌碼分析', icon='🏦')
 
 # 載入數據
 @st.cache_data(ttl=CACHE_TTL['daily'])
@@ -47,6 +50,17 @@ stock_options = [f"{row['stock_id']} {row['name']}"
                  for _, row in stock_info.iterrows()
                  if row['stock_id'] in active_stocks]
 
+# 全域行情列（帶入目前選取的個股代號）+ 頁面標題
+_selected_label = st.session_state.get('margin_selected_stock')
+if _selected_label not in stock_options:
+    _selected_label = stock_options[0] if stock_options else None
+_active_code = _selected_label.split(' ')[0] if _selected_label else None
+render_global_ticker_bar(active_stock=_active_code)
+st.markdown(
+    create_page_title('籌碼分析', subtitle='融資融券 · 法人買賣超 · 量價籌碼', icon='🏦'),
+    unsafe_allow_html=True,
+)
+
 # Tab 選擇
 tab1, tab2, tab3, tab4 = st.tabs(['🔍 個股籌碼', '📊 籌碼指標', '🏆 籌碼排行', '📈 策略選股'])
 
@@ -60,7 +74,8 @@ with tab1:
         selected_stock = st.selectbox(
             '選擇股票',
             stock_options,
-            index=0 if stock_options else None
+            index=0 if stock_options else None,
+            key='margin_selected_stock'
         )
 
     with col2:
@@ -78,170 +93,256 @@ with tab1:
             stock_close = close[stock_id].dropna().tail(analysis_days)
             stock_volume = volume[stock_id].dropna().tail(analysis_days) if stock_id in volume.columns else None
 
-            # 價量分析
-            st.markdown(f'#### {stock_id} {stock_name} 價量分析')
-
-            col1, col2, col3, col4 = st.columns(4)
-
-            with col1:
-                current_price = stock_close.iloc[-1]
-                price_change = (stock_close.iloc[-1] / stock_close.iloc[0] - 1) * 100
-                st.metric(
-                    '收盤價',
-                    f'{current_price:.2f}',
-                    f'{price_change:+.2f}%'
-                )
-
-            with col2:
-                if stock_volume is not None and len(stock_volume) > 0:
-                    avg_volume = stock_volume.mean() / 1000  # 轉換為張
-                    st.metric('平均成交量', f'{avg_volume:,.0f} 張')
-                else:
-                    st.metric('平均成交量', 'N/A')
-
-            with col3:
-                volatility = stock_close.pct_change().std() * np.sqrt(252) * 100
-                st.metric('年化波動率', f'{volatility:.1f}%')
-
-            with col4:
-                # 計算 RSI
-                delta = stock_close.diff()
-                gain = delta.where(delta > 0, 0).rolling(14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-                rs = gain / loss
-                rsi = 100 - (100 / (1 + rs))
-                current_rsi = rsi.iloc[-1] if len(rsi) > 0 else 0
-                st.metric('RSI(14)', f'{current_rsi:.1f}')
-
-            # 價格走勢圖
-            st.markdown('##### 價格走勢')
-            st.line_chart(stock_close)
-
-            # 成交量走勢圖
-            if stock_volume is not None and len(stock_volume) > 0:
-                st.markdown('##### 成交量走勢')
-                volume_df = pd.DataFrame({
-                    '成交量(張)': stock_volume / 1000
-                })
-                st.bar_chart(volume_df)
-
-            # 籌碼指標（融資融券）
-            st.markdown('##### 籌碼指標')
-
-            # 嘗試載入真實融資融券數據
+            # 預先載入籌碼資料（融資融券 + 法人）供後續四段使用
+            margin_balance = None
+            short_balance = None
+            inst_frames = {}
+            institutional_df = None
             try:
                 loader = get_loader()
                 margin_buy = loader.get('margin_buy')
-                margin_sell = loader.get('margin_sell')
-                short_buy = loader.get('short_buy')
                 short_sell = loader.get('short_sell')
-
                 has_margin = (margin_buy is not None and stock_id in margin_buy.columns)
-
                 if has_margin:
                     margin_balance = margin_buy[stock_id].dropna().tail(analysis_days)
                     short_balance = short_sell[stock_id].dropna().tail(analysis_days) if (short_sell is not None and stock_id in short_sell.columns) else None
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        if len(margin_balance) >= 2:
-                            latest_margin = margin_balance.iloc[-1]
-                            margin_change = margin_balance.iloc[-1] - margin_balance.iloc[-2]
-                            st.metric('融資餘額(張)', f'{latest_margin:,.0f}', f'{margin_change:+,.0f}')
-                        else:
-                            st.metric('融資餘額(張)', 'N/A')
-
-                    with col2:
-                        if short_balance is not None and len(short_balance) >= 2:
-                            latest_short = short_balance.iloc[-1]
-                            short_change = short_balance.iloc[-1] - short_balance.iloc[-2]
-                            st.metric('融券餘額(張)', f'{latest_short:,.0f}', f'{short_change:+,.0f}')
-                        else:
-                            st.metric('融券餘額(張)', 'N/A')
-
-                    with col3:
-                        if short_balance is not None and len(short_balance) > 0 and len(margin_balance) > 0:
-                            latest_margin_val = margin_balance.iloc[-1]
-                            latest_short_val = short_balance.iloc[-1]
-                            ratio = (latest_short_val / latest_margin_val * 100) if latest_margin_val > 0 else 0
-                            st.metric('券資比', f'{ratio:.2f}%')
-                        else:
-                            st.metric('券資比', 'N/A')
-                else:
-                    st.info('💡 融資融券數據不可用，請確認 FinLab API 資料已載入')
             except Exception:
-                st.info('💡 融資融券數據不可用，請確認 FinLab API 資料已載入')
-
-            # 法人買賣超（真實數據）
-            st.markdown('##### 法人買賣超')
+                margin_balance = None
+                short_balance = None
 
             try:
                 loader = get_loader()
                 foreign_inv = loader.get('foreign_investors')
                 trust_inv = loader.get('investment_trust')
                 dealer_inv = loader.get('dealer')
-
-                has_institutional = (foreign_inv is not None and stock_id in foreign_inv.columns)
-
-                if has_institutional:
-                    inst_frames = {}
-                    if foreign_inv is not None and stock_id in foreign_inv.columns:
-                        inst_frames['外資'] = foreign_inv[stock_id].dropna().tail(analysis_days)
-                    if trust_inv is not None and stock_id in trust_inv.columns:
-                        inst_frames['投信'] = trust_inv[stock_id].dropna().tail(analysis_days)
-                    if dealer_inv is not None and stock_id in dealer_inv.columns:
-                        inst_frames['自營商'] = dealer_inv[stock_id].dropna().tail(analysis_days)
-
-                    if inst_frames:
-                        institutional_df = pd.DataFrame(inst_frames)
-                        institutional_df['合計'] = institutional_df.sum(axis=1)
-
-                        st.dataframe(institutional_df.tail(10), use_container_width=True)
-                        st.bar_chart(institutional_df[list(inst_frames.keys())])
-                    else:
-                        st.info('💡 法人買賣超數據不可用')
-                else:
-                    st.info('💡 法人買賣超數據不可用，請確認 FinLab API 資料已載入')
+                if foreign_inv is not None and stock_id in foreign_inv.columns:
+                    inst_frames['外資'] = foreign_inv[stock_id].dropna().tail(analysis_days)
+                if trust_inv is not None and stock_id in trust_inv.columns:
+                    inst_frames['投信'] = trust_inv[stock_id].dropna().tail(analysis_days)
+                if dealer_inv is not None and stock_id in dealer_inv.columns:
+                    inst_frames['自營商'] = dealer_inv[stock_id].dropna().tail(analysis_days)
+                if inst_frames:
+                    institutional_df = pd.DataFrame(inst_frames)
+                    institutional_df['合計'] = institutional_df.sum(axis=1)
             except Exception:
-                st.info('💡 法人買賣超數據不可用，請確認 FinLab API 資料已載入')
+                inst_frames = {}
+                institutional_df = None
+
+            # 法人色票對應
+            _inst_colors = {
+                '外資': COLORS['flow_foreign'],
+                '投信': COLORS['flow_trust'],
+                '自營商': COLORS['flow_dealer'],
+            }
+
+            # ===== 第一段：關鍵 KPI 卡 =====
+            st.markdown(
+                create_section_header(f'{stock_id} {stock_name} 關鍵指標', icon='📌'),
+                unsafe_allow_html=True,
+            )
+
+            current_price = stock_close.iloc[-1]
+            price_change = (stock_close.iloc[-1] / stock_close.iloc[0] - 1) * 100
+
+            kpi_items = [
+                {
+                    'label': '收盤價',
+                    'value': format_number(current_price, kind='price'),
+                    'delta': format_number(price_change, kind='pct', signed=True),
+                    'delta_color': 'up' if price_change > 0 else ('down' if price_change < 0 else 'flat'),
+                    'sparkline': list(stock_close.values[-30:]),
+                },
+            ]
+
+            if stock_volume is not None and len(stock_volume) > 0:
+                avg_volume = stock_volume.mean() / 1000  # 轉換為張
+                kpi_items.append({
+                    'label': '平均成交量',
+                    'value': f'{format_number(avg_volume, kind="int")} 張',
+                })
+            else:
+                kpi_items.append({'label': '平均成交量', 'value': '-'})
+
+            volatility = stock_close.pct_change().std() * np.sqrt(252) * 100
+            kpi_items.append({
+                'label': '年化波動率',
+                'value': format_number(volatility, kind='pct'),
+            })
+
+            # RSI
+            delta = stock_close.diff()
+            gain = delta.where(delta > 0, 0).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+            current_rsi = rsi.iloc[-1] if len(rsi) > 0 else 0
+            kpi_items.append({
+                'label': 'RSI(14)',
+                'value': format_number(current_rsi, kind='pct').replace('%', ''),
+            })
+
+            # 融資/融券/券資比 KPI（若有資料）
+            if margin_balance is not None and len(margin_balance) >= 2:
+                latest_margin = margin_balance.iloc[-1]
+                margin_change = margin_balance.iloc[-1] - margin_balance.iloc[-2]
+                kpi_items.append({
+                    'label': '融資餘額(張)',
+                    'value': format_number(latest_margin, kind='int'),
+                    'delta': format_number(margin_change, kind='int', signed=True),
+                    # 融資增加偏空（綠）、減少偏多（紅）
+                    'delta_color': 'down' if margin_change > 0 else ('up' if margin_change < 0 else 'flat'),
+                })
+            if short_balance is not None and len(short_balance) >= 2:
+                latest_short = short_balance.iloc[-1]
+                short_change = short_balance.iloc[-1] - short_balance.iloc[-2]
+                kpi_items.append({
+                    'label': '融券餘額(張)',
+                    'value': format_number(latest_short, kind='int'),
+                    'delta': format_number(short_change, kind='int', signed=True),
+                    'delta_color': 'up' if short_change > 0 else ('down' if short_change < 0 else 'flat'),
+                })
+            if (short_balance is not None and len(short_balance) > 0
+                    and margin_balance is not None and len(margin_balance) > 0):
+                latest_margin_val = margin_balance.iloc[-1]
+                latest_short_val = short_balance.iloc[-1]
+                ratio = (latest_short_val / latest_margin_val * 100) if latest_margin_val > 0 else 0
+                kpi_items.append({
+                    'label': '券資比',
+                    'value': format_number(ratio, kind='pct'),
+                })
+
+            render_kpi_row(kpi_items)
+
+            if margin_balance is None:
+                st.caption('💡 融資融券數據不可用，請確認 FinLab API 資料已載入')
+
+            # ===== 第二段：法人買賣超分組長條 =====
+            st.markdown(
+                create_section_header('法人買賣超（近期分組）', icon='🏦'),
+                unsafe_allow_html=True,
+            )
+
+            if inst_frames:
+                grouped_df = pd.DataFrame(inst_frames).tail(min(analysis_days, 20))
+                bar_fig = go.Figure()
+                for name in inst_frames.keys():
+                    bar_fig.add_trace(go.Bar(
+                        x=grouped_df.index,
+                        y=grouped_df[name],
+                        name=name,
+                        marker_color=_inst_colors.get(name, COLORS['accent']),
+                    ))
+                bar_fig.update_layout(barmode='group')
+                bar_fig.update_yaxes(title_text='買賣超（張/股）')
+                apply_dark_theme(bar_fig, height=CHART_CONFIG['height_md'], unified_hover=True)
+                st.plotly_chart(bar_fig, use_container_width=True)
+            else:
+                st.caption('💡 法人買賣超數據不可用，請確認 FinLab API 資料已載入')
+
+            # ===== 第三段：多日趨勢折線（價格 + 量 + 法人累計）=====
+            st.markdown(
+                create_section_header('多日趨勢', icon='📈'),
+                unsafe_allow_html=True,
+            )
+
+            has_volume = stock_volume is not None and len(stock_volume) > 0
+            trend_fig = make_subplots(
+                rows=2, cols=1, shared_xaxes=True,
+                vertical_spacing=0.06, row_heights=[0.62, 0.38],
+                subplot_titles=('價格走勢', '成交量（張）' if has_volume else '成交量'),
+            )
+
+            _price_color = COLORS['up'] if price_change >= 0 else COLORS['down']
+            trend_fig.add_trace(
+                go.Scatter(
+                    x=stock_close.index, y=stock_close.values,
+                    name='收盤價', mode='lines',
+                    line=dict(color=_price_color, width=2),
+                ),
+                row=1, col=1,
+            )
+
+            if has_volume:
+                vol_in_lots = stock_volume / 1000
+                # 量柱依當日漲跌上色
+                close_aligned = stock_close.reindex(vol_in_lots.index)
+                vol_colors = []
+                prev = None
+                for idx in vol_in_lots.index:
+                    cur = close_aligned.get(idx)
+                    if prev is None or cur is None or (isinstance(cur, float) and cur != cur):
+                        vol_colors.append(COLORS['flat'])
+                    else:
+                        vol_colors.append(COLORS['up'] if cur >= prev else COLORS['down'])
+                    if cur is not None and not (isinstance(cur, float) and cur != cur):
+                        prev = cur
+                trend_fig.add_trace(
+                    go.Bar(
+                        x=vol_in_lots.index, y=vol_in_lots.values,
+                        name='成交量', marker_color=vol_colors, opacity=0.7,
+                    ),
+                    row=2, col=1,
+                )
+
+            apply_dark_theme(trend_fig, height=CHART_CONFIG['height_lg'], unified_hover=True)
+            trend_fig.update_layout(xaxis_rangeslider_visible=False)
+            st.plotly_chart(trend_fig, use_container_width=True)
+
+            # 法人多日累計趨勢
+            if institutional_df is not None and inst_frames:
+                cum_fig = go.Figure()
+                cum_df = pd.DataFrame(inst_frames).cumsum()
+                for name in inst_frames.keys():
+                    cum_fig.add_trace(go.Scatter(
+                        x=cum_df.index, y=cum_df[name],
+                        name=f'{name}(累計)', mode='lines',
+                        line=dict(color=_inst_colors.get(name, COLORS['accent']), width=2),
+                    ))
+                cum_fig.update_yaxes(title_text='累計買賣超')
+                apply_dark_theme(cum_fig, height=CHART_CONFIG['height_md'], unified_hover=True)
+                st.plotly_chart(cum_fig, use_container_width=True)
+
+            # ===== 第四段：可展開逐日明細 =====
+            if institutional_df is not None:
+                with st.expander('📋 法人買賣超逐日明細'):
+                    st.dataframe(
+                        institutional_df.tail(10),
+                        use_container_width=True,
+                    )
 
         else:
             st.warning(f'找不到股票 {stock_id} 的數據')
 
 # ========== 籌碼指標 ==========
 with tab2:
-    st.markdown('### 籌碼指標說明')
+    st.markdown(create_section_header('籌碼指標計算器', icon='🧮'), unsafe_allow_html=True)
 
-    st.markdown('''
-    #### 融資融券指標
+    with st.expander('📖 籌碼指標說明'):
+        st.markdown('''
+        #### 融資融券指標
 
-    | 指標 | 說明 | 多頭訊號 | 空頭訊號 |
-    |------|------|----------|----------|
-    | 融資餘額 | 投資人借錢買股票的金額 | 減少 | 增加 |
-    | 融券餘額 | 投資人借股票賣出的數量 | 增加 | 減少 |
-    | 券資比 | 融券/融資 | > 30% | < 10% |
-    | 融資使用率 | 融資餘額/融資限額 | < 20% | > 40% |
+        | 指標 | 說明 | 多頭訊號 | 空頭訊號 |
+        |------|------|----------|----------|
+        | 融資餘額 | 投資人借錢買股票的金額 | 減少 | 增加 |
+        | 融券餘額 | 投資人借股票賣出的數量 | 增加 | 減少 |
+        | 券資比 | 融券/融資 | > 30% | < 10% |
+        | 融資使用率 | 融資餘額/融資限額 | < 20% | > 40% |
 
-    #### 法人買賣超指標
+        #### 法人買賣超指標
 
-    | 法人 | 特性 | 參考價值 |
-    |------|------|----------|
-    | 外資 | 資金充沛，中長期布局 | 高 |
-    | 投信 | 追蹤績效，波段操作 | 中 |
-    | 自營商 | 短線交易，避險為主 | 低 |
+        | 法人 | 特性 | 參考價值 |
+        |------|------|----------|
+        | 外資 | 資金充沛，中長期布局 | 高 |
+        | 投信 | 追蹤績效，波段操作 | 中 |
+        | 自營商 | 短線交易，避險為主 | 低 |
 
-    #### 籌碼分析原則
+        #### 籌碼分析原則
 
-    1. **量價配合**: 上漲放量、下跌縮量為健康型態
-    2. **主力動向**: 觀察大戶與散戶籌碼變化
-    3. **融資減碼**: 融資大減通常是築底訊號
-    4. **法人連買**: 三大法人連續買超為正向訊號
-    ''')
-
-    # 籌碼指標計算器
-    st.markdown('---')
-    st.markdown('#### 籌碼指標計算器')
+        1. **量價配合**: 上漲放量、下跌縮量為健康型態
+        2. **主力動向**: 觀察大戶與散戶籌碼變化
+        3. **融資減碼**: 融資大減通常是築底訊號
+        4. **法人連買**: 三大法人連續買超為正向訊號
+        ''')
 
     col1, col2 = st.columns(2)
 
@@ -263,7 +364,7 @@ with tab2:
 
 # ========== 籌碼排行 ==========
 with tab3:
-    st.markdown('### 籌碼排行榜')
+    st.markdown(create_section_header('籌碼排行榜', icon='🏆'), unsafe_allow_html=True)
 
     ranking_type = st.selectbox(
         '排行類型',
@@ -361,15 +462,16 @@ with tab3:
 
 # ========== 策略選股 ==========
 with tab4:
-    st.markdown('### 籌碼策略選股')
+    st.markdown(create_section_header('籌碼策略選股', icon='📈'), unsafe_allow_html=True)
 
-    st.markdown('''
-    基於籌碼指標的選股策略：
+    with st.expander('📖 策略說明'):
+        st.markdown('''
+        基於籌碼指標的選股策略：
 
-    1. **量增價漲**: 成交量放大且價格上漲
-    2. **量縮價穩**: 成交量萎縮但價格持穩
-    3. **突破均量**: 成交量突破近期均量
-    ''')
+        1. **量增價漲**: 成交量放大且價格上漲
+        2. **量縮價穩**: 成交量萎縮但價格持穩
+        3. **突破均量**: 成交量突破近期均量
+        ''')
 
     strategy = st.selectbox(
         '選擇策略',

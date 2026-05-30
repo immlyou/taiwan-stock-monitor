@@ -4,26 +4,29 @@
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
 import json
 import os
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks, reset_all_caches
-from core.indicators import sma, rsi, macd, bollinger_bands, resample_ohlcv, get_timeframe_label, get_ma_periods_for_timeframe
-from app.components.charts import create_price_chart, create_technical_chart, apply_dark_theme
-from app.components.theme import DEFAULT_PLOTLY_LAYOUT, COLORS
+from core.indicators import rsi, macd, resample_ohlcv, get_timeframe_label, get_ma_periods_for_timeframe
+from app.components.theme import (
+    DEFAULT_PLOTLY_LAYOUT, COLORS,
+    create_page_title, create_section_header, render_kpi_row,
+    responsive_columns, create_kpi_card, format_number,
+)
 from app.components.sidebar import render_sidebar_mini
+from app.components.page_header import render_global_ticker_bar
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys,
     get_stock_to_analyze
 )
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.error_handler import show_error
 from core.ai_models import StockChatAssistant
 
 # 嘗試導入 FinLab API
@@ -50,7 +53,7 @@ render_sidebar_mini(current_page='stock')
 
 # ==================== 資料載入 ====================
 @st.cache_data(ttl=CACHE_TTL['daily'], show_spinner="載入股票數據中...")
-def load_stock_data():
+def load_data():
     """載入基礎股票數據"""
     loader = get_loader()
     return {
@@ -93,7 +96,7 @@ def load_news_cache():
 from app.components.watchlist_utils import load_watchlists, save_watchlists
 
 try:
-    data = load_stock_data()
+    data = load_data()
 except Exception as e:
     show_error(e, title='載入數據失敗', suggestion='請檢查資料來源是否正常，或嘗試重新整理頁面')
     st.stop()
@@ -149,6 +152,9 @@ with col_action:
         st.cache_data.clear()
         st.rerun()
 
+# 全域行情列 + 命令列搜尋（個股頁傳入當前股票代號）
+render_global_ticker_bar(active_stock=selected_stock)
+
 # 顯示從晨報選擇的提示
 if preset_stock and selected_option and selected_option.startswith(preset_stock):
     st.info(f'📰 從晨報選擇: {preset_stock}')
@@ -186,35 +192,22 @@ if selected_stock:
         st.stop()
 
     # ==================== 標題區 ====================
-    col1, col2, col3, col4, col5 = st.columns([2.5, 1, 1, 1, 1])
+    latest_price = close_period.iloc[-1]
+    prev_price = close_period.iloc[-2] if len(close_period) > 1 else latest_price
+    change = latest_price - prev_price
+    change_pct = (change / prev_price) * 100
 
-    with col1:
-        st.markdown(f"## {selected_stock} {name}")
-        st.caption(f'{category} | {market}')
-
-    with col2:
-        latest_price = close_period.iloc[-1]
-        prev_price = close_period.iloc[-2] if len(close_period) > 1 else latest_price
-        change = latest_price - prev_price
-        change_pct = (change / prev_price) * 100
-        color = "🔴" if change < 0 else "🟢" if change > 0 else "⚪"
-        st.metric('股價', f'{latest_price:.2f}', f'{change:+.2f} ({change_pct:+.2f}%)')
-
-    with col3:
-        if selected_stock in data['pe_ratio'].columns:
-            pe = data['pe_ratio'][selected_stock].dropna()
-            st.metric('本益比', f'{pe.iloc[-1]:.2f}' if len(pe) > 0 else '-')
-        else:
-            st.metric('本益比', '-')
-
-    with col4:
-        if selected_stock in data['pb_ratio'].columns:
-            pb = data['pb_ratio'][selected_stock].dropna()
-            st.metric('股價淨值比', f'{pb.iloc[-1]:.2f}' if len(pb) > 0 else '-')
-        else:
-            st.metric('股價淨值比', '-')
-
-    with col5:
+    title_col, action_col = st.columns([4, 1])
+    with title_col:
+        st.markdown(
+            create_page_title(
+                f'{selected_stock} {name}',
+                subtitle=f'{category} | {market}',
+                icon='📈',
+            ),
+            unsafe_allow_html=True,
+        )
+    with action_col:
         watchlists = load_watchlists()
         if not watchlists:
             watchlists['預設清單'] = {'created_at': datetime.now().isoformat(), 'stocks': [], 'notes': {}}
@@ -224,9 +217,152 @@ if selected_stock:
             if selected_stock not in watchlists['預設清單']['stocks']:
                 watchlists['預設清單']['stocks'].append(selected_stock)
                 save_watchlists(watchlists)
-                st.success(f'已加入自選股')
+                st.success('已加入自選股')
             else:
-                st.info(f'已在自選股中')
+                st.info('已在自選股中')
+
+    # 頂部 KPI 列（紅漲綠跌 + ▲▼ + 正負號）
+    _price_delta_color = 'up' if change > 0 else 'down' if change < 0 else 'flat'
+    _pe_txt = '-'
+    if selected_stock in data['pe_ratio'].columns:
+        _pe = data['pe_ratio'][selected_stock].dropna()
+        _pe_txt = format_number(_pe.iloc[-1]) if len(_pe) > 0 else '-'
+    _pb_txt = '-'
+    if selected_stock in data['pb_ratio'].columns:
+        _pb = data['pb_ratio'][selected_stock].dropna()
+        _pb_txt = format_number(_pb.iloc[-1]) if len(_pb) > 0 else '-'
+    _dy_txt = '-'
+    if selected_stock in data['dividend_yield'].columns:
+        _dy = data['dividend_yield'][selected_stock].dropna()
+        _dy_txt = format_number(_dy.iloc[-1], kind='pct') if len(_dy) > 0 else '-'
+
+    render_kpi_row([
+        {
+            'label': '股價',
+            'value': format_number(latest_price),
+            'delta': f'{format_number(change, signed=True)} ({format_number(change_pct, kind="pct", signed=True)})',
+            'delta_color': _price_delta_color,
+            'sparkline': list(close_period.tail(30).values),
+        },
+        {'label': '本益比', 'value': _pe_txt},
+        {'label': '股價淨值比', 'value': _pb_txt},
+        {'label': '殖利率', 'value': _dy_txt},
+    ])
+
+    # ==================== 多空診斷卡 ====================
+    st.markdown(create_section_header('多空診斷', icon='🧭'), unsafe_allow_html=True)
+
+    def _diag_card(label, verdict, color_key):
+        """以 KPI 卡呈現單一維度多空評級（紅漲綠跌語意，中性灰）。"""
+        arrow = '▲' if color_key == 'up' else '▼' if color_key == 'down' else '—'
+        delta_color = color_key if color_key in ('up', 'down') else 'flat'
+        return {'label': label, 'value': verdict, 'delta': arrow, 'delta_color': delta_color}
+
+    _diag_items = []
+
+    # 技術：RSI + MACD 綜合
+    try:
+        _rsi_v = rsi(close_period, 14).iloc[-1]
+        _macd_l, _sig_l, _ = macd(close_period)
+        _tech_bull = 0
+        if not pd.isna(_rsi_v):
+            _tech_bull += 1 if _rsi_v < 70 and _rsi_v > 50 else (-1 if _rsi_v > 70 or _rsi_v < 30 else 0)
+        if not pd.isna(_macd_l.iloc[-1]):
+            _tech_bull += 1 if _macd_l.iloc[-1] > _sig_l.iloc[-1] else -1
+        _tech_v = '偏多' if _tech_bull > 0 else '偏空' if _tech_bull < 0 else '中性'
+        _diag_items.append(_diag_card('技術', _tech_v, 'up' if _tech_bull > 0 else 'down' if _tech_bull < 0 else 'flat'))
+    except Exception:
+        _diag_items.append(_diag_card('技術', 'N/A', 'flat'))
+
+    # 趨勢：均線排列
+    try:
+        _ma5 = close_period.rolling(5).mean().iloc[-1]
+        _ma20 = close_period.rolling(20).mean().iloc[-1]
+        _ma60 = close_period.rolling(60).mean().iloc[-1] if len(close_period) >= 60 else _ma20
+        if latest_price > _ma5 > _ma20 > _ma60:
+            _diag_items.append(_diag_card('趨勢', '多頭排列', 'up'))
+        elif latest_price < _ma5 < _ma20 < _ma60:
+            _diag_items.append(_diag_card('趨勢', '空頭排列', 'down'))
+        else:
+            _diag_items.append(_diag_card('趨勢', '盤整', 'flat'))
+    except Exception:
+        _diag_items.append(_diag_card('趨勢', 'N/A', 'flat'))
+
+    # 量能：相對20日均量
+    try:
+        if volume_period is not None and len(volume_period) >= 20:
+            _vol_ma = volume_period.rolling(20).mean().iloc[-1]
+            _vol_ratio = volume_period.iloc[-1] / _vol_ma if _vol_ma > 0 else 1
+            if _vol_ratio > 1.5:
+                _diag_items.append(_diag_card('量能', '放量', 'up'))
+            elif _vol_ratio < 0.5:
+                _diag_items.append(_diag_card('量能', '縮量', 'down'))
+            else:
+                _diag_items.append(_diag_card('量能', '正常', 'flat'))
+        else:
+            _diag_items.append(_diag_card('量能', 'N/A', 'flat'))
+    except Exception:
+        _diag_items.append(_diag_card('量能', 'N/A', 'flat'))
+
+    # 財務：營收年增率
+    try:
+        if selected_stock in data['revenue_yoy'].columns:
+            _yoy = data['revenue_yoy'][selected_stock].dropna()
+            if len(_yoy) > 0:
+                _yoy_v = _yoy.iloc[-1]
+                if _yoy_v > 5:
+                    _diag_items.append(_diag_card('財務', '成長', 'up'))
+                elif _yoy_v < 0:
+                    _diag_items.append(_diag_card('財務', '衰退', 'down'))
+                else:
+                    _diag_items.append(_diag_card('財務', '持平', 'flat'))
+            else:
+                _diag_items.append(_diag_card('財務', 'N/A', 'flat'))
+        else:
+            _diag_items.append(_diag_card('財務', 'N/A', 'flat'))
+    except Exception:
+        _diag_items.append(_diag_card('財務', 'N/A', 'flat'))
+
+    # 法人：外資近5日買賣超（FinLab）
+    _inst_done = False
+    if FINLAB_AVAILABLE:
+        try:
+            _foreign = load_finlab_data('institutional_investors_trading_summary:外陸資買賣超股數(不含外資自營商)')
+            if _foreign is not None and selected_stock in _foreign.columns:
+                _f5 = _foreign[selected_stock].dropna().tail(5).sum()
+                if _f5 > 0:
+                    _diag_items.append(_diag_card('法人', '買超', 'up'))
+                elif _f5 < 0:
+                    _diag_items.append(_diag_card('法人', '賣超', 'down'))
+                else:
+                    _diag_items.append(_diag_card('法人', '中性', 'flat'))
+                _inst_done = True
+        except Exception:
+            pass
+    if not _inst_done:
+        _diag_items.append(_diag_card('法人', 'N/A', 'flat'))
+
+    # 估值：本益比水位
+    try:
+        if selected_stock in data['pe_ratio'].columns:
+            _pe_s = data['pe_ratio'][selected_stock].dropna()
+            if len(_pe_s) > 0 and _pe_s.iloc[-1] > 0:
+                _pe_now = _pe_s.iloc[-1]
+                if _pe_now < 15:
+                    _diag_items.append(_diag_card('估值', '便宜', 'up'))
+                elif _pe_now > 25:
+                    _diag_items.append(_diag_card('估值', '偏貴', 'down'))
+                else:
+                    _diag_items.append(_diag_card('估值', '合理', 'flat'))
+            else:
+                _diag_items.append(_diag_card('估值', 'N/A', 'flat'))
+        else:
+            _diag_items.append(_diag_card('估值', 'N/A', 'flat'))
+    except Exception:
+        _diag_items.append(_diag_card('估值', 'N/A', 'flat'))
+
+    render_kpi_row(_diag_items, cols=len(_diag_items))
+    st.caption('診斷為頁內既有指標的簡易彙整，標示 N/A 者為資料不足或中性占位')
 
     # ==================== 匯出報告按鈕 ====================
     export_col1, export_col2, export_col3 = st.columns([3, 1, 1])
@@ -324,12 +460,12 @@ if selected_stock:
 
     st.markdown('---')
 
-    # ==================== 主要 Tabs ====================
+    # ==================== 主要 Tabs（兩層結構：頂層 tabs + 層內 radio）====================
     tab_chart, tab_chip, tab_valuation, tab_finance, tab_basic, tab_health = st.tabs([
-        '📈 走勢圖', '💰 籌碼分析', '📊 估價分析', '📋 財務分析', '🏢 基本資料', '🩺 健診'
+        '📈 行情', '💰 籌碼', '📊 估價', '📋 財報', '🏢 基本', '🩺 健診'
     ])
 
-    # ==================== Tab 1: 走勢圖 ====================
+    # ==================== Tab 1: 行情（K線 / 技術 / 成交，radio 切換）====================
     with tab_chart:
         # 時間框架選擇器
         tf_col1, tf_col2, tf_col3 = st.columns([1, 3, 1])
@@ -357,10 +493,16 @@ if selected_stock:
         ma_short, ma_mid, ma_long = get_ma_periods_for_timeframe(timeframe)
         tf_label = get_timeframe_label(timeframe)
 
-        # 子分頁
-        sub_tab1, sub_tab2, sub_tab3 = st.tabs(['K線走勢', '技術分析', '成交彙整'])
+        # 維度切換改用 radio（取代再開一層 tabs）
+        _chart_view = st.radio(
+            '檢視',
+            options=['K線走勢', '技術分析', '成交彙整'],
+            horizontal=True,
+            label_visibility='collapsed',
+            key='chart_view_radio',
+        )
 
-        with sub_tab1:
+        if _chart_view == 'K線走勢':
             price_df = pd.DataFrame({
                 'open': tf_open, 'high': tf_high, 'low': tf_low, 'close': tf_close
             })
@@ -413,8 +555,8 @@ if selected_stock:
             fig.update_yaxes(title_text='成交量(張)', row=2, col=1)
             st.plotly_chart(fig, use_container_width=True)
 
-        with sub_tab2:
-            st.markdown(f'### 技術指標分析 ({tf_label})')
+        elif _chart_view == '技術分析':
+            st.markdown(create_section_header(f'技術指標分析 ({tf_label})', icon='📐'), unsafe_allow_html=True)
 
             # 計算技術指標 (使用重採樣後的數據)
             rsi_14 = rsi(tf_close, period=14)
@@ -486,8 +628,8 @@ if selected_stock:
                 fig_kd.update_layout(title=f'KD 指標 ({tf_label})', **DEFAULT_PLOTLY_LAYOUT,height=250)
                 st.plotly_chart(fig_kd, use_container_width=True)
 
-        with sub_tab3:
-            st.markdown(f'### 成交彙整 ({tf_label})')
+        elif _chart_view == '成交彙整':
+            st.markdown(create_section_header(f'成交彙整 ({tf_label})', icon='📊'), unsafe_allow_html=True)
             if tf_volume is not None and len(tf_volume) > 0:
                 col1, col2, col3, col4 = st.columns(4)
 
@@ -534,12 +676,18 @@ if selected_stock:
             else:
                 st.warning('無成交量資料')
 
-    # ==================== Tab 2: 籌碼分析 ====================
+    # ==================== Tab 2: 籌碼分析（radio 切換維度）====================
     with tab_chip:
-        sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs(['法人買賣', '資券變化', '外資持股', '大戶籌碼'])
+        _chip_view = st.radio(
+            '籌碼維度',
+            options=['法人買賣', '資券變化', '外資持股', '大戶籌碼'],
+            horizontal=True,
+            label_visibility='collapsed',
+            key='chip_view_radio',
+        )
 
-        with sub_tab1:
-            st.markdown('### 三大法人買賣超')
+        if _chip_view == '法人買賣':
+            st.markdown(create_section_header('三大法人買賣超', icon='🏦'), unsafe_allow_html=True)
             if FINLAB_AVAILABLE:
                 try:
                     foreign = load_finlab_data('institutional_investors_trading_summary:外陸資買賣超股數(不含外資自營商)')
@@ -600,8 +748,8 @@ if selected_stock:
             else:
                 st.warning('FinLab API 未載入')
 
-        with sub_tab2:
-            st.markdown('### 融資融券變化')
+        elif _chip_view == '資券變化':
+            st.markdown(create_section_header('融資融券變化', icon='💳'), unsafe_allow_html=True)
             if FINLAB_AVAILABLE:
                 try:
                     margin_balance = load_finlab_data('margin_transactions:融資今日餘額')
@@ -650,8 +798,8 @@ if selected_stock:
             else:
                 st.warning('FinLab API 未載入')
 
-        with sub_tab3:
-            st.markdown('### 外資持股比率')
+        elif _chip_view == '外資持股':
+            st.markdown(create_section_header('外資持股比率', icon='🌐'), unsafe_allow_html=True)
             if FINLAB_AVAILABLE:
                 try:
                     foreign_hold = load_finlab_data('foreign_investors_shareholding:全體外資及陸資持股比率')
@@ -681,8 +829,8 @@ if selected_stock:
             else:
                 st.warning('FinLab API 未載入')
 
-        with sub_tab4:
-            st.markdown('### 大戶籌碼集中度')
+        elif _chip_view == '大戶籌碼':
+            st.markdown(create_section_header('大戶籌碼集中度', icon='🐳'), unsafe_allow_html=True)
             if FINLAB_AVAILABLE:
                 try:
                     # 載入集保餘額資料 - 各級距股數和人數
@@ -763,7 +911,7 @@ if selected_stock:
                             st.plotly_chart(fig, use_container_width=True)
 
                             # 各級距股東分布
-                            st.markdown('#### 股東分級分布')
+                            st.markdown(create_section_header('股東分級分布', icon='👥'), unsafe_allow_html=True)
 
                             # 收集各級距資料
                             levels = [
@@ -819,7 +967,7 @@ if selected_stock:
                                 st.plotly_chart(fig_pie, use_container_width=True)
 
                             # 籌碼集中度評估
-                            st.markdown('#### 籌碼集中度評估')
+                            st.markdown(create_section_header('籌碼集中度評估', icon='🎯'), unsafe_allow_html=True)
                             latest_big = big_pct.iloc[-1]
                             if latest_big > 60:
                                 st.success(f'籌碼高度集中 ({latest_big:.1f}%)：大戶持股超過60%，股價較易受大戶操控')
@@ -835,12 +983,18 @@ if selected_stock:
             else:
                 st.warning('FinLab API 未載入')
 
-    # ==================== Tab 3: 估價分析 ====================
+    # ==================== Tab 3: 估價分析（radio 切換維度）====================
     with tab_valuation:
-        sub_tab1, sub_tab2, sub_tab3 = st.tabs(['本益比河流圖', '股價淨值比河流圖', '多空分析'])
+        _val_view = st.radio(
+            '估價維度',
+            options=['本益比河流圖', '股價淨值比河流圖', '多空分析'],
+            horizontal=True,
+            label_visibility='collapsed',
+            key='valuation_view_radio',
+        )
 
-        with sub_tab1:
-            st.markdown('### 本益比河流圖')
+        if _val_view == '本益比河流圖':
+            st.markdown(create_section_header('本益比河流圖', icon='🌊'), unsafe_allow_html=True)
             if FINLAB_AVAILABLE:
                 try:
                     pe_data = load_finlab_data('price_earning_ratio:本益比')
@@ -904,8 +1058,8 @@ if selected_stock:
             else:
                 st.warning('FinLab API 未載入')
 
-        with sub_tab2:
-            st.markdown('### 股價淨值比河流圖')
+        elif _val_view == '股價淨值比河流圖':
+            st.markdown(create_section_header('股價淨值比河流圖', icon='🌊'), unsafe_allow_html=True)
             if FINLAB_AVAILABLE:
                 try:
                     pb_data = load_finlab_data('price_earning_ratio:股價淨值比')
@@ -963,8 +1117,8 @@ if selected_stock:
             else:
                 st.warning('FinLab API 未載入')
 
-        with sub_tab3:
-            st.markdown('### 多空分析')
+        elif _val_view == '多空分析':
+            st.markdown(create_section_header('多空分析', icon='⚖️'), unsafe_allow_html=True)
             # 綜合多空訊號
             signals = []
             bullish = 0
@@ -1033,441 +1187,62 @@ if selected_stock:
                 else:
                     st.info(f'**綜合建議: 中性** (分數: {score:+d})')
 
-    # ==================== Tab 4: 財務分析 ====================
+    # ==================== Tab 4: 財報（精簡摘要 + 前往財報分析）====================
     with tab_finance:
-        sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5, sub_tab6, sub_tab7 = st.tabs([
-            '營收表', '每股盈餘', '獲利能力', '財務健全', '損益表', '資產負債表', '現金流量'
-        ])
+        st.markdown(create_section_header('財報摘要', icon='📋'), unsafe_allow_html=True)
+        st.caption('完整財報（損益表 / 資產負債表 / 現金流量 / 獲利能力）請前往「財報分析」頁，避免重複維護')
 
-        with sub_tab1:
-            st.markdown('### 月營收趨勢')
-            if selected_stock in data['monthly_revenue'].columns:
-                revenue = data['monthly_revenue'][selected_stock].dropna().tail(24)
-                revenue_yoy = data['revenue_yoy'][selected_stock].dropna().tail(24) if selected_stock in data['revenue_yoy'].columns else None
+        # 精簡摘要：最新月營收、年增率、近四季 EPS、累計營收
+        _fin_items = []
+        if selected_stock in data['monthly_revenue'].columns:
+            _rev = data['monthly_revenue'][selected_stock].dropna().tail(24)
+            if len(_rev) > 0:
+                _fin_items.append({'label': '最新月營收', 'value': format_number(_rev.iloc[-1], kind='amount')})
+                _fin_items.append({'label': '近12月累計', 'value': format_number(_rev.tail(12).sum(), kind='amount')})
+        if selected_stock in data['revenue_yoy'].columns:
+            _ry = data['revenue_yoy'][selected_stock].dropna()
+            if len(_ry) > 0:
+                _yoy = _ry.iloc[-1]
+                _fin_items.append({
+                    'label': '營收年增率',
+                    'value': format_number(_yoy, kind='pct', signed=True),
+                    'delta': '成長' if _yoy > 0 else '衰退' if _yoy < 0 else '持平',
+                    'delta_color': 'up' if _yoy > 0 else 'down' if _yoy < 0 else 'flat',
+                })
 
-                if len(revenue) > 0:
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric('最新營收', f'{revenue.iloc[-1]/1e8:.2f}億')
-                    with col2:
-                        if revenue_yoy is not None and len(revenue_yoy) > 0:
-                            yoy = revenue_yoy.iloc[-1]
-                            st.metric('年增率', f'{yoy:.1f}%', '成長' if yoy > 0 else '衰退',
-                                     delta_color='normal' if yoy > 0 else 'inverse')
-                    with col3:
-                        cum_revenue = revenue.tail(12).sum()
-                        st.metric('近12月累計', f'{cum_revenue/1e8:.1f}億')
-                    with col4:
-                        avg_revenue = revenue.mean()
-                        st.metric('平均月營收', f'{avg_revenue/1e8:.2f}億')
+        _eps_ttm = None
+        if FINLAB_AVAILABLE:
+            try:
+                _eps_data = load_finlab_data('financial_statement:每股盈餘')
+                if _eps_data is not None and selected_stock in _eps_data.columns:
+                    _eps = _eps_data[selected_stock].dropna()
+                    if len(_eps) >= 4:
+                        _eps_ttm = _eps.tail(4).sum()
+                        _fin_items.append({'label': '近四季 EPS', 'value': format_number(_eps_ttm)})
+            except Exception:
+                pass
 
-                    # 營收走勢圖
-                    fig = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig.add_trace(go.Bar(x=revenue.index, y=revenue/1e8, name='月營收(億)',
-                                        marker_color='steelblue'), secondary_y=False)
-                    if revenue_yoy is not None and len(revenue_yoy) > 0:
-                        fig.add_trace(go.Scatter(x=revenue_yoy.index, y=revenue_yoy, name='年增率(%)',
-                                                line=dict(color='orange', width=2)), secondary_y=True)
-                    fig.update_layout(title='月營收與年增率', **DEFAULT_PLOTLY_LAYOUT,height=400)
-                    fig.update_yaxes(title_text='營收(億)', secondary_y=False)
-                    fig.update_yaxes(title_text='年增率(%)', secondary_y=True)
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info('無營收數據')
+        if _fin_items:
+            render_kpi_row(_fin_items, cols=min(len(_fin_items), 4))
+        else:
+            st.info('無財報摘要資料')
 
-        with sub_tab2:
-            st.markdown('### 每股盈餘 (EPS)')
-            if FINLAB_AVAILABLE:
-                try:
-                    eps_data = load_finlab_data('financial_statement:每股盈餘')
-                    if eps_data is not None and selected_stock in eps_data.columns:
-                        eps = eps_data[selected_stock].dropna().tail(16)  # 4年
-                        if len(eps) > 0:
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric('最新EPS', f'{eps.iloc[-1]:.2f}')
-                            with col2:
-                                # 近四季合計
-                                eps_ttm = eps.tail(4).sum()
-                                st.metric('近四季EPS', f'{eps_ttm:.2f}')
-                            with col3:
-                                eps_growth = ((eps.iloc[-1] / eps.iloc[-5]) - 1) * 100 if len(eps) >= 5 else 0
-                                st.metric('年成長率', f'{eps_growth:.1f}%')
+        st.markdown('')
+        if st.button('📊 前往財報分析（完整財報）', use_container_width=True, type='primary', key='goto_finance_page'):
+            st.switch_page('pages/14_財報分析.py')
 
-                            fig = go.Figure()
-                            fig.add_trace(go.Bar(x=[str(x) for x in eps.index], y=eps,
-                                                name='EPS', marker_color='steelblue'))
-                            fig.update_layout(title='每季EPS趨勢', **DEFAULT_PLOTLY_LAYOUT,height=350)
-                            st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning('找不到EPS資料')
-                except Exception as e:
-                    show_error(e, title='載入EPS資料失敗', suggestion='請檢查 FinLab API 連線狀態')
-            else:
-                st.warning('FinLab API 未載入')
-
-        with sub_tab3:
-            st.markdown('### 獲利能力')
-            if FINLAB_AVAILABLE:
-                try:
-                    roe = load_finlab_data('fundamental_features:ROE稅後')
-                    roa = load_finlab_data('fundamental_features:ROA稅後息前')
-                    gross_margin = load_finlab_data('fundamental_features:營業毛利率')
-                    operating_margin = load_finlab_data('fundamental_features:營業利益率')
-
-                    metrics = []
-                    if roe is not None and selected_stock in roe.columns:
-                        roe_val = roe[selected_stock].dropna()
-                        if len(roe_val) > 0:
-                            metrics.append(('ROE', f'{roe_val.iloc[-1]:.2f}%', roe_val))
-                    if roa is not None and selected_stock in roa.columns:
-                        roa_val = roa[selected_stock].dropna()
-                        if len(roa_val) > 0:
-                            metrics.append(('ROA', f'{roa_val.iloc[-1]:.2f}%', roa_val))
-                    if gross_margin is not None and selected_stock in gross_margin.columns:
-                        gm_val = gross_margin[selected_stock].dropna()
-                        if len(gm_val) > 0:
-                            metrics.append(('毛利率', f'{gm_val.iloc[-1]:.2f}%', gm_val))
-                    if operating_margin is not None and selected_stock in operating_margin.columns:
-                        om_val = operating_margin[selected_stock].dropna()
-                        if len(om_val) > 0:
-                            metrics.append(('營業利益率', f'{om_val.iloc[-1]:.2f}%', om_val))
-
-                    if metrics:
-                        cols = st.columns(len(metrics))
-                        for i, (name, val, _) in enumerate(metrics):
-                            with cols[i]:
-                                st.metric(name, val)
-
-                        # 獲利能力走勢
-                        fig = go.Figure()
-                        for name, _, series in metrics:
-                            fig.add_trace(go.Scatter(x=[str(x) for x in series.tail(12).index],
-                                                    y=series.tail(12), name=name))
-                        fig.update_layout(title='獲利能力趨勢', **DEFAULT_PLOTLY_LAYOUT,height=350)
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning('找不到獲利能力資料')
-                except Exception as e:
-                    show_error(e, title='載入獲利能力資料失敗', suggestion='請檢查 FinLab API 連線狀態')
-            else:
-                st.warning('FinLab API 未載入')
-
-        with sub_tab4:
-            st.markdown('### 財務健全度')
-            if FINLAB_AVAILABLE:
-                try:
-                    current_ratio = load_finlab_data('fundamental_features:流動比率')
-                    debt_ratio = load_finlab_data('fundamental_features:負債比率')
-
-                    if current_ratio is not None and selected_stock in current_ratio.columns:
-                        cr = current_ratio[selected_stock].dropna()
-                        dr = debt_ratio[selected_stock].dropna() if debt_ratio is not None and selected_stock in debt_ratio.columns else pd.Series(dtype=float)
-
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if len(cr) > 0:
-                                st.metric('流動比率', f'{cr.iloc[-1]:.2f}%',
-                                         '健全' if cr.iloc[-1] > 150 else '偏低')
-                        with col2:
-                            if len(dr) > 0:
-                                st.metric('負債比率', f'{dr.iloc[-1]:.2f}%',
-                                         '偏高' if dr.iloc[-1] > 50 else '健全',
-                                         delta_color='inverse' if dr.iloc[-1] > 50 else 'normal')
-                    else:
-                        st.warning('找不到財務健全度資料')
-                except Exception as e:
-                    show_error(e, title='載入財務健全度資料失敗', suggestion='請檢查 FinLab API 連線狀態')
-            else:
-                st.warning('FinLab API 未載入')
-
-        # ==================== 損益表 ====================
-        with sub_tab5:
-            st.markdown('### 損益表 (季度)')
-            if FINLAB_AVAILABLE:
-                try:
-                    # 載入損益表相關資料
-                    revenue = load_finlab_data('financial_statement:營業收入淨額')
-                    cost = load_finlab_data('financial_statement:營業成本')
-                    gross_profit = load_finlab_data('financial_statement:營業毛利')
-                    operating_expense = load_finlab_data('financial_statement:營業費用')
-                    operating_income = load_finlab_data('financial_statement:營業利益')
-                    pretax_income = load_finlab_data('financial_statement:稅前淨利')
-                    net_income = load_finlab_data('financial_statement:歸屬母公司淨利_損')
-                    eps_data = load_finlab_data('financial_statement:每股盈餘')
-
-                    if revenue is not None and selected_stock in revenue.columns:
-                        # 取得最近 8 季資料
-                        quarters = 8
-
-                        income_data = []
-                        rev = revenue[selected_stock].dropna().tail(quarters)
-
-                        for q in rev.index:
-                            row = {'季度': str(q)[:7]}
-
-                            # 營收
-                            if selected_stock in revenue.columns:
-                                val = revenue[selected_stock].get(q, None)
-                                row['營業收入'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 營業成本
-                            if cost is not None and selected_stock in cost.columns:
-                                val = cost[selected_stock].get(q, None)
-                                row['營業成本'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 毛利
-                            if gross_profit is not None and selected_stock in gross_profit.columns:
-                                val = gross_profit[selected_stock].get(q, None)
-                                row['營業毛利'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 營業費用
-                            if operating_expense is not None and selected_stock in operating_expense.columns:
-                                val = operating_expense[selected_stock].get(q, None)
-                                row['營業費用'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 營業利益
-                            if operating_income is not None and selected_stock in operating_income.columns:
-                                val = operating_income[selected_stock].get(q, None)
-                                row['營業利益'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 稅前淨利
-                            if pretax_income is not None and selected_stock in pretax_income.columns:
-                                val = pretax_income[selected_stock].get(q, None)
-                                row['稅前淨利'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 歸屬母公司淨利
-                            if net_income is not None and selected_stock in net_income.columns:
-                                val = net_income[selected_stock].get(q, None)
-                                row['稅後淨利'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # EPS
-                            if eps_data is not None and selected_stock in eps_data.columns:
-                                val = eps_data[selected_stock].get(q, None)
-                                row['EPS'] = f'{val:.2f}' if pd.notna(val) else '-'
-
-                            income_data.append(row)
-
-                        income_df = pd.DataFrame(income_data)
-                        st.dataframe(income_df.iloc[::-1], use_container_width=True, hide_index=True)
-
-                        # 損益趨勢圖
-                        if net_income is not None and selected_stock in net_income.columns:
-                            ni = net_income[selected_stock].dropna().tail(quarters)
-                            oi = operating_income[selected_stock].dropna().tail(quarters) if operating_income is not None and selected_stock in operating_income.columns else None
-
-                            fig = go.Figure()
-                            if oi is not None:
-                                fig.add_trace(go.Bar(x=[str(x)[:7] for x in oi.index], y=oi/1e8,
-                                                    name='營業利益', marker_color='#2196F3'))
-                            fig.add_trace(go.Bar(x=[str(x)[:7] for x in ni.index], y=ni/1e8,
-                                                name='稅後淨利', marker_color='#4CAF50'))
-                            fig.update_layout(title='季度獲利趨勢', **DEFAULT_PLOTLY_LAYOUT,
-                                            height=350, barmode='group')
-                            fig.update_yaxes(title_text='金額 (億元)')
-                            st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning('找不到損益表資料')
-                except Exception as e:
-                    show_error(e, title='載入損益表資料失敗', suggestion='請檢查 FinLab API 連線狀態')
-            else:
-                st.warning('FinLab API 未載入')
-
-        # ==================== 資產負債表 ====================
-        with sub_tab6:
-            st.markdown('### 資產負債表 (季度)')
-            if FINLAB_AVAILABLE:
-                try:
-                    # 載入資產負債表資料
-                    current_assets = load_finlab_data('financial_statement:流動資產')
-                    non_current_assets = load_finlab_data('financial_statement:非流動資產')
-                    total_assets = load_finlab_data('financial_statement:資產總額')
-                    current_liab = load_finlab_data('financial_statement:流動負債')
-                    non_current_liab = load_finlab_data('financial_statement:非流動負債')
-                    total_liab = load_finlab_data('financial_statement:負債總額')
-                    equity = load_finlab_data('financial_statement:股東權益總額')
-                    cash = load_finlab_data('financial_statement:現金及約當現金')
-                    inventory = load_finlab_data('financial_statement:存貨')
-                    receivable = load_finlab_data('financial_statement:應收帳款及票據')
-
-                    if total_assets is not None and selected_stock in total_assets.columns:
-                        quarters = 8
-                        ta = total_assets[selected_stock].dropna().tail(quarters)
-
-                        bs_data = []
-                        for q in ta.index:
-                            row = {'季度': str(q)[:7]}
-
-                            # 資產
-                            if selected_stock in total_assets.columns:
-                                val = total_assets[selected_stock].get(q, None)
-                                row['資產總額'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            if current_assets is not None and selected_stock in current_assets.columns:
-                                val = current_assets[selected_stock].get(q, None)
-                                row['流動資產'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            if cash is not None and selected_stock in cash.columns:
-                                val = cash[selected_stock].get(q, None)
-                                row['現金'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            if receivable is not None and selected_stock in receivable.columns:
-                                val = receivable[selected_stock].get(q, None)
-                                row['應收帳款'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            if inventory is not None and selected_stock in inventory.columns:
-                                val = inventory[selected_stock].get(q, None)
-                                row['存貨'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 負債
-                            if total_liab is not None and selected_stock in total_liab.columns:
-                                val = total_liab[selected_stock].get(q, None)
-                                row['負債總額'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            if current_liab is not None and selected_stock in current_liab.columns:
-                                val = current_liab[selected_stock].get(q, None)
-                                row['流動負債'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            # 股東權益
-                            if equity is not None and selected_stock in equity.columns:
-                                val = equity[selected_stock].get(q, None)
-                                row['股東權益'] = f'{val/1e8:.1f}億' if pd.notna(val) else '-'
-
-                            bs_data.append(row)
-
-                        bs_df = pd.DataFrame(bs_data)
-                        st.dataframe(bs_df.iloc[::-1], use_container_width=True, hide_index=True)
-
-                        # 資產負債結構圖
-                        col1, col2 = st.columns(2)
-
-                        with col1:
-                            # 最新一季資產結構
-                            latest_q = ta.index[-1]
-                            ca_val = current_assets[selected_stock].get(latest_q, 0) if current_assets is not None and selected_stock in current_assets.columns else 0
-                            nca_val = non_current_assets[selected_stock].get(latest_q, 0) if non_current_assets is not None and selected_stock in non_current_assets.columns else 0
-
-                            if ca_val > 0 or nca_val > 0:
-                                fig_asset = go.Figure(data=[go.Pie(
-                                    labels=['流動資產', '非流動資產'],
-                                    values=[ca_val, nca_val],
-                                    hole=.4,
-                                    marker_colors=['#4CAF50', '#2196F3']
-                                )])
-                                fig_asset.update_layout(title='資產結構', height=300)
-                                st.plotly_chart(fig_asset, use_container_width=True)
-
-                        with col2:
-                            # 最新一季負債與權益結構
-                            tl_val = total_liab[selected_stock].get(latest_q, 0) if total_liab is not None and selected_stock in total_liab.columns else 0
-                            eq_val = equity[selected_stock].get(latest_q, 0) if equity is not None and selected_stock in equity.columns else 0
-
-                            if tl_val > 0 or eq_val > 0:
-                                fig_liab = go.Figure(data=[go.Pie(
-                                    labels=['負債', '股東權益'],
-                                    values=[tl_val, eq_val],
-                                    hole=.4,
-                                    marker_colors=['#f44336', '#4CAF50']
-                                )])
-                                fig_liab.update_layout(title='負債與權益結構', height=300)
-                                st.plotly_chart(fig_liab, use_container_width=True)
-                    else:
-                        st.warning('找不到資產負債表資料')
-                except Exception as e:
-                    show_error(e, title='載入資產負債表資料失敗', suggestion='請檢查 FinLab API 連線狀態')
-            else:
-                st.warning('FinLab API 未載入')
-
-        # ==================== 現金流量表 ====================
-        with sub_tab7:
-            st.markdown('### 現金流量分析')
-            if FINLAB_AVAILABLE:
-                try:
-                    # 載入現金流量相關資料
-                    operating_cf = load_finlab_data('fundamental_features:營運現金流')
-                    invest_cf = load_finlab_data('financial_statement:取得不動產廠房及設備')
-                    cash_flow_ratio = load_finlab_data('fundamental_features:現金流量比率')
-                    per_share_cf = load_finlab_data('fundamental_features:每股現金流量')
-
-                    if operating_cf is not None and selected_stock in operating_cf.columns:
-                        ocf = operating_cf[selected_stock].dropna().tail(12)
-
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric('營運現金流', f'{ocf.iloc[-1]/1e8:.1f}億',
-                                     '正向' if ocf.iloc[-1] > 0 else '負向',
-                                     delta_color='normal' if ocf.iloc[-1] > 0 else 'inverse')
-                        with col2:
-                            if per_share_cf is not None and selected_stock in per_share_cf.columns:
-                                pscf = per_share_cf[selected_stock].dropna()
-                                if len(pscf) > 0:
-                                    st.metric('每股現金流', f'{pscf.iloc[-1]:.2f}')
-                        with col3:
-                            if cash_flow_ratio is not None and selected_stock in cash_flow_ratio.columns:
-                                cfr = cash_flow_ratio[selected_stock].dropna()
-                                if len(cfr) > 0:
-                                    st.metric('現金流量比率', f'{cfr.iloc[-1]:.1f}%')
-                        with col4:
-                            # 自由現金流 = 營運現金流 - 資本支出
-                            if invest_cf is not None and selected_stock in invest_cf.columns:
-                                icf = invest_cf[selected_stock].dropna()
-                                if len(icf) > 0 and len(ocf) > 0:
-                                    # 取得不動產廠房設備通常為負數 (支出)
-                                    fcf = ocf.iloc[-1] + icf.iloc[-1]  # 加上負值 = 減去
-                                    st.metric('自由現金流', f'{fcf/1e8:.1f}億',
-                                             '正向' if fcf > 0 else '負向',
-                                             delta_color='normal' if fcf > 0 else 'inverse')
-
-                        # 現金流量走勢
-                        fig = go.Figure()
-                        fig.add_trace(go.Bar(x=[str(x)[:7] for x in ocf.index], y=ocf/1e8,
-                                            name='營運現金流', marker_color='#4CAF50'))
-
-                        if invest_cf is not None and selected_stock in invest_cf.columns:
-                            icf = invest_cf[selected_stock].dropna().tail(12)
-                            # 投資活動現金流 (取得不動產廠房設備，通常為負)
-                            fig.add_trace(go.Bar(x=[str(x)[:7] for x in icf.index], y=icf/1e8,
-                                                name='投資支出', marker_color='#f44336'))
-
-                        fig.update_layout(title='現金流量趨勢', **DEFAULT_PLOTLY_LAYOUT,
-                                        height=350, barmode='group')
-                        fig.update_yaxes(title_text='金額 (億元)')
-                        st.plotly_chart(fig, use_container_width=True)
-
-                        # 現金流量品質分析
-                        st.markdown('#### 現金流量品質')
-                        net_income = load_finlab_data('financial_statement:歸屬母公司淨利_損')
-                        if net_income is not None and selected_stock in net_income.columns:
-                            ni = net_income[selected_stock].dropna().tail(4).sum()
-                            ocf_4q = ocf.tail(4).sum()
-                            if ni != 0:
-                                quality_ratio = ocf_4q / ni * 100
-                                quality_text = '良好' if quality_ratio > 80 else '普通' if quality_ratio > 50 else '較差'
-                                quality_color = 'success' if quality_ratio > 80 else 'warning' if quality_ratio > 50 else 'error'
-
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.metric('盈餘品質 (營運現金流/淨利)', f'{quality_ratio:.0f}%', quality_text)
-                                with col2:
-                                    if quality_ratio > 80:
-                                        st.success('獲利有實際現金流入支撐')
-                                    elif quality_ratio > 50:
-                                        st.warning('現金流入略低於帳面獲利')
-                                    else:
-                                        st.error('帳面獲利未能轉化為現金')
-                    else:
-                        st.warning('找不到現金流量資料')
-                except Exception as e:
-                    show_error(e, title='載入現金流量資料失敗', suggestion='請檢查 FinLab API 連線狀態')
-            else:
-                st.warning('FinLab API 未載入')
-
-    # ==================== Tab 5: 基本資料 ====================
+    # ==================== Tab 5: 基本資料（radio 切換維度）====================
     with tab_basic:
-        sub_tab1, sub_tab2, sub_tab3 = st.tabs(['公司資訊', '股利政策', '同業比較'])
+        _basic_view = st.radio(
+            '基本維度',
+            options=['公司資訊', '股利政策', '同業比較'],
+            horizontal=True,
+            label_visibility='collapsed',
+            key='basic_view_radio',
+        )
 
-        with sub_tab1:
-            st.markdown('### 公司基本資訊')
+        if _basic_view == '公司資訊':
+            st.markdown(create_section_header('公司基本資訊', icon='🏢'), unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"""
@@ -1489,8 +1264,8 @@ if selected_stock:
                     except Exception:
                         pass
 
-        with sub_tab2:
-            st.markdown('### 股利政策')
+        elif _basic_view == '股利政策':
+            st.markdown(create_section_header('股利政策', icon='💵'), unsafe_allow_html=True)
             if selected_stock in data['dividend_yield'].columns:
                 dy = data['dividend_yield'][selected_stock].dropna()
                 if len(dy) > 0:
@@ -1512,8 +1287,8 @@ if selected_stock:
             else:
                 st.info('無殖利率資料')
 
-        with sub_tab3:
-            st.markdown('### 同業比較')
+        elif _basic_view == '同業比較':
+            st.markdown(create_section_header('同業比較', icon='⚔️'), unsafe_allow_html=True)
             same_category = stock_info[stock_info['category'] == category]
             same_category = same_category[same_category['stock_id'].isin(active_stocks)]
 
@@ -1579,7 +1354,7 @@ if selected_stock:
 
     # ==================== Tab 6: 健診 ====================
     with tab_health:
-        st.markdown('### 📋 綜合健診報告')
+        st.markdown(create_section_header('綜合健診報告', icon='🩺'), unsafe_allow_html=True)
 
         # 收集各項指標進行評分
         scores = {}
@@ -1803,9 +1578,9 @@ if selected_stock:
             ma60 = close_period.rolling(60).mean().iloc[-1]
             if close_period.iloc[-1] > ma60:
                 growth_score += 4
-                growth_details.append(f'✅ 股價在60日均線之上')
+                growth_details.append('✅ 股價在60日均線之上')
             else:
-                growth_details.append(f'⚠️ 股價在60日均線之下')
+                growth_details.append('⚠️ 股價在60日均線之下')
 
         scores['成長動能'] = min(growth_score, 25)
         details['成長動能'] = growth_details
@@ -1878,54 +1653,48 @@ if selected_stock:
         # 總分顯示
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            # 評級
+            # 評級（使用主題狀態色 token，深色底）
             if total_score >= 80:
                 grade = 'A'
-                grade_color = '#4CAF50'
+                grade_color = COLORS['success']
                 grade_text = '優質股票'
             elif total_score >= 65:
                 grade = 'B'
-                grade_color = '#8BC34A'
+                grade_color = COLORS['success']
                 grade_text = '良好股票'
             elif total_score >= 50:
                 grade = 'C'
-                grade_color = '#FFC107'
+                grade_color = COLORS['warning']
                 grade_text = '普通股票'
             elif total_score >= 35:
                 grade = 'D'
-                grade_color = '#FF9800'
+                grade_color = COLORS['warning']
                 grade_text = '需注意'
             else:
                 grade = 'E'
-                grade_color = '#f44336'
+                grade_color = COLORS['danger']
                 grade_text = '風險較高'
 
             st.markdown(f"""
-            <div style='text-align: center; padding: 20px;'>
-                <h1 style='font-size: 4em; color: {grade_color}; margin: 0;'>{grade}</h1>
-                <h2 style='color: {grade_color}; margin: 5px 0;'>{total_score} 分</h2>
-                <p style='font-size: 1.2em;'>{grade_text}</p>
+            <div style='text-align:center;padding:20px;background:{COLORS['secondary']};
+                        border:1px solid {COLORS['border']};border-radius:12px'>
+                <h1 style='font-size:4em;color:{grade_color};margin:0'>{grade}</h1>
+                <h2 style='color:{grade_color};margin:5px 0'>{total_score} 分</h2>
+                <p style='font-size:1.2em;color:{COLORS['text_secondary']}'>{grade_text}</p>
             </div>
             """, unsafe_allow_html=True)
 
         # 各維度評分
-        st.markdown('---')
-        st.markdown('#### 📊 各維度評分')
+        st.markdown(create_section_header('各維度評分', icon='📊'), unsafe_allow_html=True)
 
-        score_cols = st.columns(4)
+        score_cols = responsive_columns(4)
         categories = ['獲利能力', '財務安全', '成長動能', '估值合理']
-        colors = ['#2196F3', '#4CAF50', '#FF9800', '#9C27B0']
 
-        for i, (cat, color) in enumerate(zip(categories, colors)):
+        for i, cat in enumerate(categories):
             with score_cols[i]:
                 score = scores.get(cat, 0)
                 pct = score / 25 * 100
-                st.markdown(f"""
-                <div style='text-align: center;'>
-                    <h4>{cat}</h4>
-                    <div style='font-size: 2em; color: {color}; font-weight: bold;'>{score}/25</div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(create_kpi_card(cat, f'{score}/25'), unsafe_allow_html=True)
                 st.progress(pct / 100)
 
         # 雷達圖
@@ -1934,8 +1703,8 @@ if selected_stock:
             r=[scores.get(cat, 0) for cat in categories] + [scores.get(categories[0], 0)],
             theta=categories + [categories[0]],
             fill='toself',
-            fillcolor='rgba(33, 150, 243, 0.3)',
-            line=dict(color='#2196F3'),
+            fillcolor='rgba(59, 130, 246, 0.3)',
+            line=dict(color=COLORS['accent']),
             name=f'{selected_stock} {name}'
         ))
         fig_radar.update_layout(
@@ -1949,8 +1718,7 @@ if selected_stock:
         st.plotly_chart(fig_radar, use_container_width=True)
 
         # 詳細評分
-        st.markdown('---')
-        st.markdown('#### 📝 詳細評分項目')
+        st.markdown(create_section_header('詳細評分項目', icon='📝'), unsafe_allow_html=True)
 
         detail_cols = st.columns(2)
         for i, cat in enumerate(categories):
@@ -1960,8 +1728,7 @@ if selected_stock:
                         st.markdown(item)
 
         # 投資建議
-        st.markdown('---')
-        st.markdown('#### 💡 投資建議')
+        st.markdown(create_section_header('投資建議', icon='💡'), unsafe_allow_html=True)
 
         if total_score >= 80:
             st.success(f"""
@@ -1993,8 +1760,7 @@ if selected_stock:
             """)
 
     # ==================== AI 對話 ====================
-    st.markdown('---')
-    st.markdown('### 🤖 AI 個股問答')
+    st.markdown(create_section_header('AI 個股問答', icon='🤖'), unsafe_allow_html=True)
     st.caption(f'詢問任何關於 {stock_id} 的問題，AI 將根據當前數據回答')
 
     # 初始化對話歷史
@@ -2005,7 +1771,7 @@ if selected_stock:
     # 構建數據上下文
     _chat_context_parts = []
     try:
-        _close = stock_data['close']
+        _close = data['close']
         if _close is not None and stock_id in _close.columns:
             _prices = _close[stock_id].dropna()
             if len(_prices) > 0:
@@ -2019,28 +1785,28 @@ if selected_stock:
     except Exception:
         pass
     try:
-        _pe = stock_data.get('pe_ratio')
+        _pe = data.get('pe_ratio')
         if _pe is not None and stock_id in _pe.columns:
             _pe_val = _pe[stock_id].dropna().iloc[-1]
             _chat_context_parts.append(f"本益比: {_pe_val:.1f}")
     except Exception:
         pass
     try:
-        _pb = stock_data.get('pb_ratio')
+        _pb = data.get('pb_ratio')
         if _pb is not None and stock_id in _pb.columns:
             _pb_val = _pb[stock_id].dropna().iloc[-1]
             _chat_context_parts.append(f"股價淨值比: {_pb_val:.2f}")
     except Exception:
         pass
     try:
-        _dy = stock_data.get('dividend_yield')
+        _dy = data.get('dividend_yield')
         if _dy is not None and stock_id in _dy.columns:
             _dy_val = _dy[stock_id].dropna().iloc[-1]
             _chat_context_parts.append(f"殖利率: {_dy_val:.2f}%")
     except Exception:
         pass
     try:
-        _rev = stock_data.get('revenue_yoy')
+        _rev = data.get('revenue_yoy')
         if _rev is not None and stock_id in _rev.columns:
             _rev_val = _rev[stock_id].dropna().iloc[-1]
             _chat_context_parts.append(f"營收年增率: {_rev_val:.1f}%")

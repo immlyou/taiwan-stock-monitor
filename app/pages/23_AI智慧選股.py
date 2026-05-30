@@ -6,21 +6,29 @@ AI 智慧選股 — 多因子評分 + 市場摘要
 import streamlit as st
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from datetime import datetime
 
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
-from app.components.theme import COLORS, create_kpi_card, DEFAULT_PLOTLY_LAYOUT
+from app.components.theme import (
+    COLORS,
+    DEFAULT_PLOTLY_LAYOUT,
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    render_data_table,
+    format_number,
+)
 
 st.set_page_config(page_title='AI 智慧選股', page_icon='🤖', layout='wide')
 render_sidebar_mini(current_page='ai_stock')
+render_global_ticker_bar()
 render_page_header('AI 智慧選股', icon='🤖')
+st.markdown(create_page_title('AI 智慧選股', subtitle='多因子評分 + 市場摘要', icon='🤖'), unsafe_allow_html=True)
 
 # ─── 資料載入 ─────────────────────────────────────────
 @st.cache_data(ttl=CACHE_TTL.get('daily', 86400))
@@ -68,9 +76,9 @@ active = get_active_stocks()
 active_stocks = active if active else close.columns.tolist()
 
 # ─── 多因子計算 ────────────────────────────────────────
+st.markdown(create_section_header('AI 多因子評分模型', icon='🧠'), unsafe_allow_html=True)
 st.markdown(f'''
 <div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem">
-    <h4 style="color:{COLORS["text_primary"]};margin:0 0 0.5rem 0">🧠 AI 多因子評分模型</h4>
     <p style="color:{COLORS["text_muted"]};font-size:0.85rem;margin:0">
         綜合動能、價值、品質、規模四大面向，為每檔股票計算 0-100 分的綜合評分。
     </p>
@@ -190,47 +198,73 @@ if result.empty:
     st.stop()
 
 # ─── 市場摘要 KPI ──────────────────────────────────────
-st.markdown(f'<div class="nav-group-title" style="color:{COLORS["text_muted"]}">市場因子概覽</div>', unsafe_allow_html=True)
-kpi_cols = st.columns(4)
+st.markdown(create_section_header('市場因子概覽', icon='📊'), unsafe_allow_html=True)
 
 avg_momentum = result['momentum'].mean()
 avg_pe = result['pe'].dropna().median()
 avg_div = result['dividend_yield'].dropna().median()
 avg_rev = result['rev_growth'].dropna().median()
 
-with kpi_cols[0]:
-    st.markdown(create_kpi_card('📈 平均動能', f'{avg_momentum:+.1f}%'), unsafe_allow_html=True)
-with kpi_cols[1]:
-    st.markdown(create_kpi_card('💰 中位 PE', f'{avg_pe:.1f}' if not np.isnan(avg_pe) else 'N/A'), unsafe_allow_html=True)
-with kpi_cols[2]:
-    st.markdown(create_kpi_card('🎁 中位殖利率', f'{avg_div:.2f}%' if not np.isnan(avg_div) else 'N/A'), unsafe_allow_html=True)
-with kpi_cols[3]:
-    st.markdown(create_kpi_card('🏭 中位營收成長', f'{avg_rev:+.1f}%' if not np.isnan(avg_rev) else 'N/A'), unsafe_allow_html=True)
+render_kpi_row([
+    {
+        'label': '📈 平均動能',
+        'value': format_number(avg_momentum, kind='pct', signed=True),
+        'delta_color': 'up' if avg_momentum > 0 else ('down' if avg_momentum < 0 else 'flat'),
+    },
+    {
+        'label': '💰 中位 PE',
+        'value': format_number(avg_pe, kind='price') if not np.isnan(avg_pe) else 'N/A',
+    },
+    {
+        'label': '🎁 中位殖利率',
+        'value': format_number(avg_div, kind='pct') if not np.isnan(avg_div) else 'N/A',
+    },
+    {
+        'label': '🏭 中位營收成長',
+        'value': format_number(avg_rev, kind='pct', signed=True) if not np.isnan(avg_rev) else 'N/A',
+        'delta_color': ('up' if avg_rev > 0 else 'down') if not np.isnan(avg_rev) else 'flat',
+    },
+], cols=2)
 
 # ─── AI 推薦列表 ───────────────────────────────────────
-st.markdown(f'### 🏆 AI 推薦 Top {top_n}')
+st.markdown(create_section_header(f'AI 推薦 Top {top_n}', icon='🏆'), unsafe_allow_html=True)
 
 top = result.head(top_n).copy()
 
-# 加入股票名稱欄位
+# 加入股票代碼與名稱欄位
 top.insert(0, 'name', top.index.map(lambda sid: stock_name_map.get(sid, '')))
+top.insert(0, 'stock_id', top.index)
 
-display_df = top[['name', 'close', 'total_score', 'score_momentum', 'score_value', 'score_quality', 'score_size',
-                   'ret_20d', 'pe', 'dividend_yield', 'rev_growth']].copy()
-display_df.columns = ['名稱', '收盤價', '綜合評分', '動能分', '價值分', '品質分', '規模分',
-                       '20日報酬%', 'PE', '殖利率%', '營收成長%']
+# 精簡主表：僅顯示主要欄位
+main_df = top[['stock_id', 'name', 'close', 'total_score', 'ret_20d', 'pe', 'dividend_yield']].copy()
+main_df['close'] = main_df['close'].map(lambda x: format_number(x, kind='price'))
+main_df['total_score'] = main_df['total_score'].map(lambda x: f'{x:.1f}')
+main_df['ret_20d'] = main_df['ret_20d'].map(lambda x: format_number(x, kind='pct', signed=True))
+main_df['pe'] = main_df['pe'].map(lambda x: format_number(x, kind='price'))
+main_df['dividend_yield'] = main_df['dividend_yield'].map(lambda x: format_number(x, kind='pct'))
+main_df.columns = ['代碼', '名稱', '收盤價', '綜合評分', '20日報酬%', 'PE', '殖利率%']
 
-# 格式化
-for col in ['收盤價']:
-    display_df[col] = display_df[col].map(lambda x: f'{x:,.2f}')
-for col in ['綜合評分', '動能分', '價值分', '品質分', '規模分']:
-    display_df[col] = display_df[col].map(lambda x: f'{x:.1f}')
-for col in ['20日報酬%', '營收成長%']:
-    display_df[col] = display_df[col].map(lambda x: f'{x:+.1f}' if not np.isnan(x) else '-')
-display_df['PE'] = display_df['PE'].map(lambda x: f'{x:.1f}' if not (isinstance(x, float) and np.isnan(x)) else '-')
-display_df['殖利率%'] = display_df['殖利率%'].map(lambda x: f'{x:.2f}' if not (isinstance(x, float) and np.isnan(x)) else '-')
+render_data_table(
+    main_df,
+    freeze_cols=2,
+    numeric_cols=['收盤價', '綜合評分', '20日報酬%', 'PE', '殖利率%'],
+    height=min(35 * (top_n + 1), 700),
+)
 
-st.dataframe(display_df, use_container_width=True, height=min(35 * (top_n + 1), 700))
+# 點列展開細節（四大因子分數 + 營收成長）
+with st.expander('🔍 展開因子細節（各檔四大因子分數）', expanded=False):
+    detail_df = top[['stock_id', 'name', 'score_momentum', 'score_value',
+                     'score_quality', 'score_size', 'rev_growth']].copy()
+    for col in ['score_momentum', 'score_value', 'score_quality', 'score_size']:
+        detail_df[col] = detail_df[col].map(lambda x: f'{x:.1f}')
+    detail_df['rev_growth'] = detail_df['rev_growth'].map(lambda x: format_number(x, kind='pct', signed=True))
+    detail_df.columns = ['代碼', '名稱', '動能分', '價值分', '品質分', '規模分', '營收成長%']
+    render_data_table(
+        detail_df,
+        freeze_cols=2,
+        numeric_cols=['動能分', '價值分', '品質分', '規模分', '營收成長%'],
+        height=min(35 * (top_n + 1), 700),
+    )
 
 # ─── 因子分佈圖 ───────────────────────────────────────
 with st.expander('📊 因子分佈圖', expanded=False):
@@ -243,10 +277,11 @@ with st.expander('📊 因子分佈圖', expanded=False):
     st.plotly_chart(fig_hist, use_container_width=True)
 
 # ─── 免責聲明 ──────────────────────────────────────────
+st.markdown(create_section_header('免責聲明', icon='⚠️'), unsafe_allow_html=True)
 st.markdown(f'''
-<div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
+<div style="background:{COLORS["secondary"]};border:1px solid {COLORS["border"]};border-radius:8px;padding:0.75rem 1rem;margin-top:0.25rem">
     <p style="color:{COLORS["text_muted"]};font-size:0.75rem;margin:0">
-        ⚠️ <b>免責聲明</b>：本頁面所有資訊僅供參考，不構成投資建議。
+        本頁面所有資訊僅供參考，不構成投資建議。
         AI 評分模型基於歷史數據計算，過去績效不代表未來表現。
         投資有風險，請謹慎評估。
     </p>

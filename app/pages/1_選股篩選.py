@@ -15,11 +15,15 @@ from core.strategies.custom import (
 from config import STRATEGY_PRESETS
 from app.components.sidebar import render_sidebar_mini
 from app.components.strategy_params import render_strategy_params, render_preset_selector
-from app.components.portfolio_utils import load_portfolios, get_portfolio_names, add_holdings_batch
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.portfolio_utils import get_portfolio_names, add_holdings_batch
+from app.components.error_handler import show_error, safe_execute
 from core.alerts import AlertEngine
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
+from app.components.theme import (
+    create_page_title, create_section_header, render_kpi_row,
+    render_data_table, responsive_columns, format_number, COLORS,
+)
 from app.components.session_manager import (
     init_session_state, get_state, set_state, StateKeys
 )
@@ -34,7 +38,10 @@ init_session_state()
 # 渲染側邊欄
 render_sidebar_mini(current_page='screening')
 
-render_page_header("選股篩選", icon="🔍")
+render_global_ticker_bar()
+
+st.markdown(create_page_title('選股篩選', subtitle='多因子策略篩選台股標的', icon='🔍'),
+            unsafe_allow_html=True)
 
 # 顯示資料日期
 def get_latest_date():
@@ -49,12 +56,10 @@ latest_date = safe_execute(
 )
 st.caption(f'📅 資料更新至: {latest_date}')
 
-st.markdown('---')
-
 # ========== 策略選擇區 ==========
-st.subheader('1️⃣ 選擇策略')
+st.markdown(create_section_header('選擇策略', icon='1️⃣'), unsafe_allow_html=True)
 
-strategy_cols = st.columns(5)
+strategy_cols = responsive_columns(5)
 
 strategy_options = {
     '價值投資': {'icon': '💎', 'desc': '尋找被低估的好公司', 'color': 'blue'},
@@ -87,10 +92,8 @@ for i, (name, info) in enumerate(strategy_options.items()):
 
 strategy_type = get_state(StateKeys.SELECTED_STRATEGY)
 
-st.markdown('---')
-
 # ========== 參數設定區 ==========
-st.subheader('2️⃣ 參數設定')
+st.markdown(create_section_header('參數設定', icon='2️⃣'), unsafe_allow_html=True)
 
 # 預設組合選擇
 preset_col, custom_col = st.columns([1, 3])
@@ -224,18 +227,26 @@ with custom_col:
                 else:
                     st.warning('請至少新增一個條件')
 
-st.markdown('---')
-
 # ========== 執行選股 ==========
-st.subheader('3️⃣ 執行選股')
+st.markdown(create_section_header('執行選股', icon='3️⃣'), unsafe_allow_html=True)
 
-exec_col1, exec_col2 = st.columns([1, 2])
+# 即時命中筆數（執行前的潛在母體 / 上次結果）
+exec_col1, exec_col2, exec_col3 = st.columns([1, 1, 1])
 
 with exec_col1:
     run_button = st.button('🚀 執行選股', type='primary', use_container_width=True)
 
 with exec_col2:
-    st.caption('點擊按鈕開始篩選符合條件的股票')
+    try:
+        _universe = len(get_active_stocks())
+    except Exception:
+        _universe = None
+    st.metric('可選母體', f'{_universe} 檔' if _universe else '-')
+
+with exec_col3:
+    _prev = get_state(StateKeys.SELECTION_RESULT)
+    _prev_n = len(_prev.stocks) if _prev is not None else 0
+    st.metric('上次命中', f'{_prev_n} 檔')
 
 if run_button:
     with st.spinner('正在載入數據並執行選股...'):
@@ -292,114 +303,91 @@ if get_state(StateKeys.SELECTION_RESULT) is not None:
     result = get_state(StateKeys.SELECTION_RESULT)
     result_strategy = get_state(StateKeys.RESULT_STRATEGY_TYPE, '')
 
-    st.markdown('---')
-    st.subheader(f'4️⃣ {result_strategy} 選股結果')
+    st.markdown(create_section_header(f'{result_strategy} 選股結果', icon='4️⃣'),
+                unsafe_allow_html=True)
 
     if len(result.stocks) > 0:
-        # 統計與結果並排
-        stat_col, result_col = st.columns([1, 3])
+        # 取得股票資訊
+        loader = get_loader()
+        stock_info = loader.get_stock_info()
+        close = loader.get('close')
 
-        with stat_col:
-            st.markdown('#### 📊 統計摘要')
-            st.metric('符合條件', f'{len(result.stocks)} 檔')
+        # KPI 統計列
+        kpi_items = [{'label': '符合條件', 'value': format_number(len(result.stocks), kind='int')}]
+        if result.scores is not None and len(result.scores) > 0:
+            kpi_items.append({'label': '平均評分', 'value': format_number(result.scores.mean(), kind='price')})
+            kpi_items.append({'label': '最高評分', 'value': format_number(result.scores.max(), kind='price')})
+            kpi_items.append({'label': '最低評分', 'value': format_number(result.scores.min(), kind='price')})
+        render_kpi_row(kpi_items)
 
-            if result.scores is not None and len(result.scores) > 0:
-                st.metric('平均評分', f'{result.scores.mean():.1f}')
-                st.metric('最高評分', f'{result.scores.max():.1f}')
+        # 建立結果表格
+        result_data = []
+        for stock_id in result.stocks:
+            info = stock_info[stock_info['stock_id'] == stock_id]
+            name = info['name'].values[0] if len(info) > 0 else ''
+            category = info['category'].values[0] if len(info) > 0 else ''
+            market = info['market'].values[0] if len(info) > 0 else ''
 
-        with result_col:
-            # 取得股票資訊
-            loader = get_loader()
-            stock_info = loader.get_stock_info()
-            close = loader.get('close')
+            # 取得最新股價
+            if stock_id in close.columns:
+                price_data = close[stock_id].dropna()
+                latest_price = price_data.iloc[-1] if not price_data.empty else None
+            else:
+                latest_price = None
 
-            # 建立結果表格
-            result_data = []
-            for stock_id in result.stocks:
-                info = stock_info[stock_info['stock_id'] == stock_id]
-                name = info['name'].values[0] if len(info) > 0 else ''
-                category = info['category'].values[0] if len(info) > 0 else ''
-                market = info['market'].values[0] if len(info) > 0 else ''
+            score = result.scores.get(stock_id, 0) if result.scores is not None and stock_id in result.scores.index else 0
 
-                # 取得最新股價
-                if stock_id in close.columns:
-                    price_data = close[stock_id].dropna()
-                    latest_price = price_data.iloc[-1] if not price_data.empty else None
-                else:
-                    latest_price = None
+            result_data.append({
+                '代號': stock_id,
+                '名稱': name,
+                '產業': category,
+                '股價': f'{latest_price:.2f}' if latest_price else '-',
+                '評分': f'{score:.1f}',
+            })
 
-                score = result.scores.get(stock_id, 0) if result.scores is not None and stock_id in result.scores.index else 0
+        df = pd.DataFrame(result_data)
 
-                result_data.append({
-                    '代號': stock_id,
-                    '名稱': name,
-                    '產業': category,
-                    '股價': f'{latest_price:.2f}' if latest_price else '-',
-                    '評分': f'{score:.1f}',
-                })
+        # ===== 結果表（統一表格元件，內建虛擬捲動 / sticky 表頭）=====
+        st.markdown(create_section_header('篩選清單', icon='📋'), unsafe_allow_html=True)
+        render_data_table(
+            df,
+            freeze_cols=1,
+            dense=True,
+            height=400,
+            column_config={
+                '代號': st.column_config.TextColumn('代號', width='small'),
+                '名稱': st.column_config.TextColumn('名稱', width='small'),
+                '產業': st.column_config.TextColumn('產業'),
+                '股價': st.column_config.TextColumn('股價', width='small'),
+                '評分': st.column_config.TextColumn('評分', width='small'),
+            },
+        )
 
-            df = pd.DataFrame(result_data)
+        # ===== 個股快速分析（從清單挑選）=====
+        st.markdown(create_section_header('個股快速分析', icon='🔬'), unsafe_allow_html=True)
+        pick_col, btn_col = st.columns([3, 1])
+        with pick_col:
+            picked = st.selectbox(
+                '選擇要分析的股票',
+                options=df['代號'].tolist(),
+                format_func=lambda x: f"{x} - {df[df['代號']==x]['名稱'].values[0] if len(df[df['代號']==x]) else ''}",
+                key='screen_analyze_pick',
+                label_visibility='collapsed',
+            )
+        with btn_col:
+            if st.button('📊 分析', use_container_width=True, key='screen_analyze_btn'):
+                _name_row = df[df['代號'] == picked]
+                set_state(StateKeys.ANALYZE_STOCK, picked)
+                set_state(StateKeys.ANALYZE_STOCK_NAME,
+                          _name_row['名稱'].values[0] if len(_name_row) else '')
 
-            # 顯示可點擊的股票列表
-            st.markdown('點擊 **📊 分析** 按鈕查看個股詳情：')
-
-            # 分頁顯示 (每頁 10 筆)
-            items_per_page = 10
-            total_pages = (len(df) - 1) // items_per_page + 1
-
-            if get_state(StateKeys.STOCK_LIST_PAGE) is None:
-                set_state(StateKeys.STOCK_LIST_PAGE, 0)
-
-            # 分頁控制
-            page_col1, page_col2, page_col3 = st.columns([1, 2, 1])
-            with page_col1:
-                if st.button('⬅️ 上一頁', disabled=get_state(StateKeys.STOCK_LIST_PAGE) == 0):
-                    set_state(StateKeys.STOCK_LIST_PAGE, get_state(StateKeys.STOCK_LIST_PAGE) - 1)
-                    st.rerun()
-            with page_col2:
-                st.markdown(f"<center>第 {get_state(StateKeys.STOCK_LIST_PAGE) + 1} / {total_pages} 頁</center>", unsafe_allow_html=True)
-            with page_col3:
-                if st.button('下一頁 ➡️', disabled=get_state(StateKeys.STOCK_LIST_PAGE) >= total_pages - 1):
-                    set_state(StateKeys.STOCK_LIST_PAGE, get_state(StateKeys.STOCK_LIST_PAGE) + 1)
-                    st.rerun()
-
-            # 顯示當前頁的股票
-            start_idx = get_state(StateKeys.STOCK_LIST_PAGE) * items_per_page
-            end_idx = min(start_idx + items_per_page, len(df))
-            page_df = df.iloc[start_idx:end_idx]
-
-            # 表頭
-            header_cols = st.columns([1, 2, 2, 1.5, 1, 1.5])
-            header_cols[0].markdown('**代號**')
-            header_cols[1].markdown('**名稱**')
-            header_cols[2].markdown('**產業**')
-            header_cols[3].markdown('**股價**')
-            header_cols[4].markdown('**評分**')
-            header_cols[5].markdown('**操作**')
-
-            st.markdown('<hr style="margin: 5px 0;">', unsafe_allow_html=True)
-
-            # 股票列表
-            for idx, row in page_df.iterrows():
-                cols = st.columns([1, 2, 2, 1.5, 1, 1.5])
-                cols[0].write(row['代號'])
-                cols[1].write(row['名稱'])
-                cols[2].write(row['產業'])
-                cols[3].write(row['股價'])
-                cols[4].write(row['評分'])
-
-                # 分析按鈕
-                if cols[5].button('📊 分析', key=f"analyze_{row['代號']}"):
-                    set_state(StateKeys.ANALYZE_STOCK, row['代號'])
-                    set_state(StateKeys.ANALYZE_STOCK_NAME, row['名稱'])
-
-            # 顯示選中股票的詳細分析
-            if get_state(StateKeys.ANALYZE_STOCK):
+        # 顯示選中股票的詳細分析
+        if get_state(StateKeys.ANALYZE_STOCK):
                 detail_stock_id = get_state(StateKeys.ANALYZE_STOCK)
                 detail_stock_name = get_state(StateKeys.ANALYZE_STOCK_NAME, '')
 
-                st.markdown('---')
-                st.markdown(f'### 📋 {detail_stock_id} {detail_stock_name} 詳細分析')
+                st.markdown(create_section_header(f'{detail_stock_id} {detail_stock_name} 詳細分析', icon='📋'),
+                            unsafe_allow_html=True)
 
                 # 關閉按鈕
                 if st.button('❌ 關閉分析'):
@@ -479,29 +467,29 @@ if get_state(StateKeys.SELECTION_RESULT) is not None:
                         macd_line, signal_line, hist = macd(stock_close)
                         with tech_col2:
                             if macd_line.iloc[-1] > signal_line.iloc[-1]:
-                                st.success(f'MACD: 多頭排列')
+                                st.success('MACD: 多頭排列')
                             else:
-                                st.warning(f'MACD: 空頭排列')
+                                st.warning('MACD: 空頭排列')
 
                         # 均線
                         ma20 = stock_close.rolling(20).mean().iloc[-1]
                         with tech_col3:
                             if latest_price > ma20:
-                                st.success(f'站上 20 日均線')
+                                st.success('站上 20 日均線')
                             else:
-                                st.warning(f'跌破 20 日均線')
+                                st.warning('跌破 20 日均線')
 
         # 產業分佈和匯出
         chart_col, export_col = st.columns([2, 1])
 
         with chart_col:
             if len(df) > 0:
-                st.markdown('#### 🏭 產業分佈')
+                st.markdown(create_section_header('產業分佈', icon='🏭'), unsafe_allow_html=True)
                 industry_counts = df['產業'].value_counts().head(10)
                 st.bar_chart(industry_counts)
 
         with export_col:
-            st.markdown('#### 📥 匯出結果')
+            st.markdown(create_section_header('匯出結果', icon='📥'), unsafe_allow_html=True)
 
             # CSV 下載
             csv = df.to_csv(index=False).encode('utf-8-sig')
@@ -540,8 +528,7 @@ if get_state(StateKeys.SELECTION_RESULT) is not None:
             st.caption('可匯入 Excel 或在瀏覽器列印為 PDF')
 
         # ========== 加入投資組合功能 ==========
-        st.markdown('---')
-        st.markdown('#### 💼 加入投資組合')
+        st.markdown(create_section_header('加入投資組合', icon='💼'), unsafe_allow_html=True)
 
         portfolio_names = get_portfolio_names()
 
@@ -595,8 +582,7 @@ if get_state(StateKeys.SELECTION_RESULT) is not None:
                 st.switch_page('pages/8_投資組合.py')
 
         # ========== 批次設定警報功能 ==========
-        st.markdown('---')
-        st.markdown('#### 🔔 批次設定警報')
+        st.markdown(create_section_header('批次設定警報', icon='🔔'), unsafe_allow_html=True)
 
         ALERT_TYPES = {
             'price_above': {'name': '價格突破上方', 'icon': '📈'},
