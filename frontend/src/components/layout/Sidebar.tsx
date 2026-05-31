@@ -202,6 +202,22 @@ export function Sidebar() {
 
         {/* 導航區域 */}
         <nav className="flex-1 overflow-y-auto py-2">
+          {/* 功能總覽捷徑 */}
+          <Link
+            href="/overview"
+            onClick={handleLinkClick}
+            className={cn('flex items-center gap-2 px-3 py-2 mx-1 mb-1 rounded-md text-sm font-medium transition-colors',
+              pathname === '/overview' ? 'font-semibold' : 'hover:bg-secondary/50')}
+            style={{
+              color: pathname === '/overview' ? 'var(--primary)' : 'var(--foreground)',
+              background: pathname === '/overview' ? 'rgba(59,130,246,0.12)' : undefined,
+              minHeight: '40px',
+            }}
+          >
+            <span className="text-base">✨</span>
+            {(!sidebarCollapsed || isMobile) && <span>功能總覽</span>}
+          </Link>
+
           {NAV_GROUPS.map((group) => {
             const isExpanded = expandedGroups.includes(group.label)
             return (
