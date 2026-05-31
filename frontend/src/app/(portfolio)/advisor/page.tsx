@@ -68,16 +68,87 @@ export default function AdvisorPage() {
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
 
+  // 持股來源：選現有投組 or 上傳截圖
+  const [source, setSource] = useState<'portfolio' | 'upload'>('portfolio')
+  const [uploadHoldings, setUploadHoldings] = useState<{ stock_id: string; name: string; shares: number; cost_price: number }[]>([])
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState('')
+  const [profileName, setProfileName] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+
   // 預設選第一個投組
   useEffect(() => {
     if (!portfolioId && portfolios.length > 0) setPortfolioId(portfolios[0].id)
   }, [portfolioId, portfolios])
 
+  async function handleUpload(files: FileList) {
+    setExtracting(true); setExtractError(''); setSaveMsg('')
+    try {
+      // 逐張截圖辨識，合併到現有清單（同代號累加股數，保留首見成本/名稱）
+      const merged = [...uploadHoldings]
+      for (const file of Array.from(files)) {
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const r = new FileReader()
+          r.onload = () => resolve(r.result as string)
+          r.onerror = () => reject(new Error('讀取檔案失敗'))
+          r.readAsDataURL(file)
+        })
+        const comma = dataUrl.indexOf(',')
+        const base64 = dataUrl.slice(comma + 1)
+        const mediaType = dataUrl.slice(5, comma).split(';')[0] || 'image/png'
+        const res = await fetchAPI<{ holdings: typeof uploadHoldings }>('/advisor/extract-holdings', {
+          method: 'POST', body: JSON.stringify({ image_base64: base64, media_type: mediaType }),
+        }, 60000)
+        for (const h of res.holdings ?? []) {
+          const idx = merged.findIndex((m) => m.stock_id === h.stock_id)
+          if (idx >= 0) merged[idx] = { ...merged[idx], shares: merged[idx].shares + h.shares }
+          else merged.push(h)
+        }
+      }
+      setUploadHoldings(merged)
+      if (merged.length === uploadHoldings.length) setExtractError('這張截圖沒辨識出新持股，可換清晰一點的圖')
+    } catch (e) {
+      setExtractError(e instanceof Error ? e.message : '擷取失敗，請換清晰一點的截圖再試')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  function updateHolding(i: number, field: 'shares' | 'cost_price', value: string) {
+    setUploadHoldings((prev) => prev.map((h, idx) => idx === i ? { ...h, [field]: Number(value) || 0 } : h))
+  }
+  function removeHolding(i: number) {
+    setUploadHoldings((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
+  async function saveAsProfile() {
+    const name = profileName.trim()
+    if (!name || uploadHoldings.length === 0) return
+    setSavingProfile(true); setSaveMsg('')
+    try {
+      // 建立投組（已存在則忽略 409），再寫入持股
+      await fetchAPI('/portfolios', { method: 'POST', body: JSON.stringify({ name }) }).catch(() => {})
+      await fetchAPI(`/portfolios/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ holdings: uploadHoldings.filter((h) => h.shares > 0).map((h) => ({ stock_id: h.stock_id, shares: Math.round(h.shares), cost_price: h.cost_price })) }),
+      })
+      await mutate('/portfolios')
+      setPortfolioId(name); setSource('portfolio'); setSaveMsg(`✓ 已存成投組「${name}」，可直接分析或一鍵套用`)
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? `儲存失敗：${e.message}` : '儲存失敗')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   async function runAnalysis() {
     setLoading(true); setError(''); setResult(null); setApplied(false)
     try {
+      const useUpload = source === 'upload' && uploadHoldings.length > 0
       const body = {
-        portfolio_id: portfolioId || undefined,
+        portfolio_id: useUpload ? undefined : (portfolioId || undefined),
+        holdings: useUpload ? uploadHoldings : undefined,
         capital_to_invest: Number(capital) || 0,
         withdraw_amount: Number(withdraw) || 0,
         target_roi: targetRoi ? Number(targetRoi) : undefined,
@@ -145,18 +216,77 @@ export default function AdvisorPage() {
       <div className="rounded-lg p-5 mb-6" style={card}>
         {step === 0 && (
           <div className="space-y-3 max-w-md">
-            <label className="block text-sm" style={{ color: 'var(--muted-foreground)' }}>選擇要分析的投資組合</label>
-            {portfolios.length > 0 ? (
-              <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)}
-                className="w-full h-10 px-3 rounded-md text-sm outline-none" style={inputStyle}>
-                {portfolios.map((p) => <option key={p.id} value={p.id}>{p.id}（{p.holdings_count} 檔）</option>)}
-              </select>
+            {/* 持股來源切換 */}
+            <div className="flex gap-2">
+              {([['portfolio', '選現有投組'], ['upload', '📷 上傳持股截圖']] as const).map(([k, lbl]) => (
+                <button key={k} onClick={() => setSource(k)}
+                  className="px-3 h-9 rounded-md text-sm" style={{
+                    background: source === k ? 'var(--primary)' : 'var(--secondary)',
+                    color: source === k ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                    border: '1px solid var(--border)',
+                  }}>{lbl}</button>
+              ))}
+            </div>
+
+            {source === 'portfolio' ? (
+              <>
+                <label className="block text-sm" style={{ color: 'var(--muted-foreground)' }}>選擇要分析的投資組合</label>
+                {portfolios.length > 0 ? (
+                  <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md text-sm outline-none" style={inputStyle}>
+                    {portfolios.map((p) => <option key={p.id} value={p.id}>{p.id}（{p.holdings_count} 檔）</option>)}
+                  </select>
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                    尚無投資組合。可改用「上傳截圖」，或直接輸入可投入資金做純新資金配置。
+                  </p>
+                )}
+                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>顧問會先對所選投組做量化健檢，再依你的資金與目標給建議。</p>
+              </>
             ) : (
-              <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                尚無投資組合。可先到「投資組合」頁建立，或直接輸入可投入資金做純新資金配置。
-              </p>
+              <div className="space-y-3">
+                <label className="block text-sm" style={{ color: 'var(--muted-foreground)' }}>上傳一或多張券商 App/網頁的持股（庫存）截圖，AI 會自動辨識並合併</label>
+                <input type="file" accept="image/png,image/jpeg,image/webp" multiple
+                  onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = '' }}
+                  disabled={extracting}
+                  className="block w-full text-sm" style={{ color: 'var(--foreground)' }} />
+                {extracting && <p className="text-sm" style={{ color: 'var(--primary)' }}>🔍 AI 辨識中…（多張會逐一處理）</p>}
+                {extractError && <p className="text-sm" style={{ color: 'var(--stock-up)' }}>{extractError}</p>}
+
+                {uploadHoldings.length > 0 && (
+                  <>
+                    <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                      <div className="grid grid-cols-[1fr_90px_90px_32px] gap-2 px-3 py-1.5 text-xs" style={{ background: 'var(--secondary)', color: 'var(--muted-foreground)' }}>
+                        <span>代號 / 名稱</span><span className="text-right">股數</span><span className="text-right">成本價</span><span></span>
+                      </div>
+                      {uploadHoldings.map((h, i) => (
+                        <div key={`${h.stock_id}-${i}`} className="grid grid-cols-[1fr_90px_90px_32px] gap-2 px-3 py-1.5 items-center" style={{ borderTop: '1px solid var(--border)' }}>
+                          <span className="text-sm truncate"><span className="font-mono" style={{ color: 'var(--primary)' }}>{h.stock_id}</span> <span style={{ color: 'var(--muted-foreground)' }}>{h.name}</span></span>
+                          <input type="number" min="0" value={h.shares} onChange={(e) => updateHolding(i, 'shares', e.target.value)}
+                            className="h-8 px-2 rounded text-sm text-right num" style={inputStyle} />
+                          <input type="number" min="0" value={h.cost_price} onChange={(e) => updateHolding(i, 'cost_price', e.target.value)}
+                            className="h-8 px-2 rounded text-sm text-right num" style={inputStyle} />
+                          <button onClick={() => removeHolding(i)} title="移除" className="text-sm" style={{ color: 'var(--muted-foreground)' }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>可直接修改股數/成本價、移除錯誤列。共 {uploadHoldings.length} 檔。</p>
+
+                    {/* 存成 profile（投組） */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="投組名稱（如 我的持股）"
+                        className="flex-1 h-9 px-3 rounded-md text-sm outline-none" style={inputStyle} />
+                      <button onClick={saveAsProfile} disabled={savingProfile || !profileName.trim()}
+                        className="px-4 h-9 rounded-md text-sm font-medium disabled:opacity-50 shrink-0" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
+                        {savingProfile ? '儲存中…' : '💾 存成投組'}
+                      </button>
+                    </div>
+                    {saveMsg && <p className="text-xs" style={{ color: saveMsg.startsWith('✓') ? 'var(--stock-down)' : 'var(--stock-up)' }}>{saveMsg}</p>}
+                  </>
+                )}
+                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>辨識結果僅供參考，請核對股數/成本。存成投組後即可「一鍵套用」並永久保存。</p>
+              </div>
             )}
-            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>顧問會先對所選投組做量化健檢，再依你的資金與目標給建議。</p>
           </div>
         )}
 
