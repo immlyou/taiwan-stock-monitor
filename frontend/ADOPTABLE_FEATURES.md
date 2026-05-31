@@ -4,9 +4,50 @@
 > 原則：只列「現在可採用、低/中風險、用既有套件/元件、自包含、不需後端改動、不需新依賴」者進入 auto_implement。
 > 高風險/需依賴/需後端欄位者進 deferred。所有路由相對 `src/app/`。
 
-已安裝可用：`@tanstack/react-table`、`recharts`、`lightweight-charts`、`react-hook-form`、`zod`、`zustand`、`swr`、`lucide-react`。
-既有共用：`shared/{KpiCard(支援 sparkline),Sparkline,EmptyState,StockInput,StockSearch}`、`ui/{table,tabs,dialog,switch,tooltip,...}`、`layout/MarketTicker`、`lib/utils/format.ts`（已含 `changeArrow`、`formatPercent(withArrow)`、`formatChange(withArrow)`）、`lib/constants/chartColors.ts`（`CHART_SERIES`、`FLOW`、`ratingColor`）。
-**react-markdown 未安裝**。
+已安裝可用：`@tanstack/react-table`、`recharts`、`lightweight-charts`、`react-hook-form`、`zod`、`zustand`、`swr`、`lucide-react`、`react-markdown` + `remark-gfm`。
+既有共用：`shared/{KpiCard(支援 sparkline),Sparkline,EmptyState,StockInput,StockSearch,DataTable,ScreenshotImportDialog}`、`ui/{table,tabs,dialog,switch,tooltip,...}`、`layout/MarketTicker`、`lib/utils/format.ts`（含 `changeArrow`、`formatPercent(withArrow)`、`formatChange(withArrow)`）、`lib/constants/chartColors.ts`（`CHART_SERIES`、`FLOW`、`ratingColor`）。
+
+---
+
+## 0. 設計系統建構塊 / 已實作能力（更新 2026-05-31）
+
+> 本區為「現成可複用」的共用元件與能力，新頁面優先複用，不要重造輪子。
+
+| 建構塊 | 位置 | 用途 / API 摘要 |
+|--------|------|------------------|
+| **MarketTicker** | `layout/MarketTicker` | 全域行情列（已掛 Header，全頁顯示，勿重做） |
+| **KpiCard** | `shared/KpiCard` | 標準 KPI 卡，支援 `sparkline?: number[]`、`change`、`accentColor`、`isLoading` |
+| **Sparkline** | `shared/Sparkline` | `<Sparkline data={number[]} autoColor />` 迷你走勢（紅漲綠跌） |
+| **DataTable** | `shared/DataTable` | TanStack 表格：排序/搜尋/分頁/CSV 匯出；`columns: ColumnDef[]`、`data`、`searchable`、`exportable`、`exportFilename`、`pageSize`。已用於 screener/predictions/chip/dashboard |
+| **ScreenshotImportDialog** ⭐ | `shared/ScreenshotImportDialog` | **截圖匯入持股**（見下）。已用於 advisor/portfolio/watchlist/stock |
+| **format.ts / chartColors.ts** | `lib/...` | 數值格式（含 ▲▼ 雙重編碼）、設計色彩 token；數字/漲跌色一律走這裡 |
+| AI 投資顧問 | `(portfolio)/advisor` + 後端 `/advisor/*` | 量化健檢＋配置建議＋可行性＋Claude 敘述＋一鍵套用 |
+
+### ⭐ 截圖匯入能力（ScreenshotImportDialog）
+
+**後端**：`POST /advisor/extract-holdings` — Claude Vision 解析持股截圖（base64）→ `{holdings:[{stock_id,name,shares,cost_price}]}`。**不碰 FinLab**（額度爆也可用）。
+
+**前端共用元件** `shared/ScreenshotImportDialog`：
+```tsx
+import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
+<ScreenshotImportDialog
+  open onClose
+  mode="holdings" | "codes"          // holdings=可編輯股數/成本表格；codes=代號 chips
+  title="📷 截圖匯入"
+  onConfirm={(items: ImportedHolding[]) => {...}}  // 批次匯入（投組/自選股）
+  confirmLabel="加入投組"
+  onPickOne={(stockId) => router.push(`/stock/${stockId}`)}  // 單選跳轉（個股分析）
+/>
+```
+元件自行處理：多張上傳 → 逐張 Vision 辨識 → 同代號合併股數 → 編輯/移除 → 回傳。
+
+**已接入頁面**：
+- `(portfolio)/advisor`：上傳→編輯→存成投組(profile)→分析/套用
+- `(portfolio)/portfolio`：📷 合併持股進目前投組（PUT）
+- `(portfolio)/watchlist`：📷 代號去重加入自選（PUT）
+- `(research)/stock/[id]`：📷 辨識個股→跳轉分析（`onPickOne`）
+
+**未來可接**：交易日誌（從成交截圖建立紀錄）、回測/選股（截圖匯入候選清單）。複用同元件即可，後端零改動。
 
 ---
 
@@ -74,13 +115,18 @@
 
 ---
 
-## C. deferred（需核准的高風險/高價值大改）
+## C. deferred 進度（多數已完成，2026-05-31 更新）
 
-1. **TanStack Table 共用 `<DataTable>` 全面遷移**（value high / effort L / risk high）：抽共用排序/篩選/分頁/匯出 CSV/響應式欄優先級元件，逐頁導入（dashboard、screener、chip、journal、compare、predictions）。影響面最大、需單獨 PR 與互動回歸，**勿與上述自動批次混做**。
-2. **dashboard 持股/KPI Sparkline**（value high / effort M / risk medium）：需後端為 holdings 補 `price_history`（近 20-60 日）欄位後，前端套既有 `Sparkline`／KpiCard `sparkline` prop。
-3. **morning-report 新聞情緒標籤**（value medium / effort M / risk medium）：需後端把單則 sentiment 併入 `/news/latest`，或前端批次呼叫 `/ai/news-sentiment` 併入列表（額外請求＋成本），故不列入零後端自動批次。
-4. **journal AI 報告 react-markdown 化**（value medium / effort M / risk medium）：需 `npm i react-markdown`（新依賴），取代脆弱的本地 `renderMarkdown`。
-5. **realtime 成交量/成交金額欄**（value medium / effort M / risk medium）：需後端報價回傳 volume/amount。
-6. **morning-report 歷史日期篩選**（value low / effort M / risk medium）：需後端支援日期查詢參數。
+1. ✅ **TanStack `<DataTable>` 全面遷移** — 已建共用元件並導入 screener/predictions/chip/dashboard（排序/搜尋/分頁/CSV 匯出）。
+2. ✅ **dashboard 持股/KPI Sparkline** — 後端 `/portfolios/{id}` holdings 已補 `price_history`（近 30 日）；持股表加走勢欄。
+3. ✅ **morning-report 新聞情緒標籤** — 新聞已有 `sentiment` 欄位，前端渲染利多/利空/中性 badge。
+4. ✅ **journal AI 報告 react-markdown 化** — 已裝 `react-markdown`+`remark-gfm`，取代手刻 renderMarkdown。
+5. ✅ **realtime 成交量/成交金額欄** — 後端 quote 已補 `amount`（volume 本有），前端加兩欄。
+6. ⏸️ **morning-report 歷史日期篩選**（唯一未做）：需後端建「歷史新聞儲存 + 日期查詢」，屬較大後端工程。
 
-> 建議執行序：B 區六頁屬同質低風險，可一次 PR（compare 改動最多需先過視覺回歸）。deferred 全部需先取得核准與（多數）後端/依賴配合。
+### 新增（本輪交付，不在原 audit）
+- ✅ **AI 投資顧問**（quant + Claude 敘述 + 一鍵套用）：`/advisor`。
+- ✅ **截圖匯入持股**（Claude Vision）：共用 `ScreenshotImportDialog`，接入 advisor/portfolio/watchlist/stock（見 §0）。
+- ✅ **後端資料持久化**：Railway Volume 掛 `/app/data`，投組/自選等跨 redeploy 不消失。
+
+> B 區六頁低風險批次與上述 deferred 主項皆已實作上線。剩餘僅 morning-report 歷史日期（需後端歷史儲存）。
