@@ -37,6 +37,7 @@ from core.data_loader import FinLabQuotaExceededError
 
 # ── Router 匯入 ──────────────────────────────────────────
 from api.routers import (
+    advisor as advisor_router,
     ai as ai_router,
     alerts as alerts_router,
     backtest as backtest_router,
@@ -193,6 +194,7 @@ for _router_module in (
     backtest_router,     # /backtest/*
     optimizer_router,    # /optimizer/*
     reports_router,      # /morning-report
+    advisor_router,      # /advisor/*
 ):
     app.include_router(_router_module.router)
 
