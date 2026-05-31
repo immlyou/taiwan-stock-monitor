@@ -83,9 +83,13 @@ async def portfolio_get(portfolio_id: str):
             cost = shares * cost_price
 
             current_price = cost_price
+            price_history: list[float] = []
             try:
                 if sid in close.columns:
-                    current_price = float(close[sid].dropna().iloc[-1])
+                    recent = close[sid].dropna()
+                    current_price = float(recent.iloc[-1])
+                    # 近 30 個交易日收盤價，供前端繪製持股迷你走勢 (sparkline)
+                    price_history = [round(float(p), 2) for p in recent.tail(30).tolist()]
             except Exception:
                 pass
 
@@ -104,6 +108,7 @@ async def portfolio_get(portfolio_id: str):
                 "cost_value": round(cost, 2),
                 "pnl": round(pnl, 2),
                 "pnl_pct": round(pnl_pct, 2),
+                "price_history": price_history,
             })
 
         total_pnl = total_value - total_cost

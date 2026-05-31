@@ -84,6 +84,9 @@ async def quote_realtime(stock_id: str):
         except Exception:
             pass
 
+        # 成交金額（約略）= 成交量(股) × 收盤價
+        amount = int(volume * latest) if volume else None
+
         return {
             "stock_id": stock_id,
             "name": name_map.get(stock_id, ""),
@@ -94,6 +97,7 @@ async def quote_realtime(stock_id: str):
             "high": high_price,
             "low": low_price,
             "volume": volume,
+            "amount": amount,
             "date": series.index[-1].strftime("%Y-%m-%d"),
             "is_realtime": False,
             "note": "資料為最新交易日收盤價",
