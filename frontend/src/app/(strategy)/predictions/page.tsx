@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import useSWR, { mutate } from 'swr'
+import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
+import { DataTable } from '@/components/shared/DataTable'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/format'
@@ -81,6 +83,124 @@ export default function PredictionsPage() {
     setDeleteId(null)
   }
 
+  const columns = useMemo<ColumnDef<Prediction, unknown>[]>(() => [
+    {
+      id: '代號',
+      accessorKey: 'code',
+      header: '代號',
+      cell: ({ row }) => (
+        <span className="font-medium" style={{ color: 'var(--primary)' }}>{row.original.code}</span>
+      ),
+    },
+    {
+      id: '名稱',
+      accessorKey: 'name',
+      header: '名稱',
+      cell: ({ row }) => (
+        <span style={{ color: 'var(--foreground)' }}>{row.original.name}</span>
+      ),
+    },
+    {
+      id: '方向',
+      accessorKey: 'direction',
+      header: '方向',
+      cell: ({ row }) => {
+        const d = row.original.direction
+        return (
+          <span
+            className="font-semibold"
+            style={{ color: d === 'up' ? 'var(--stock-up)' : 'var(--stock-down)' }}
+          >
+            {d === 'up' ? '看漲' : '看跌'}
+          </span>
+        )
+      },
+    },
+    {
+      id: '目標價',
+      accessorKey: 'targetPrice',
+      header: '目標價',
+      cell: ({ row }) => (
+        <span style={{ color: 'var(--foreground)' }}>{formatPrice(row.original.targetPrice)}</span>
+      ),
+    },
+    {
+      id: '現價',
+      accessorKey: 'currentPrice',
+      header: '現價',
+      cell: ({ row }) => (
+        <span style={{ color: 'var(--foreground)' }}>{formatPrice(row.original.currentPrice)}</span>
+      ),
+    },
+    {
+      id: '目標價差',
+      header: '目標價差',
+      accessorFn: (p) => (p.currentPrice ? ((p.targetPrice - p.currentPrice) / p.currentPrice) * 100 : 0),
+      cell: ({ getValue }) => {
+        const gapPct = getValue() as number
+        return (
+          <span className="font-semibold" style={{ color: getChangeColorVar(gapPct) }}>
+            {formatPercent(gapPct, 2, true)}
+          </span>
+        )
+      },
+    },
+    {
+      id: '目標日期',
+      accessorKey: 'targetDate',
+      header: '目標日期',
+      cell: ({ row }) => (
+        <span style={{ color: 'var(--foreground)' }}>{row.original.targetDate}</span>
+      ),
+    },
+    {
+      id: '建立日期',
+      header: '建立日期',
+      accessorFn: (p) => p.createdAt.slice(0, 10),
+      cell: ({ getValue }) => (
+        <span style={{ color: 'var(--muted-foreground)' }}>{getValue() as string}</span>
+      ),
+    },
+    {
+      id: '狀態',
+      accessorKey: 'status',
+      header: '狀態',
+      cell: ({ row }) => {
+        const st = STATUS_LABELS[row.original.status] ?? { label: row.original.status, color: 'var(--foreground)' }
+        return (
+          <span
+            className="px-2 py-0.5 rounded-full text-xs font-medium"
+            style={{ background: st.color + '22', color: st.color }}
+          >
+            {st.label}
+          </span>
+        )
+      },
+    },
+    {
+      id: '實際價',
+      header: '實際價',
+      accessorFn: (p) => (p.actualPrice != null ? formatPrice(p.actualPrice) : '—'),
+      cell: ({ getValue }) => (
+        <span style={{ color: 'var(--muted-foreground)' }}>{getValue() as string}</span>
+      ),
+    },
+    {
+      id: '操作',
+      header: '操作',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <button
+          onClick={() => setDeleteId(row.original.id)}
+          className="text-xs px-2 py-1 rounded"
+          style={{ color: 'var(--destructive)' }}
+        >
+          刪除
+        </button>
+      ),
+    },
+  ], [])
+
   return (
     <div>
       <div className="mb-6 flex justify-between items-start">
@@ -139,71 +259,15 @@ export default function PredictionsPage() {
           />
         </div>
       ) : predictions && predictions.length > 0 ? (
-        <div
-          className="rounded-lg overflow-hidden"
-          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: 'var(--secondary)' }}>
-                  {['代號', '名稱', '方向', '目標價', '現價', '目標價差', '目標日期', '建立日期', '狀態', '實際價', '操作'].map(h => (
-                    <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {predictions.map((p) => {
-                  const st = STATUS_LABELS[p.status] ?? { label: p.status, color: 'var(--foreground)' }
-                  const gapPct = p.currentPrice ? ((p.targetPrice - p.currentPrice) / p.currentPrice) * 100 : 0
-                  return (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{p.code}</td>
-                      <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{p.name}</td>
-                      <td
-                        className="py-2 px-4 font-semibold"
-                        style={{ color: p.direction === 'up' ? 'var(--stock-up)' : 'var(--stock-down)' }}
-                      >
-                        {p.direction === 'up' ? '看漲' : '看跌'}
-                      </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {formatPrice(p.targetPrice)}
-                      </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {formatPrice(p.currentPrice)}
-                      </td>
-                      <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: getChangeColorVar(gapPct) }}>
-                        {formatPercent(gapPct, 2, true)}
-                      </td>
-                      <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{p.targetDate}</td>
-                      <td className="py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{p.createdAt.slice(0, 10)}</td>
-                      <td className="py-2 px-4">
-                        <span
-                          className="px-2 py-0.5 rounded-full text-xs font-medium"
-                          style={{ background: st.color + '22', color: st.color }}
-                        >
-                          {st.label}
-                        </span>
-                      </td>
-                      <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
-                        {p.actualPrice != null ? formatPrice(p.actualPrice) : '—'}
-                      </td>
-                      <td className="py-2 px-4">
-                        <button
-                          onClick={() => setDeleteId(p.id)}
-                          className="text-xs px-2 py-1 rounded"
-                          style={{ color: 'var(--destructive)' }}
-                        >
-                          刪除
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          columns={columns}
+          data={predictions}
+          searchable
+          searchPlaceholder="搜尋代號 / 名稱..."
+          exportable
+          exportFilename="predictions"
+          pageSize={20}
+        />
       ) : (
         <div
           className="rounded-lg p-12 text-center"

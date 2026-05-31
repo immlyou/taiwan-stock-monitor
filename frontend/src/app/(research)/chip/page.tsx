@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
+import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar, formatPrice } from '@/lib/utils/format'
 import { FLOW } from '@/lib/constants/chartColors'
 import { StockInput } from '@/components/shared/StockInput'
+import { DataTable } from '@/components/shared/DataTable'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine
 } from 'recharts'
@@ -39,6 +41,55 @@ function formatShares(shares: number) {
   return (v >= 0 ? '+' : '') + v.toLocaleString() + ' 張'
 }
 
+interface ChipDetailRow {
+  date: string
+  外資: number
+  投信: number
+  自營商: number
+  合計: number
+}
+
+function sharesCell(value: number, opts?: { semibold?: boolean }) {
+  return (
+    <span
+      className={`tabular-nums${opts?.semibold ? ' font-semibold' : ''}`}
+      style={{ color: getChangeColorVar(value) }}
+    >
+      {formatShares(value)}
+    </span>
+  )
+}
+
+const chipColumns: ColumnDef<ChipDetailRow, unknown>[] = [
+  {
+    accessorKey: 'date',
+    header: '日期',
+    cell: ({ getValue }) => (
+      <span style={{ color: 'var(--foreground)' }}>{getValue() as string}</span>
+    ),
+  },
+  {
+    accessorKey: '外資',
+    header: '外資',
+    cell: ({ getValue }) => sharesCell(getValue() as number),
+  },
+  {
+    accessorKey: '投信',
+    header: '投信',
+    cell: ({ getValue }) => sharesCell(getValue() as number),
+  },
+  {
+    accessorKey: '自營商',
+    header: '自營商',
+    cell: ({ getValue }) => sharesCell(getValue() as number),
+  },
+  {
+    accessorKey: '合計',
+    header: '合計',
+    cell: ({ getValue }) => sharesCell(getValue() as number, { semibold: true }),
+  },
+]
+
 export default function ChipPage() {
   const [stockCode, setStockCode] = useState('')
 
@@ -66,6 +117,16 @@ export default function ChipPage() {
       投信: trust ? toThousand(trust.shares) : 0,
       自營商: dealer ? toThousand(dealer.shares) : 0,
     }
+  })
+
+  const chipDetailRows: ChipDetailRow[] = allDates.map((date) => {
+    const foreign = data?.['外資']?.daily?.find(d => d.date === date)
+    const trust = data?.['投信']?.daily?.find(d => d.date === date)
+    const dealer = data?.['自營商']?.daily?.find(d => d.date === date)
+    const fv = foreign?.shares ?? 0
+    const tv = trust?.shares ?? 0
+    const dv = dealer?.shares ?? 0
+    return { date, 外資: fv, 投信: tv, 自營商: dv, 合計: fv + tv + dv }
   })
 
   const kpiItems = data ? [
@@ -201,44 +262,15 @@ export default function ChipPage() {
             <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
               <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>每日籌碼明細</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ background: 'var(--secondary)' }}>
-                    {['日期', '外資', '投信', '自營商', '合計'].map(h => (
-                      <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {allDates.map((date) => {
-                    const foreign = data['外資']?.daily?.find(d => d.date === date)
-                    const trust = data['投信']?.daily?.find(d => d.date === date)
-                    const dealer = data['自營商']?.daily?.find(d => d.date === date)
-                    const fv = foreign?.shares ?? 0
-                    const tv = trust?.shares ?? 0
-                    const dv = dealer?.shares ?? 0
-                    const total = fv + tv + dv
-                    return (
-                      <tr key={date} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{date}</td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: getChangeColorVar(fv) }}>
-                          {formatShares(fv)}
-                        </td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: getChangeColorVar(tv) }}>
-                          {formatShares(tv)}
-                        </td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: getChangeColorVar(dv) }}>
-                          {formatShares(dv)}
-                        </td>
-                        <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: getChangeColorVar(total) }}>
-                          {formatShares(total)}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div className="p-4">
+              <DataTable
+                columns={chipColumns}
+                data={chipDetailRows}
+                searchable
+                exportable
+                exportFilename={`chip_${data.stock_id}`}
+                pageSize={20}
+              />
             </div>
           </div>
         </div>

@@ -1,9 +1,11 @@
 'use client'
 
 import useSWR from 'swr'
+import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { DataTable } from '@/components/shared/DataTable'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Tooltip,
@@ -113,15 +115,117 @@ const POSITION_SKELETON_WIDTHS = ['w-12', 'w-24', 'w-16', 'w-16', 'w-16', 'w-20'
 
 function PositionRowSkeleton() {
   return (
-    <tr>
+    <div className="flex gap-4 px-4 py-3">
       {POSITION_SKELETON_WIDTHS.map((w, i) => (
-        <td key={i} className="px-4 py-3">
-          <Skeleton className={`h-4 ${w}`} style={{ background: 'var(--secondary)' }} />
-        </td>
+        <Skeleton key={i} className={`h-4 ${w}`} style={{ background: 'var(--secondary)' }} />
       ))}
-    </tr>
+    </div>
   )
 }
+
+/** 表頭標籤，可選 tooltip 說明（保留原本虛線可懸停樣式） */
+function HeaderLabel({ label, hint }: { label: string; hint?: string }) {
+  if (!hint) return <>{label}</>
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help border-b border-dotted border-[var(--border)]">
+            {label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{hint}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+/** 衍生後的持股列（含計算欄位，供排序/搜尋/匯出使用原始數值） */
+interface PositionRow {
+  stock_id: string
+  name: string
+  shares: number
+  cost_price: number
+  current_price: number
+  market_value: number
+  pnl: number
+  pnl_pct: number
+}
+
+const positionColumns: ColumnDef<PositionRow, unknown>[] = [
+  {
+    accessorKey: 'stock_id',
+    header: () => <HeaderLabel label="代號" />,
+    cell: ({ row }) => (
+      <span className="font-mono font-semibold" style={{ color: 'var(--primary)' }}>
+        {row.original.stock_id}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'name',
+    header: () => <HeaderLabel label="名稱" />,
+    cell: ({ row }) => (
+      <span style={{ color: 'var(--foreground)' }}>{row.original.name || '—'}</span>
+    ),
+  },
+  {
+    accessorKey: 'shares',
+    header: () => <HeaderLabel label="持股(張)" />,
+    cell: ({ row }) => (
+      <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+        {row.original.shares.toLocaleString()}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'cost_price',
+    header: () => <HeaderLabel label="成本價" hint="買進時的每股平均成本（元）" />,
+    cell: ({ row }) => (
+      <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+        {formatPrice(row.original.cost_price)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'current_price',
+    header: () => (
+      <HeaderLabel label="現價" hint="目前最新成交價（元），相對成本以紅漲綠跌標示" />
+    ),
+    cell: ({ row }) => (
+      <span
+        className="tabular-nums font-semibold"
+        style={{ color: getChangeColorVar(row.original.current_price - row.original.cost_price) }}
+      >
+        {formatPrice(row.original.current_price)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'market_value',
+    header: () => <HeaderLabel label="市值" hint="目前持股的總市場價值＝現價 × 股數" />,
+    cell: ({ row }) => (
+      <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+        {formatCurrency(row.original.market_value)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'pnl',
+    header: () => (
+      <HeaderLabel label="損益(%)" hint="未實現損益金額與報酬率＝（現價 − 成本）× 股數" />
+    ),
+    cell: ({ row }) => (
+      <span
+        className="tabular-nums font-semibold"
+        style={{ color: getChangeColorVar(row.original.pnl) }}
+      >
+        {formatChange(row.original.pnl)}
+        <span className="ml-1 text-xs opacity-75">({formatPercent(row.original.pnl_pct)})</span>
+      </span>
+    ),
+  },
+]
 
 export default function DashboardPage() {
   const { detail, isLoading, isError, hasPortfolio } = useDashboard()
@@ -132,6 +236,19 @@ export default function DashboardPage() {
 
   const summary = detail?.summary
   const holdings = detail?.holdings ?? []
+  const positionRows: PositionRow[] = holdings.map((h) => {
+    const currentPrice = h.current_price ?? h.cost_price
+    return {
+      stock_id: h.stock_id,
+      name: h.name ?? '',
+      shares: h.shares,
+      cost_price: h.cost_price,
+      current_price: currentPrice,
+      market_value: h.current_value ?? h.shares * h.cost_price,
+      pnl: h.pnl ?? 0,
+      pnl_pct: h.pnl_pct ?? 0,
+    }
+  })
   const widgets = (dashboardConfig?.widgets ?? []).filter((widget) => widget.enabled).sort((a, b) => a.order - b.order)
 
   const kpiCards = [
@@ -259,118 +376,30 @@ export default function DashboardPage() {
                 持股明細
               </h2>
             </div>
-            <div className="overflow-x-auto">
-              <TooltipProvider delayDuration={150}>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {[
-                      { label: '代號' },
-                      { label: '名稱' },
-                      { label: '持股(張)' },
-                      { label: '成本價', hint: '買進時的每股平均成本（元）' },
-                      { label: '現價', hint: '目前最新成交價（元），相對成本以紅漲綠跌標示' },
-                      { label: '市值', hint: '目前持股的總市場價值＝現價 × 股數' },
-                      { label: '損益(%)', hint: '未實現損益金額與報酬率＝（現價 − 成本）× 股數' },
-                    ].map((h) => (
-                      <th
-                        key={h.label}
-                        className="px-4 py-2 text-left font-medium"
-                        style={{ color: 'var(--muted-foreground)' }}
-                      >
-                        {h.hint ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help border-b border-dotted border-[var(--border)]">
-                                {h.label}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>{h.hint}</TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          h.label
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading
-                    ? [...Array(5)].map((_, i) => <PositionRowSkeleton key={i} />)
-                    : holdings.length > 0
-                    ? holdings.map((h) => {
-                        const currentPrice = h.current_price ?? h.cost_price
-                        const marketValue = h.current_value ?? h.shares * h.cost_price
-                        const pnl = h.pnl ?? 0
-                        const pnlPct = h.pnl_pct ?? 0
-                        return (
-                          <tr
-                            key={h.stock_id}
-                            className="border-b transition-colors hover:bg-white/5"
-                            style={{ borderColor: 'var(--border)' }}
-                          >
-                            <td
-                              className="px-4 py-3 font-mono font-semibold"
-                              style={{ color: 'var(--primary)' }}
-                            >
-                              {h.stock_id}
-                            </td>
-                            <td className="px-4 py-3" style={{ color: 'var(--foreground)' }}>
-                              {h.name ?? '—'}
-                            </td>
-                            <td
-                              className="px-4 py-3 tabular-nums"
-                              style={{ color: 'var(--foreground)' }}
-                            >
-                              {h.shares.toLocaleString()}
-                            </td>
-                            <td
-                              className="px-4 py-3 tabular-nums"
-                              style={{ color: 'var(--foreground)' }}
-                            >
-                              {formatPrice(h.cost_price)}
-                            </td>
-                            <td
-                              className="px-4 py-3 tabular-nums font-semibold"
-                              style={{
-                                color: getChangeColorVar(currentPrice - h.cost_price),
-                              }}
-                            >
-                              {formatPrice(currentPrice)}
-                            </td>
-                            <td
-                              className="px-4 py-3 tabular-nums"
-                              style={{ color: 'var(--foreground)' }}
-                            >
-                              {formatCurrency(marketValue)}
-                            </td>
-                            <td
-                              className="px-4 py-3 tabular-nums font-semibold"
-                              style={{ color: getChangeColorVar(pnl) }}
-                            >
-                              {formatChange(pnl)}
-                              <span className="ml-1 text-xs opacity-75">
-                                ({formatPercent(pnlPct)})
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })
-                    : null}
-                  {!isLoading && holdings.length === 0 && (
-                    <tr>
-                      <td colSpan={7}>
-                        <EmptyState
-                          title={hasPortfolio ? '目前沒有持股' : '尚未建立投資組合'}
-                          description={hasPortfolio ? '尚未建立任何持倉紀錄' : '請前往投資組合頁面新增持股'}
-                          icon="+"
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </TooltipProvider>
+            <div className="p-4">
+              {isLoading ? (
+                <div className="space-y-1">
+                  {[...Array(5)].map((_, i) => (
+                    <PositionRowSkeleton key={i} />
+                  ))}
+                </div>
+              ) : positionRows.length > 0 ? (
+                <DataTable
+                  columns={positionColumns}
+                  data={positionRows}
+                  searchable
+                  searchPlaceholder="搜尋代號 / 名稱..."
+                  exportable
+                  exportFilename="持股明細"
+                  pageSize={20}
+                />
+              ) : (
+                <EmptyState
+                  title={hasPortfolio ? '目前沒有持股' : '尚未建立投資組合'}
+                  description={hasPortfolio ? '尚未建立任何持倉紀錄' : '請前往投資組合頁面新增持股'}
+                  icon="+"
+                />
+              )}
             </div>
           </div>
         </>

@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { useRouter } from 'next/navigation'
 import { formatPrice } from '@/lib/utils/format'
 import { ratingColor } from '@/lib/constants/chartColors'
+import { DataTable } from '@/components/shared/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
 
 interface ValueStock {
   stock_id: string
@@ -55,6 +57,21 @@ const PRESETS: { key: PresetType; label: string; desc: string }[] = [
   { key: 'conservative', label: '保守', desc: '嚴格條件，高殖利率優先' },
 ]
 
+const formatOptional = (value: number | null | undefined, digits = 1) =>
+  value == null ? '—' : value.toFixed(digits)
+
+// Quant ranking rows carry their 1-based rank so it survives sorting/paging.
+type QuantRow = QuantScoreStock & { rank: number }
+
+const QUANT_COMPONENT_KEYS: { key: ScoreComponentKey; header: string }[] = [
+  { key: 'value', header: '價值' },
+  { key: 'growth', header: '成長' },
+  { key: 'momentum', header: '動能' },
+  { key: 'chip', header: '籌碼' },
+  { key: 'quality', header: '品質' },
+  { key: 'risk', header: '風險' },
+]
+
 export default function ScreenerPage() {
   const router = useRouter()
   const [mode, setMode] = useState<ModeType>('value')
@@ -82,8 +99,180 @@ export default function ScreenerPage() {
   const isValueResponse = (value: ValueResponse | QuantScoreResponse | undefined): value is ValueResponse =>
     !!value && 'total_matches' in value
 
-  const formatOptional = (value: number | null | undefined, digits = 1) =>
-    value == null ? '—' : value.toFixed(digits)
+  const quantRows = useMemo<QuantRow[]>(
+    () =>
+      data && isQuantResponse(data)
+        ? data.stocks.map((row, i) => ({ ...row, rank: i + 1 }))
+        : [],
+    [data]
+  )
+
+  const valueRows = useMemo<ValueStock[]>(
+    () => (data && isValueResponse(data) ? data.stocks : []),
+    [data]
+  )
+
+  // 量化排行欄位：排名、代號、總分、評級、價值、成長、動能、籌碼、品質、風險、PE、營收YoY
+  const quantColumns = useMemo<ColumnDef<QuantRow, unknown>[]>(
+    () => [
+      {
+        id: '排名',
+        accessorKey: 'rank',
+        header: '排名',
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
+            {row.original.rank}
+          </span>
+        ),
+      },
+      {
+        id: '代號',
+        accessorKey: 'stock_id',
+        header: '代號',
+        cell: ({ row }) => (
+          <button
+            type="button"
+            onClick={() => router.push(`/stock/${row.original.stock_id}`)}
+            className="font-medium hover:underline"
+            style={{ color: 'var(--primary)' }}
+          >
+            {row.original.stock_id}
+          </button>
+        ),
+      },
+      {
+        id: '總分',
+        accessorFn: (r) => r.total_score ?? -Infinity,
+        header: '總分',
+        cell: ({ row }) => (
+          <span className="tabular-nums font-semibold" style={{ color: 'var(--foreground)' }}>
+            {formatOptional(row.original.total_score, 1)}
+          </span>
+        ),
+      },
+      {
+        id: '評級',
+        accessorKey: 'rating',
+        header: '評級',
+        cell: ({ row }) => (
+          <span
+            className="inline-flex min-w-7 justify-center rounded px-1.5 py-0.5 text-xs font-bold"
+            style={{ background: 'var(--secondary)', color: ratingColor(row.original.rating), border: '1px solid var(--border)' }}
+          >
+            {row.original.rating}
+          </span>
+        ),
+      },
+      ...QUANT_COMPONENT_KEYS.map(
+        ({ key, header }): ColumnDef<QuantRow, unknown> => ({
+          id: header,
+          accessorFn: (r) => r.component_scores[key] ?? -Infinity,
+          header,
+          cell: ({ row }) => (
+            <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+              {formatOptional(row.original.component_scores[key], 0)}
+            </span>
+          ),
+        })
+      ),
+      {
+        id: 'PE',
+        accessorFn: (r) => r.key_metrics.pe_ratio ?? -Infinity,
+        header: 'PE',
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatOptional(row.original.key_metrics.pe_ratio, 1)}
+          </span>
+        ),
+      },
+      {
+        id: '營收YoY',
+        accessorFn: (r) => r.key_metrics.revenue_yoy ?? -Infinity,
+        header: '營收YoY',
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatOptional(row.original.key_metrics.revenue_yoy, 1)}%
+          </span>
+        ),
+      },
+    ],
+    [router]
+  )
+
+  // 價值篩選欄位：排名、代號、名稱、現價、PE、PB、殖利率%
+  const valueColumns = useMemo<ColumnDef<ValueStock, unknown>[]>(
+    () => [
+      {
+        id: '排名',
+        header: '排名',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
+            {row.index + 1}
+          </span>
+        ),
+      },
+      {
+        id: '代號',
+        accessorKey: 'stock_id',
+        header: '代號',
+        cell: ({ row }) => (
+          <span className="font-medium" style={{ color: 'var(--primary)' }}>
+            {row.original.stock_id}
+          </span>
+        ),
+      },
+      {
+        id: '名稱',
+        accessorFn: (r) => r.name ?? '—',
+        header: '名稱',
+        cell: ({ row }) => (
+          <span style={{ color: 'var(--foreground)' }}>{row.original.name ?? '—'}</span>
+        ),
+      },
+      {
+        id: '現價',
+        accessorKey: 'price',
+        header: '現價',
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatPrice(row.original.price)}
+          </span>
+        ),
+      },
+      {
+        id: 'PE',
+        accessorFn: (r) => r.pe_ratio ?? -Infinity,
+        header: 'PE',
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatOptional(row.original.pe_ratio, 1)}
+          </span>
+        ),
+      },
+      {
+        id: 'PB',
+        accessorKey: 'pb_ratio',
+        header: 'PB',
+        cell: ({ row }) => (
+          <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatPrice(row.original.pb_ratio)}
+          </span>
+        ),
+      },
+      {
+        id: '殖利率%',
+        accessorFn: (r) => r.dividend_yield ?? -Infinity,
+        header: '殖利率%',
+        cell: ({ row }) => (
+          <span className="tabular-nums font-semibold" style={{ color: 'var(--primary)' }}>
+            {formatOptional(row.original.dividend_yield, 2)}%
+          </span>
+        ),
+      },
+    ],
+    []
+  )
 
   return (
     <div>
@@ -213,51 +402,17 @@ export default function ScreenerPage() {
             </h3>
             <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{data.date}</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: 'var(--secondary)' }}>
-                  {['排名', '代號', '總分', '評級', '價值', '成長', '動能', '籌碼', '品質', '風險', 'PE', '營收YoY'].map(h => (
-                    <th key={h} className="text-left py-2 px-4 whitespace-nowrap" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.stocks.map((row, i) => (
-                  <tr
-                    key={row.stock_id}
-                    onClick={() => router.push(`/stock/${row.stock_id}`)}
-                    style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                    className="hover:opacity-80"
-                  >
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
-                    <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{row.stock_id}</td>
-                    <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: 'var(--foreground)' }}>
-                      {formatOptional(row.total_score, 1)}
-                    </td>
-                    <td className="py-2 px-4">
-                      <span
-                        className="inline-flex min-w-7 justify-center rounded px-1.5 py-0.5 text-xs font-bold"
-                        style={{ background: 'var(--secondary)', color: ratingColor(row.rating), border: '1px solid var(--border)' }}
-                      >
-                        {row.rating}
-                      </span>
-                    </td>
-                    {(['value', 'growth', 'momentum', 'chip', 'quality', 'risk'] as ScoreComponentKey[]).map((key) => (
-                      <td key={key} className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {formatOptional(row.component_scores[key], 0)}
-                      </td>
-                    ))}
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                      {formatOptional(row.key_metrics.pe_ratio, 1)}
-                    </td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                      {formatOptional(row.key_metrics.revenue_yoy, 1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="p-4">
+            <DataTable
+              columns={quantColumns}
+              data={quantRows}
+              searchable
+              searchPlaceholder="搜尋代號 / 評級..."
+              exportable
+              exportFilename="量化排行"
+              pageSize={20}
+              emptyMessage="無符合條件的股票"
+            />
           </div>
         </div>
       ) : data && data.stocks.length > 0 && isValueResponse(data) ? (
@@ -271,35 +426,17 @@ export default function ScreenerPage() {
             </h3>
             <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{data.date}</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: 'var(--secondary)' }}>
-                  {['排名', '代號', '名稱', '現價', 'PE', 'PB', '殖利率%'].map(h => (
-                    <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.stocks.map((row, i) => (
-                  <tr
-                    key={row.stock_id}
-                    style={{ borderBottom: '1px solid var(--border)' }}
-                    className="hover:opacity-80"
-                  >
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>{i + 1}</td>
-                    <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{row.stock_id}</td>
-                    <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{row.name ?? '—'}</td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatPrice(row.price)}</td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatOptional(row.pe_ratio, 1)}</td>
-                    <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatPrice(row.pb_ratio)}</td>
-                    <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: 'var(--primary)' }}>
-                      {formatOptional(row.dividend_yield, 2)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="p-4">
+            <DataTable
+              columns={valueColumns}
+              data={valueRows}
+              searchable
+              searchPlaceholder="搜尋代號 / 名稱..."
+              exportable
+              exportFilename="選股篩選結果"
+              pageSize={20}
+              emptyMessage="無符合條件的股票"
+            />
           </div>
         </div>
       ) : data ? (
