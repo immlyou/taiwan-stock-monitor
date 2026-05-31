@@ -1053,7 +1053,7 @@ class XGBoostStockPicker:
             if sid not in close_df.columns:
                 continue
 
-            close   = close_df[sid].reindex(feats.index).fillna(method="ffill")
+            close   = close_df[sid].reindex(feats.index).ffill()
             fut_ret = close.pct_change(self.FORWARD_DAYS).shift(-self.FORWARD_DAYS)
 
             avail = len(feats) - self.FORWARD_DAYS
