@@ -21,6 +21,7 @@ interface NewsItem {
   publishedAt: string
   url: string
   category: string
+  sentiment?: string
 }
 
 interface NewsApiResponse {
@@ -116,6 +117,23 @@ function SentimentBadge({ sentiment }: { sentiment: HotStock['sentiment'] }) {
   return (
     <span
       className="text-xs px-1.5 py-0.5 rounded font-medium"
+      style={{ color, border: `1px solid ${color}`, background: `${color}18` }}
+    >
+      {label}
+    </span>
+  )
+}
+
+function NewsSentimentBadge({ sentiment }: { sentiment?: string }) {
+  const map: Record<string, { label: string; color: string }> = {
+    positive: { label: '利多', color: 'var(--stock-up)' },
+    negative: { label: '利空', color: 'var(--stock-down)' },
+    neutral: { label: '中性', color: 'var(--stock-flat)' },
+  }
+  const { label, color } = map[sentiment ?? 'neutral'] ?? map.neutral
+  return (
+    <span
+      className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
       style={{ color, border: `1px solid ${color}`, background: `${color}18` }}
     >
       {label}
@@ -268,9 +286,12 @@ export default function MorningReportPage() {
                       rel="noopener noreferrer"
                       className="block px-5 py-4 transition-colors hover:bg-white/5"
                     >
-                      <p className="text-sm font-medium line-clamp-2" style={{ color: 'var(--foreground)' }}>
-                        {item.title}
-                      </p>
+                      <div className="flex items-start gap-2">
+                        <p className="text-sm font-medium line-clamp-2 flex-1 min-w-0" style={{ color: 'var(--foreground)' }}>
+                          {item.title}
+                        </p>
+                        <NewsSentimentBadge sentiment={item.sentiment} />
+                      </div>
                       <div className="flex items-center gap-3 mt-1.5">
                         <span className="text-xs" style={{ color: 'var(--primary)' }}>
                           {item.source}

@@ -6,6 +6,7 @@ import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { DataTable } from '@/components/shared/DataTable'
+import { Sparkline } from '@/components/shared/Sparkline'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Tooltip,
@@ -30,6 +31,7 @@ interface Holding {
   current_value?: number
   pnl?: number
   pnl_pct?: number
+  price_history?: number[]
 }
 
 interface PortfolioSummary {
@@ -150,6 +152,7 @@ interface PositionRow {
   market_value: number
   pnl: number
   pnl_pct: number
+  price_history: number[]
 }
 
 const positionColumns: ColumnDef<PositionRow, unknown>[] = [
@@ -211,6 +214,18 @@ const positionColumns: ColumnDef<PositionRow, unknown>[] = [
     ),
   },
   {
+    id: 'price_history',
+    header: () => <HeaderLabel label="走勢" hint="近 30 個交易日收盤價走勢" />,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const history = row.original.price_history ?? []
+      if (history.length < 2) {
+        return <span style={{ color: 'var(--muted-foreground)' }}>—</span>
+      }
+      return <Sparkline data={history} autoColor />
+    },
+  },
+  {
     accessorKey: 'pnl',
     header: () => (
       <HeaderLabel label="損益(%)" hint="未實現損益金額與報酬率＝（現價 − 成本）× 股數" />
@@ -247,6 +262,7 @@ export default function DashboardPage() {
       market_value: h.current_value ?? h.shares * h.cost_price,
       pnl: h.pnl ?? 0,
       pnl_pct: h.pnl_pct ?? 0,
+      price_history: h.price_history ?? [],
     }
   })
   const widgets = (dashboardConfig?.widgets ?? []).filter((widget) => widget.enabled).sort((a, b) => a.order - b.order)

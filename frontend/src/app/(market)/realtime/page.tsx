@@ -9,6 +9,8 @@ import {
   formatPercent,
   formatChange,
   formatPrice,
+  formatVolume,
+  formatVolumeValue,
   getChangeColorVar,
 } from '@/lib/utils/format'
 import type { MarketSummary } from '@/lib/types'
@@ -18,6 +20,8 @@ interface RealtimeQuote {
   name: string
   price: number
   change_pct: number
+  volume?: number
+  amount?: number
 }
 
 interface BatchQuoteResponse {
@@ -75,7 +79,7 @@ function useMarketIndex() {
 function QuoteRowSkeleton() {
   return (
     <tr>
-      {[...Array(4)].map((_, i) => (
+      {[...Array(6)].map((_, i) => (
         <td key={i} className="px-4 py-3">
           <Skeleton className="h-4 w-14" style={{ background: 'var(--secondary)' }} />
         </td>
@@ -183,7 +187,7 @@ export default function RealtimePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['代號', '名稱', '現價', '漲跌幅'].map(
+                  {['代號', '名稱', '現價', '漲跌幅', '成交量', '成交金額'].map(
                     (h) => (
                       <th
                         key={h}
@@ -227,12 +231,24 @@ export default function RealtimePage() {
                         >
                           {formatPercent(q.change_pct, 2, true)}
                         </td>
+                        <td
+                          className="px-4 py-3 tabular-nums"
+                          style={{ color: 'var(--muted-foreground)' }}
+                        >
+                          {q.volume != null ? formatVolume(q.volume) : '—'}
+                        </td>
+                        <td
+                          className="px-4 py-3 tabular-nums"
+                          style={{ color: 'var(--muted-foreground)' }}
+                        >
+                          {q.amount != null ? formatVolumeValue(q.amount) : '—'}
+                        </td>
                       </tr>
                     ))
                   : null}
                 {!isLoading && !data?.quotes?.length && (
                   <tr>
-                    <td colSpan={4}>
+                    <td colSpan={6}>
                       <EmptyState
                         title="暫無自選股報價"
                         description="尚未設定任何自選股"
