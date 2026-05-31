@@ -5,7 +5,7 @@ import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { formatPrice, formatPercent } from '@/lib/utils/format'
+import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/format'
 
 interface Prediction {
   id: string
@@ -147,7 +147,7 @@ export default function PredictionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: 'var(--secondary)' }}>
-                  {['代號', '名稱', '方向', '目標價', '現價', '目標日期', '建立日期', '狀態', '實際價', '操作'].map(h => (
+                  {['代號', '名稱', '方向', '目標價', '現價', '目標價差', '目標日期', '建立日期', '狀態', '實際價', '操作'].map(h => (
                     <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
                   ))}
                 </tr>
@@ -155,6 +155,7 @@ export default function PredictionsPage() {
               <tbody>
                 {predictions.map((p) => {
                   const st = STATUS_LABELS[p.status] ?? { label: p.status, color: 'var(--foreground)' }
+                  const gapPct = p.currentPrice ? ((p.targetPrice - p.currentPrice) / p.currentPrice) * 100 : 0
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td className="py-2 px-4 font-medium" style={{ color: 'var(--primary)' }}>{p.code}</td>
@@ -170,6 +171,9 @@ export default function PredictionsPage() {
                       </td>
                       <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
                         {formatPrice(p.currentPrice)}
+                      </td>
+                      <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: getChangeColorVar(gapPct) }}>
+                        {formatPercent(gapPct, 2, true)}
                       </td>
                       <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{p.targetDate}</td>
                       <td className="py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{p.createdAt.slice(0, 10)}</td>

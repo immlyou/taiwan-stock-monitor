@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { formatPrice, formatCurrency } from '@/lib/utils/format'
 
 interface JournalEntry {
   id: string
@@ -53,8 +54,17 @@ function renderInline(text: string): React.ReactNode {
   )
 }
 
+const FILTER_CHIPS: { key: string; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'buy', label: ACTION_LABELS.buy.label },
+  { key: 'sell', label: ACTION_LABELS.sell.label },
+  { key: 'add', label: ACTION_LABELS.add.label },
+  { key: 'reduce', label: ACTION_LABELS.reduce.label },
+]
+
 export default function JournalPage() {
   const [limit] = useState(50)
+  const [actionFilter, setActionFilter] = useState<string>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -71,6 +81,10 @@ export default function JournalPage() {
 
   const swrKey = `${SWR_KEY_BASE}?limit=${limit}`
   const { data, isLoading, error } = useSWR<JournalResponse>(swrKey, fetchAPI)
+
+  const filteredEntries = (data?.entries ?? []).filter(
+    (e) => actionFilter === 'all' || e.action === actionFilter
+  )
 
   const handleCreate = async () => {
     if (!form.stock_id.trim()) return
@@ -119,7 +133,7 @@ export default function JournalPage() {
   }
 
   const estimatedAmount = form.shares && form.price
-    ? (Number(form.shares) * 1000 * Number(form.price)).toLocaleString()
+    ? formatCurrency(Number(form.shares) * 1000 * Number(form.price), { compact: true })
     : '—'
 
   return (
@@ -149,11 +163,35 @@ export default function JournalPage() {
           ))}
         </div>
       ) : (
-        <div
-          className="rounded-lg overflow-hidden mb-4"
-          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-        >
+        <>
+          {data && data.entries.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {FILTER_CHIPS.map((chip) => {
+                const active = actionFilter === chip.key
+                const chipColor = ACTION_LABELS[chip.key]?.color ?? 'var(--foreground)'
+                return (
+                  <button
+                    key={chip.key}
+                    onClick={() => setActionFilter(chip.key)}
+                    className="h-8 px-3 rounded-full text-xs font-medium border"
+                    style={{
+                      background: active ? chipColor : 'var(--secondary)',
+                      color: active ? '#fff' : 'var(--foreground)',
+                      borderColor: active ? chipColor : 'var(--border)',
+                    }}
+                  >
+                    {chip.label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div
+            className="rounded-lg overflow-hidden mb-4"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
           {data && data.entries.length > 0 ? (
+            filteredEntries.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -164,7 +202,7 @@ export default function JournalPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.entries.map((e) => {
+                  {filteredEntries.map((e) => {
                     const actionInfo = ACTION_LABELS[e.action] ?? { label: e.action, color: 'var(--foreground)' }
                     const amount = e.shares && e.price ? e.shares * 1000 * e.price : null
                     return (
@@ -174,10 +212,10 @@ export default function JournalPage() {
                         <td className="py-2 px-4 font-semibold" style={{ color: actionInfo.color }}>{actionInfo.label}</td>
                         <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{e.shares ?? '—'}</td>
                         <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {e.price != null ? e.price.toFixed(2) : '—'}
+                          {e.price != null ? formatPrice(e.price) : '—'}
                         </td>
                         <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                          {amount != null ? `${(amount / 1e4).toFixed(1)} 萬` : '—'}
+                          {amount != null ? formatCurrency(amount, { compact: true }) : '—'}
                         </td>
                         <td className="py-2 px-4 max-w-32 truncate" style={{ color: 'var(--muted-foreground)' }}>
                           {e.note || '—'}
@@ -197,12 +235,18 @@ export default function JournalPage() {
                 </tbody>
               </table>
             </div>
+            ) : (
+              <div className="p-12 text-center">
+                <p style={{ color: 'var(--muted-foreground)' }}>此分類無交易記錄</p>
+              </div>
+            )
           ) : (
             <div className="p-12 text-center">
               <p style={{ color: 'var(--muted-foreground)' }}>尚無交易記錄</p>
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
 
       {/* 新增 Dialog */}

@@ -311,7 +311,7 @@ function StockGrid({
               {stock.name}
             </span>
             <span style={{ color: 'color-mix(in srgb, var(--foreground) 90%, transparent)', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textShadow: '0 1px 2px rgba(0,0,0,0.4)' }}>
-              {formatPercent(stock.change_pct)}
+              {formatPercent(stock.change_pct, 2, true)}
             </span>
             <span style={{ color: 'color-mix(in srgb, var(--foreground) 60%, transparent)', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
               ${formatCurrency(stock.price ?? 0)}
@@ -350,7 +350,7 @@ function StockGrid({
               fontVariantNumeric: 'tabular-nums',
               filter: 'brightness(1.5)',
             }}>
-              {formatPercent(tooltip.stock.change_pct)}
+              {formatPercent(tooltip.stock.change_pct, 2, true)}
             </span>
           </div>
         </div>

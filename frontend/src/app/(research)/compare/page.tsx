@@ -3,8 +3,10 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
-import { getChangeColorVar } from '@/lib/utils/format'
+import { getChangeColorVar, formatPrice, formatPercent } from '@/lib/utils/format'
+import { CHART_SERIES } from '@/lib/constants/chartColors'
 import { StockInput } from '@/components/shared/StockInput'
+import { Sparkline } from '@/components/shared/Sparkline'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
@@ -42,7 +44,6 @@ function buildChartData(stocks: StockCompare[]) {
   })
 }
 
-const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6']
 const MAX_STOCKS = 5
 
 export default function ComparePage() {
@@ -109,7 +110,11 @@ export default function ComparePage() {
             <div
               key={code}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium"
-              style={{ background: COLORS[i] + '33', color: COLORS[i], border: `1px solid ${COLORS[i]}55` }}
+              style={{
+                background: `color-mix(in srgb, ${CHART_SERIES[i % CHART_SERIES.length]} 20%, transparent)`,
+                color: CHART_SERIES[i % CHART_SERIES.length],
+                border: `1px solid color-mix(in srgb, ${CHART_SERIES[i % CHART_SERIES.length]} 35%, transparent)`,
+              }}
             >
               {code}
               <button
@@ -181,7 +186,7 @@ export default function ComparePage() {
                     key={s.stock_id}
                     type="monotone"
                     dataKey={s.stock_id}
-                    stroke={COLORS[i]}
+                    stroke={CHART_SERIES[i % CHART_SERIES.length]}
                     dot={false}
                     strokeWidth={2}
                     name={`${s.stock_id} ${s.name}`}
@@ -203,7 +208,7 @@ export default function ComparePage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: 'var(--secondary)' }}>
-                    {['股票', '基期價', '最新價', '總報酬'].map(h => (
+                    {['股票', '基期價', '最新價', '總報酬', '走勢'].map(h => (
                       <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
                     ))}
                   </tr>
@@ -211,18 +216,21 @@ export default function ComparePage() {
                 <tbody>
                   {data.stocks.map((s, i) => (
                     <tr key={s.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td className="py-2 px-4 font-medium" style={{ color: COLORS[i] }}>
+                      <td className="py-2 px-4 font-medium" style={{ color: CHART_SERIES[i % CHART_SERIES.length] }}>
                         {s.stock_id}
                         <span className="ml-1 text-xs" style={{ color: 'var(--muted-foreground)' }}>{s.name}</span>
                       </td>
                       <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {s.base_price.toFixed(2)}
+                        {formatPrice(s.base_price)}
                       </td>
                       <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {s.latest_price.toFixed(2)}
+                        {formatPrice(s.latest_price)}
                       </td>
                       <td className="py-2 px-4 tabular-nums font-semibold" style={{ color: getChangeColorVar(s.total_return_pct) }}>
-                        {s.total_return_pct > 0 ? '+' : ''}{s.total_return_pct.toFixed(2)}%
+                        {formatPercent(s.total_return_pct, 2, true)}
+                      </td>
+                      <td className="py-2 px-4">
+                        <Sparkline data={s.data.map(d => d.normalized)} autoColor />
                       </td>
                     </tr>
                   ))}

@@ -6,6 +6,12 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
   formatPrice,
   formatCurrency,
   formatPercent,
@@ -102,12 +108,15 @@ function useDashboard() {
   return { detail, isLoading, isError, hasPortfolio: !!portfolioId }
 }
 
+// 各欄位差異化骨架寬度：代號 / 名稱 / 持股 / 成本價 / 現價 / 市值 / 損益(%)
+const POSITION_SKELETON_WIDTHS = ['w-12', 'w-24', 'w-16', 'w-16', 'w-16', 'w-20', 'w-20']
+
 function PositionRowSkeleton() {
   return (
     <tr>
-      {[...Array(7)].map((_, i) => (
+      {POSITION_SKELETON_WIDTHS.map((w, i) => (
         <td key={i} className="px-4 py-3">
-          <Skeleton className="h-4 w-16" style={{ background: 'var(--secondary)' }} />
+          <Skeleton className={`h-4 ${w}`} style={{ background: 'var(--secondary)' }} />
         </td>
       ))}
     </tr>
@@ -251,20 +260,38 @@ export default function DashboardPage() {
               </h2>
             </div>
             <div className="overflow-x-auto">
+              <TooltipProvider delayDuration={150}>
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['代號', '名稱', '持股(張)', '成本價', '現價', '市值', '損益(%)'].map(
-                      (h) => (
-                        <th
-                          key={h}
-                          className="px-4 py-2 text-left font-medium"
-                          style={{ color: 'var(--muted-foreground)' }}
-                        >
-                          {h}
-                        </th>
-                      )
-                    )}
+                    {[
+                      { label: '代號' },
+                      { label: '名稱' },
+                      { label: '持股(張)' },
+                      { label: '成本價', hint: '買進時的每股平均成本（元）' },
+                      { label: '現價', hint: '目前最新成交價（元），相對成本以紅漲綠跌標示' },
+                      { label: '市值', hint: '目前持股的總市場價值＝現價 × 股數' },
+                      { label: '損益(%)', hint: '未實現損益金額與報酬率＝（現價 − 成本）× 股數' },
+                    ].map((h) => (
+                      <th
+                        key={h.label}
+                        className="px-4 py-2 text-left font-medium"
+                        style={{ color: 'var(--muted-foreground)' }}
+                      >
+                        {h.hint ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help border-b border-dotted border-[var(--border)]">
+                                {h.label}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{h.hint}</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          h.label
+                        )}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -343,6 +370,7 @@ export default function DashboardPage() {
                   )}
                 </tbody>
               </table>
+              </TooltipProvider>
             </div>
           </div>
         </>

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
-import { getChangeColorVar } from '@/lib/utils/format'
+import { getChangeColorVar, formatPercent } from '@/lib/utils/format'
 
 interface WatchlistStock {
   stock_id: string
@@ -163,7 +163,7 @@ export default function WatchlistPage() {
                     className="text-sm font-semibold tabular-nums"
                     style={{ color: getChangeColorVar(item.change_pct) }}
                   >
-                    {item.change_pct > 0 ? '+' : ''}{item.change_pct.toFixed(2)}%
+                    {formatPercent(item.change_pct, 2, true)}
                   </span>
                 )}
               </div>

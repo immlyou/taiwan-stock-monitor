@@ -109,7 +109,7 @@ function AiPickList({
               className="text-xs tabular-nums w-5 text-center font-semibold"
               style={{ color: 'var(--muted-foreground)' }}
             >
-              {i + 1}
+              {i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}
             </span>
             <span className="font-mono font-semibold text-sm" style={{ color: 'var(--primary)' }}>
               {stock.stock_id}
@@ -149,9 +149,12 @@ function StockRankTable({
         </div>
       ) : (
         <div className="p-3 space-y-2">
-          {stocks.slice(0, 10).map((s) => (
+          {stocks.slice(0, 10).map((s, i) => (
             <div key={s.stock_id} className="flex items-center justify-between">
               <span className="text-xs">
+                {i < 3 && (
+                  <span className="mr-1">{['🥇', '🥈', '🥉'][i]}</span>
+                )}
                 <span className="font-mono font-semibold" style={{ color: 'var(--primary)' }}>
                   {s.stock_id}
                 </span>
@@ -428,6 +431,7 @@ export default function AfterHoursPage() {
             <button
               onClick={handleGenerateSummary}
               disabled={aiLoading}
+              aria-busy={aiLoading}
               className="w-full py-3 px-4 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-60"
               style={{
                 background: 'var(--primary)',
