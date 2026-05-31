@@ -117,14 +117,23 @@ export function ScreenshotImportDialog({ open, onClose, mode, title, onConfirm, 
         {items.length > 0 && mode === 'codes' && (
           <div className="flex flex-wrap gap-2 mt-2">
             {items.map((h, i) => (
-              <button key={`${h.stock_id}-${i}`}
-                onClick={() => { if (onPickOne) { onPickOne(h.stock_id); close() } }}
-                className="px-2.5 py-1 rounded-full text-sm flex items-center gap-1.5"
-                style={{ background: 'var(--secondary)', border: '1px solid var(--border)', color: 'var(--foreground)', cursor: onPickOne ? 'pointer' : 'default' }}>
-                <span className="font-mono" style={{ color: 'var(--primary)' }}>{h.stock_id}</span>
-                <span style={{ color: 'var(--muted-foreground)' }}>{h.name}</span>
-                {!onPickOne && <span onClick={(e) => { e.stopPropagation(); remove(i) }} aria-label="移除" style={{ color: 'var(--muted-foreground)' }}>✕</span>}
-              </button>
+              <span key={`${h.stock_id}-${i}`} className="px-2.5 py-1 rounded-full text-sm flex items-center gap-1.5"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
+                {onPickOne ? (
+                  <button type="button" onClick={() => { onPickOne(h.stock_id); close() }}
+                    className="flex items-center gap-1.5" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+                    <span className="font-mono" style={{ color: 'var(--primary)' }}>{h.stock_id}</span>
+                    <span style={{ color: 'var(--muted-foreground)' }}>{h.name}</span>
+                  </button>
+                ) : (
+                  <>
+                    <span className="font-mono" style={{ color: 'var(--primary)' }}>{h.stock_id}</span>
+                    <span style={{ color: 'var(--muted-foreground)' }}>{h.name}</span>
+                    <button type="button" onClick={() => remove(i)} aria-label={`移除 ${h.stock_id}`}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted-foreground)' }}>✕</button>
+                  </>
+                )}
+              </span>
             ))}
           </div>
         )}

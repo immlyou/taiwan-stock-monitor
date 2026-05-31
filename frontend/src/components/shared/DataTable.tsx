@@ -92,7 +92,8 @@ function exportToCsv<T>(
 ): void {
   const headers = columns.map((col, i) => getColumnLabel(col, i))
 
-  const rows = table.getFilteredRowModel().rows.map((row) =>
+  // 匯出目前「過濾 + 排序後」的所有列，與畫面顯示順序一致
+  const rows = table.getSortedRowModel().rows.map((row) =>
     row.getVisibleCells().map((cell) => {
       const value = cell.getValue()
       return escapeCsvField(value)

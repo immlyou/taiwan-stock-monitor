@@ -60,16 +60,31 @@ def analyze_portfolio(
     def get_row(sid: str):
         return table.loc[sid] if sid in table.index else None
 
+    # 先依 stock_id 合併重複持股（股數相加、成本以股數加權平均），避免賣出/proposed 計算錯誤
+    merged_in: Dict[str, Dict[str, float]] = {}
+    for h in holdings:
+        sid = str(h.get("stock_id", "")).strip()
+        if not sid:
+            continue
+        sh = _num(h.get("shares")) or 0.0
+        cp = _num(h.get("cost_price")) or 0.0
+        if sid in merged_in:
+            m = merged_in[sid]
+            tot = m["shares"] + sh
+            m["cost_price"] = ((m["shares"] * m["cost_price"]) + (sh * cp)) / tot if tot > 0 else 0.0
+            m["shares"] = tot
+        else:
+            merged_in[sid] = {"shares": sh, "cost_price": cp}
+
     # ── 持股健檢 ──
     enriched: List[Dict[str, Any]] = []
     total_value = 0.0
-    for h in holdings:
-        sid = str(h.get("stock_id", ""))
-        shares = _num(h.get("shares")) or 0.0
+    for sid, m in merged_in.items():
+        shares = m["shares"]
         r = get_row(sid)
         price = _num(r.get("latest_price")) if r is not None else None
         if price is None:
-            price = _num(h.get("cost_price")) or 0.0
+            price = m["cost_price"]
         value = shares * price
         total_value += value
         score = _num(r.get("total_score")) if r is not None else None
@@ -77,6 +92,7 @@ def analyze_portfolio(
             "stock_id": sid,
             "name": name_map.get(sid, "") or (r.get("name") if r is not None else "") or "",
             "shares": shares,
+            "cost_price": m["cost_price"],
             "price": round(price, 2),
             "value": round(value, 2),
             "score": round(score, 1) if score is not None else None,
@@ -125,15 +141,23 @@ def analyze_portfolio(
                 break
         if picks:
             score_sum = sum(float(r["total_score"]) for _, r in picks) or 1.0
+            remaining = deploy
             for sid, r in picks:
+                if remaining <= 0:
+                    break
                 w = float(r["total_score"]) / score_sum
                 price = _num(r.get("latest_price")) or 0.0
                 if price <= 0:
                     continue
-                shares = round(deploy * w / price)
+                # 以「分數加權目標」與「剩餘現金」取小者，floor 取整股數 → 不會超買
+                budget_for = min(deploy * w, remaining)
+                shares = int(budget_for // price)
                 if shares <= 0:
                     continue
                 amt = shares * price
+                if amt > remaining:
+                    continue
+                remaining -= amt
                 sc = round(float(r["total_score"]), 1)
                 buys.append({
                     "stock_id": sid, "name": name_map.get(sid, "") or "",
@@ -142,43 +166,78 @@ def analyze_portfolio(
                     "reason": f"量化評分 {round(sc)}（{r.get('rating')}），依分數加權配置",
                 })
 
+            # 第二輪：把剩餘現金貪婪投入仍買得起的最高分標的（避免小額資金閒置；仍嚴格不超買）
+            by_sid = {b["stock_id"]: b for b in buys}
+            progressed = True
+            while remaining > 0 and progressed:
+                progressed = False
+                for sid, r in picks:  # picks 已依分數由高到低排序
+                    price = _num(r.get("latest_price")) or 0.0
+                    if price <= 0 or price > remaining:
+                        continue
+                    remaining -= price
+                    progressed = True
+                    if sid in by_sid:
+                        b = by_sid[sid]
+                        b["shares"] += 1
+                        b["amount"] = round(b["amount"] + price)
+                    else:
+                        sc = round(float(r["total_score"]), 1)
+                        b = {
+                            "stock_id": sid, "name": name_map.get(sid, "") or "",
+                            "shares": 1, "amount": round(price),
+                            "score": sc, "rating": r.get("rating"),
+                            "reason": f"量化評分 {round(sc)}（{r.get('rating')}），剩餘資金加碼",
+                        }
+                        buys.append(b)
+                        by_sid[sid] = b
+                    if remaining <= 0:
+                        break
+
     deployed = sum(b["amount"] for b in buys)
-    cash_after = round(freed - deployed)
+    # 剩餘現金 = 投入新資金 + 賣出套現 − 已部署買進
+    cash_after = round(deploy + freed - deployed)
 
-    # ── 達標可行性 ──
-    feasibility = None
-    exp_ret = _expected_annual_return(avg_score if avg_score > 0 else 50.0, cfg["exp_factor"])
-    if target_roi is not None:
-        t = float(target_roi)
-        if t <= exp_ret:
-            verdict = "可行"
-        elif t <= exp_ret * 1.5:
-            verdict = "具挑戰"
-        else:
-            verdict = "偏高"
-        feasibility = {
-            "target_roi": t,
-            "estimated_annual_return": exp_ret,
-            "verdict": verdict,
-            "note": (
-                f"依目前持股量化評分推估年化報酬約 {exp_ret}%（非保證），"
-                f"集中度{concentration}、風險偏好「{risk_tolerance}」。"
-                f"目標 {t}% 評為「{verdict}」。"
-                + ("　達標需提高持股評分或承擔更高波動。" if verdict != "可行" else "")
-            ),
-        }
-
-    # ── 套用用的新 holdings（賣出減股、買入新增）──
+    # ── 套用用的新 holdings（由合併後 enriched 減去賣出、加上買入）──
     proposed: List[Dict[str, Any]] = []
     sell_map = {s["stock_id"]: s["shares"] for s in sells}
-    for h in holdings:
-        sid = str(h.get("stock_id", ""))
-        shares = int((_num(h.get("shares")) or 0) - sell_map.get(sid, 0))
+    for e in enriched:
+        sid = e["stock_id"]
+        shares = int(round(e["shares"]) - sell_map.get(sid, 0))
         if shares > 0:
-            proposed.append({"stock_id": sid, "shares": shares, "cost_price": _num(h.get("cost_price")) or 0.0})
+            proposed.append({"stock_id": sid, "shares": shares, "cost_price": round(e["cost_price"], 2)})
     for b in buys:
         cost = round(b["amount"] / b["shares"], 2) if b["shares"] else 0.0
         proposed.append({"stock_id": b["stock_id"], "shares": b["shares"], "cost_price": cost})
+
+    # ── 達標可行性（以「交易後」投組評分加權推估，含計畫買進）──
+    feasibility = None
+    if target_roi is not None:
+        pw_score = 0.0
+        pw_val = 0.0
+        for ph in proposed:
+            r2 = get_row(ph["stock_id"])
+            sc2 = _num(r2.get("total_score")) if r2 is not None else None
+            pr2 = _num(r2.get("latest_price")) if r2 is not None else ph.get("cost_price")
+            v2 = ph["shares"] * (pr2 or 0)
+            if sc2 is not None and v2 > 0:
+                pw_score += sc2 * v2
+                pw_val += v2
+        post_avg = (pw_score / pw_val) if pw_val > 0 else (avg_score if avg_score > 0 else 50.0)
+        exp_ret = _expected_annual_return(post_avg, cfg["exp_factor"])
+        t = float(target_roi)
+        verdict = "可行" if t <= exp_ret else "具挑戰" if t <= exp_ret * 1.5 else "偏高"
+        feasibility = {
+            "target_roi": t,
+            "estimated_annual_return": exp_ret,
+            "post_trade_avg_score": round(post_avg, 1),
+            "verdict": verdict,
+            "note": (
+                f"依「交易後」投組量化評分（市值加權平均 {round(post_avg, 1)}）推估年化報酬約 {exp_ret}%（非保證），"
+                f"集中度{concentration}、風險偏好「{risk_tolerance}」。目標 {t}% 評為「{verdict}」。"
+                + ("　達標需提高持股評分或承擔更高波動。" if verdict != "可行" else "")
+            ),
+        }
 
     return {
         "health": {
@@ -301,20 +360,23 @@ def extract_holdings_from_image(image_base64: str, media_type: str = "image/png"
         import json as _json
         data = _json.loads(text)
         raw = data.get("holdings", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-        clean: List[Dict[str, Any]] = []
+        import re as _re
+        valid_sid = _re.compile(r"^[0-9]{4,6}[A-Z]?$")  # 台股代號：4-6 位數字 + 可選一位字母（如 0050/00878/2330/2891B）
+        by_sid: Dict[str, Dict[str, Any]] = {}
         for h in raw:
             if not isinstance(h, dict):
                 continue
-            sid = str(h.get("stock_id", "")).strip()
-            if not sid:
-                continue
-            clean.append({
-                "stock_id": sid,
-                "name": str(h.get("name", "") or ""),
-                "shares": _num(h.get("shares")) or 0.0,
-                "cost_price": _num(h.get("cost_price")) or 0.0,
-            })
-        return {"holdings": clean, "error": None if clean else "未從截圖辨識出持股"}
+            sid = str(h.get("stock_id", "")).strip().upper()
+            if not valid_sid.match(sid):
+                continue  # 過濾非法/非台股代號
+            sh = max(0.0, _num(h.get("shares")) or 0.0)        # 非負
+            cp = max(0.0, _num(h.get("cost_price")) or 0.0)    # 非負
+            if sid in by_sid:
+                by_sid[sid]["shares"] += sh                     # 同代號去重累加
+            else:
+                by_sid[sid] = {"stock_id": sid, "name": str(h.get("name", "") or ""), "shares": sh, "cost_price": cp}
+        clean = list(by_sid.values())
+        return {"holdings": clean, "error": None if clean else "未從截圖辨識出持股（或代號格式不符）"}
     except Exception as e:  # noqa: BLE001
         logger.error("持股截圖擷取失敗: %s", e)
         return {"holdings": [], "error": str(e)}

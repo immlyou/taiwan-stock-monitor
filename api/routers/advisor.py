@@ -8,6 +8,8 @@ POST /advisor/analyze — 資深操盤人投資顧問：
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -45,11 +47,28 @@ class AdvisorRequest(BaseModel):
     horizon_months: int = Field(default=12, ge=1, le=120, description="投資期限(月)")
 
 
+_ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+_MAX_IMAGE_BYTES = 6_000_000  # 6MB（Claude Vision 單圖上限約 5MB，留緩衝）
+
+
 @router.post("/advisor/extract-holdings")
 async def advisor_extract_holdings(req: ExtractHoldingsRequest) -> Dict[str, Any]:
     """從持股截圖（base64）以 Claude Vision 擷取持股清單，供顧問分析使用。不碰 FinLab。"""
+    # 輸入驗證：限制 MIME、解碼大小、拒絕非法 base64（避免把任意/超大內容送給 Vision）
+    media_type = "image/jpeg" if req.media_type == "image/jpg" else req.media_type
+    if media_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=422, detail=f"不支援的圖片類型: {req.media_type}（僅 png/jpeg/webp/gif）")
+    try:
+        decoded = base64.b64decode(req.image_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=422, detail="image_base64 不是有效的 base64")
+    if not decoded:
+        raise HTTPException(status_code=422, detail="空圖片")
+    if len(decoded) > _MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail=f"圖片過大（>{_MAX_IMAGE_BYTES // 1_000_000}MB），請壓縮後再上傳")
+
     loop = asyncio.get_event_loop()
-    res = await loop.run_in_executor(None, lambda: extract_holdings_from_image(req.image_base64, req.media_type))
+    res = await loop.run_in_executor(None, lambda: extract_holdings_from_image(req.image_base64, media_type))
     if not res.get("holdings"):
         raise HTTPException(status_code=422, detail=f"擷取失敗: {res.get('error') or '未辨識出持股'}")
     return res
