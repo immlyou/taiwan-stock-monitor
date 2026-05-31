@@ -13,6 +13,7 @@
 | 服務 | 位址 |
 |---|---|
 | 前端 (Next.js on Vercel) | https://taiwan-stock-monitor.vercel.app |
+| 功能總覽（App 內導覽頁） | https://taiwan-stock-monitor.vercel.app/overview |
 | API Server (FastAPI on Railway) | https://taiwan-stock-api-production.up.railway.app |
 | API 文件 (Swagger UI) | https://taiwan-stock-api-production.up.railway.app/docs |
 
@@ -24,6 +25,20 @@
 - 投資組合、交易日誌、自選股與警報設定
 - 每日晨報、AI 智慧選股、AI 異常警報
 - MCP / REST / Function Calling / Python wrapper 對外整合
+
+近期新增：**AI 投資顧問**、**截圖匯入持股（Claude Vision）**、TanStack 資料表格、全域行情列、後端資料持久化等 —— 完整清單見 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+## 文件導覽
+
+| 文件 | 內容 |
+|---|---|
+| [`CHANGELOG.md`](./CHANGELOG.md) | **功能總覽 / 近期變更紀錄**（建議從這裡開始） |
+| App 內 `/overview` | 功能總覽頁（卡片式導覽；左側欄「✨ 功能總覽」捷徑） |
+| [`frontend/ADOPTABLE_FEATURES.md`](./frontend/ADOPTABLE_FEATURES.md) | 前端設計系統建構塊 + 可採用功能盤點 |
+| [`frontend/UI_AUDIT.md`](./frontend/UI_AUDIT.md) | 前端 UI/UX 審查清單 |
+| [`docs/UI_OPTIMIZATION_PLAN.md`](./docs/UI_OPTIMIZATION_PLAN.md) | Streamlit 版面優化計畫 |
+| [`docs/ROADMAP.md`](./docs/ROADMAP.md) | 產品 Roadmap |
+| [`openclaw_skill/INTEGRATION.md`](./openclaw_skill/INTEGRATION.md) | AI / 第三方整合指南 |
 
 ## 專案結構
 
