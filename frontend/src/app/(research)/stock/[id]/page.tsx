@@ -6,6 +6,7 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { StockInput } from '@/components/shared/StockInput'
+import { ScreenshotImportDialog } from '@/components/shared/ScreenshotImportDialog'
 import { formatPrice, formatPercent, formatChange, getChangeColorVar } from '@/lib/utils/format'
 import { ratingColor } from '@/lib/constants/chartColors'
 import {
@@ -164,6 +165,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const chatBottomRef = useRef<HTMLDivElement>(null)
 
   const { data: stock, isLoading: stockLoading } = useSWR<StockDetail>(
@@ -259,6 +261,19 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
             placeholder="切換股票：輸入代號或名稱"
             className="flex-1 max-w-sm"
           />
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            aria-label="截圖辨識個股"
+            className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-opacity hover:opacity-80"
+            style={{
+              background: 'var(--secondary)',
+              color: 'var(--foreground)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            📷 截圖辨識
+          </button>
         </div>
         <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>個股詳細分析</p>
       </div>
@@ -904,6 +919,18 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
           </button>
         </div>
       </div>
+
+      {/* 截圖辨識個股：codes 模式，點 chip 即跳轉該股分析 */}
+      <ScreenshotImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        mode="codes"
+        title="📷 截圖辨識個股"
+        onPickOne={(stockId) => {
+          setImportOpen(false)
+          router.push(`/stock/${stockId}`)
+        }}
+      />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
 import { getChangeColorVar } from '@/lib/utils/format'
 import {
   Dialog,
@@ -62,6 +63,7 @@ export default function PortfolioPage() {
   const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI)
   const { data: diagnostics } = useSWR<PortfolioDiagnostics>(`${SWR_KEY}/diagnostics`, fetchAPI)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [editHolding, setEditHolding] = useState<Holding | null>(null)
   const [deleteStockId, setDeleteStockId] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -150,6 +152,31 @@ export default function PortfolioPage() {
     setDeleteStockId(null)
   }
 
+  const handleImport = async (items: ImportedHolding[]) => {
+    if (!items.length) return
+    await ensurePortfolioExists()
+    const merged = (data?.holdings ?? []).map(h => ({
+      stock_id: h.stock_id,
+      shares: h.shares,
+      cost_price: h.cost_price,
+    }))
+    for (const item of items) {
+      const sid = item.stock_id.toUpperCase()
+      const idx = merged.findIndex(h => h.stock_id === sid)
+      if (idx >= 0) {
+        // 同 stock_id 累加股數、保留既有成本
+        merged[idx] = { ...merged[idx], shares: merged[idx].shares + item.shares }
+      } else {
+        merged.push({ stock_id: sid, shares: item.shares, cost_price: item.cost_price })
+      }
+    }
+    await fetchAPI(SWR_KEY, {
+      method: 'PUT',
+      body: JSON.stringify({ holdings: merged }),
+    })
+    await mutate(SWR_KEY)
+  }
+
   const summary = data?.summary
   const holdings = data?.holdings ?? []
 
@@ -160,13 +187,22 @@ export default function PortfolioPage() {
           <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>投資組合</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>持股明細與損益追蹤</p>
         </div>
-        <button
-          onClick={openAdd}
-          className="h-9 px-4 rounded-md text-sm font-medium"
-          style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-        >
-          新增持股
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setImportOpen(true)}
+            className="h-9 px-4 rounded-md text-sm font-medium"
+            style={{ background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
+          >
+            📷 截圖匯入
+          </button>
+          <button
+            onClick={openAdd}
+            className="h-9 px-4 rounded-md text-sm font-medium"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            新增持股
+          </button>
+        </div>
       </div>
 
       {error && !data ? (
@@ -427,6 +463,16 @@ export default function PortfolioPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 截圖匯入持股 */}
+      <ScreenshotImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        mode="holdings"
+        title="📷 截圖匯入持股"
+        confirmLabel="加入投組"
+        onConfirm={handleImport}
+      />
     </div>
   )
 }

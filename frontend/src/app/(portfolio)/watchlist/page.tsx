@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar, formatPercent } from '@/lib/utils/format'
+import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
 
 interface WatchlistStock {
   stock_id: string
@@ -28,6 +29,7 @@ export default function WatchlistPage() {
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
 
   const ensureWatchlistExists = async () => {
     try {
@@ -75,6 +77,19 @@ export default function WatchlistPage() {
     await mutate(SWR_KEY)
   }
 
+  const handleScreenshotImport = async (items: ImportedHolding[]) => {
+    const codes = items.map((i) => i.stock_id).filter(Boolean)
+    if (!codes.length) return
+    await ensureWatchlistExists()
+    const currentStocks = data?.stocks.map((s) => s.stock_id) ?? []
+    const merged = Array.from(new Set([...currentStocks, ...codes]))
+    await fetchAPI(SWR_KEY, {
+      method: 'PUT',
+      body: JSON.stringify({ stocks: merged }),
+    })
+    await mutate(SWR_KEY)
+  }
+
   const stocks = data?.stocks ?? []
 
   return (
@@ -106,6 +121,13 @@ export default function WatchlistPage() {
             style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
           >
             {adding ? '新增中...' : '新增自選'}
+          </button>
+          <button
+            onClick={() => setImportOpen(true)}
+            className="h-9 px-4 rounded-md text-sm font-medium whitespace-nowrap"
+            style={{ background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
+          >
+            📷 截圖匯入
           </button>
         </div>
         {addError && (
@@ -188,6 +210,15 @@ export default function WatchlistPage() {
           </p>
         </div>
       )}
+
+      <ScreenshotImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        mode="codes"
+        title="📷 截圖匯入自選股"
+        confirmLabel="加入自選"
+        onConfirm={handleScreenshotImport}
+      />
     </div>
   )
 }
