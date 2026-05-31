@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react'
 import useSWR, { mutate } from 'swr'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { fetchAPI } from '@/lib/api/client'
 import { formatPrice, formatCurrency } from '@/lib/utils/format'
 
@@ -31,26 +33,33 @@ const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   note: { label: '備注', color: 'var(--muted-foreground)' },
 }
 
-function renderMarkdown(text: string) {
-  return text.split('\n').map((line, i) => {
-    if (line.startsWith('### ')) return <h3 key={i} className="text-base font-semibold mt-4 mb-1" style={{ color: 'var(--foreground)' }}>{line.slice(4)}</h3>
-    if (line.startsWith('## ')) return <h2 key={i} className="text-lg font-bold mt-5 mb-2" style={{ color: 'var(--foreground)' }}>{line.slice(3)}</h2>
-    if (line.startsWith('# ')) return <h1 key={i} className="text-xl font-bold mt-6 mb-2" style={{ color: 'var(--foreground)' }}>{line.slice(2)}</h1>
-    if (line.startsWith('- ') || line.startsWith('* ')) {
-      const content = line.slice(2)
-      return <li key={i} className="ml-4 text-sm" style={{ color: 'var(--foreground)', listStyleType: 'disc' }}>{renderInline(content)}</li>
-    }
-    if (line.trim() === '') return <br key={i} />
-    return <p key={i} className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{renderInline(line)}</p>
-  })
+// 深色主題 Markdown 元件對應（取代脆弱的逐行手刻 renderMarkdown）
+const fg = { color: 'var(--foreground)' }
+const muted = { color: 'var(--muted-foreground)' }
+const MD_COMPONENTS = {
+  h1: (p: React.ComponentProps<'h1'>) => <h1 className="text-xl font-bold mt-5 mb-2" style={fg} {...p} />,
+  h2: (p: React.ComponentProps<'h2'>) => <h2 className="text-lg font-bold mt-4 mb-2" style={fg} {...p} />,
+  h3: (p: React.ComponentProps<'h3'>) => <h3 className="text-base font-semibold mt-3 mb-1" style={fg} {...p} />,
+  p: (p: React.ComponentProps<'p'>) => <p className="text-sm leading-relaxed my-2" style={fg} {...p} />,
+  ul: (p: React.ComponentProps<'ul'>) => <ul className="list-disc ml-5 my-2 space-y-1 text-sm" style={fg} {...p} />,
+  ol: (p: React.ComponentProps<'ol'>) => <ol className="list-decimal ml-5 my-2 space-y-1 text-sm" style={fg} {...p} />,
+  li: (p: React.ComponentProps<'li'>) => <li className="text-sm leading-relaxed" style={fg} {...p} />,
+  strong: (p: React.ComponentProps<'strong'>) => <strong className="font-semibold" style={fg} {...p} />,
+  em: (p: React.ComponentProps<'em'>) => <em style={fg} {...p} />,
+  a: (p: React.ComponentProps<'a'>) => <a className="underline" style={{ color: 'var(--primary)' }} target="_blank" rel="noopener noreferrer" {...p} />,
+  blockquote: (p: React.ComponentProps<'blockquote'>) => <blockquote className="border-l-2 pl-3 my-2 text-sm" style={{ ...muted, borderColor: 'var(--border)' }} {...p} />,
+  hr: () => <hr className="my-3" style={{ borderColor: 'var(--border)' }} />,
+  code: (p: React.ComponentProps<'code'>) => <code className="px-1 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--secondary)', color: 'var(--foreground)' }} {...p} />,
+  table: (p: React.ComponentProps<'table'>) => <div className="overflow-x-auto my-2"><table className="w-full text-sm border-collapse" {...p} /></div>,
+  th: (p: React.ComponentProps<'th'>) => <th className="text-left px-2 py-1 font-medium border-b" style={{ ...muted, borderColor: 'var(--border)' }} {...p} />,
+  td: (p: React.ComponentProps<'td'>) => <td className="px-2 py-1 border-b tabular-nums" style={{ ...fg, borderColor: 'var(--border)' }} {...p} />,
 }
 
-function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g)
-  return parts.map((part, i) =>
-    part.startsWith('**') && part.endsWith('**')
-      ? <strong key={i} style={{ color: 'var(--foreground)' }}>{part.slice(2, -2)}</strong>
-      : part
+function MarkdownReport({ children }: { children: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+      {children}
+    </ReactMarkdown>
   )
 }
 
@@ -408,8 +417,8 @@ export default function JournalPage() {
               <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>AI 正在分析您的交易記錄...</span>
             </div>
           ) : aiReport ? (
-            <div className="space-y-1">
-              {renderMarkdown(aiReport)}
+            <div>
+              <MarkdownReport>{aiReport}</MarkdownReport>
             </div>
           ) : data && data.entries.length === 0 ? (
             <p className="text-sm text-center" style={{ color: 'var(--muted-foreground)' }}>
