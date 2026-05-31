@@ -65,6 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: '💼',
     items: [
       { label: '投資組合', href: '/portfolio' },
+      { label: 'AI 投資顧問', href: '/advisor' },
       { label: '自選股', href: '/watchlist' },
       { label: '交易日誌', href: '/journal' },
       { label: '警報設定', href: '/alerts' },
