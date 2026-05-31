@@ -4,8 +4,7 @@
 """
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
 
 from config import CACHE_TTL
@@ -14,15 +13,34 @@ from core.prediction_tracker import (
     get_tracker, PredictionType, PredictionStatus
 )
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    render_kpi_row,
+    render_data_table,
+    format_number,
+    inject_professional_theme,
+)
 
 st.set_page_config(page_title='預測驗證', page_icon='🎯', layout='wide')
+
+# 注入專業主題
+inject_professional_theme()
+
 render_sidebar_mini(current_page='prediction')
 
+# 全域報價列（sidebar 後、標題前呼叫一次）
+render_global_ticker_bar()
+
 # ==================== 標題 ====================
-render_page_header('預測驗證', icon='🎯')
+st.markdown(
+    create_page_title('預測驗證', subtitle='追蹤預測、自動驗證與勝率統計', icon='🎯'),
+    unsafe_allow_html=True,
+)
 
 # ==================== 資料載入 ====================
 @st.cache_data(ttl=CACHE_TTL['daily'])
@@ -56,24 +74,22 @@ with tab1:
     stats = tracker.get_statistics(days=stats_days)
 
     # KPI 卡片
-    st.markdown('### 📈 整體表現')
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
-    with kpi1:
-        st.metric('總預測數', stats['total'])
-    with kpi2:
-        verified = stats['success'] + stats['failed']
-        st.metric('已驗證', verified, f"待驗證: {stats['pending']}")
-    with kpi3:
-        st.metric('勝率', f"{stats['success_rate']:.1f}%",
-                  f"✅{stats['success']} / ❌{stats['failed']}")
-    with kpi4:
-        delta_color = 'normal' if stats['avg_return'] >= 0 else 'inverse'
-        st.metric('平均報酬', f"{stats['avg_return']:+.2f}%", delta_color=delta_color)
+    st.markdown(create_section_header('整體表現', icon='📈'), unsafe_allow_html=True)
+    verified = stats['success'] + stats['failed']
+    avg_return = stats['avg_return']
+    render_kpi_row([
+        {'label': '總預測數', 'value': format_number(stats['total'], kind='int')},
+        {'label': '已驗證', 'value': format_number(verified, kind='int'),
+         'delta': f"待驗證 {stats['pending']}", 'delta_color': 'flat'},
+        {'label': '勝率', 'value': format_number(stats['success_rate'], kind='pct'),
+         'delta': f"✅{stats['success']} / ❌{stats['failed']}", 'delta_color': 'flat'},
+        {'label': '平均報酬', 'value': format_number(avg_return, kind='pct', signed=True),
+         'delta_color': 'up' if avg_return >= 0 else 'down'},
+    ])
 
     # 依類型統計
     if stats['by_type']:
-        st.markdown('### 📋 依預測類型')
+        st.markdown(create_section_header('依預測類型', icon='📋'), unsafe_allow_html=True)
         type_names = {
             'target_price': '🎯 目標價達成',
             'direction': '📈 漲跌方向',
@@ -94,7 +110,7 @@ with tab1:
 
     # 依來源統計
     if stats['by_source']:
-        st.markdown('### 🏷️ 依策略來源')
+        st.markdown(create_section_header('依策略來源', icon='🏷️'), unsafe_allow_html=True)
         source_df = pd.DataFrame([
             {
                 '策略': source,
@@ -102,15 +118,16 @@ with tab1:
                 '已驗證': src_data['verified'],
                 '成功': src_data['success'],
                 '勝率': f"{src_data['success_rate']:.1f}%",
-                '平均報酬': f"{src_data['avg_return']:+.2f}%"
+                '平均報酬': format_number(src_data['avg_return'], kind='pct', signed=True)
             }
             for source, src_data in stats['by_source'].items()
         ])
-        st.dataframe(source_df, use_container_width=True, hide_index=True)
+        render_data_table(source_df, freeze_cols=1,
+                          numeric_cols=['預測數', '已驗證', '成功'])
 
 # ==================== Tab 2: 新增預測 ====================
 with tab2:
-    st.markdown('### ➕ 新增預測')
+    st.markdown(create_section_header('新增預測', icon='➕'), unsafe_allow_html=True)
 
     pred_type = st.radio(
         '預測類型',
@@ -238,7 +255,7 @@ with tab2:
 
 # ==================== Tab 3: 預測記錄 ====================
 with tab3:
-    st.markdown('### 📋 預測記錄')
+    st.markdown(create_section_header('預測記錄', icon='📋'), unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -305,16 +322,16 @@ with tab3:
                 '股票': f'{r.stock_id} {r.stock_name}',
                 '類型': type_name,
                 '預測': pred_content,
-                '建立價': f'{r.created_price:.2f}',
-                '驗證價': f'{r.verified_price:.2f}' if r.verified_price else '-',
-                '報酬': f'{r.actual_return:+.2f}%' if r.actual_return else '-',
+                '建立價': format_number(r.created_price, kind='price'),
+                '驗證價': format_number(r.verified_price, kind='price') if r.verified_price else '-',
+                '報酬': format_number(r.actual_return, kind='pct', signed=True) if r.actual_return else '-',
                 '建立日': r.created_at[:10],
                 '到期日': r.expire_date,
                 '來源': r.source or '-'
             })
 
         df = pd.DataFrame(display_data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        render_data_table(df, freeze_cols=1)
 
         # 匯出功能
         csv = df.to_csv(index=False).encode('utf-8-sig')
@@ -327,36 +344,57 @@ with tab3:
 
 # ==================== Tab 4: 執行驗證 ====================
 with tab4:
-    st.markdown('### 🔍 執行驗證')
+    st.markdown(create_section_header('執行驗證', icon='🔍'), unsafe_allow_html=True)
 
     pending = tracker.get_pending_predictions()
     st.info(f'目前有 **{len(pending)}** 筆待驗證的預測')
 
     if pending:
-        st.markdown('#### 待驗證清單')
-        for p in pending[:20]:
-            col1, col2, col3 = st.columns([3, 2, 1])
-            with col1:
-                st.write(f"**{p.stock_id} {p.stock_name}**")
-                type_name = {'target_price': '目標價', 'direction': '方向', 'stock_pick': '選股'}.get(p.type)
-                st.caption(f'{type_name} | 建立: {p.created_at[:10]} | 到期: {p.expire_date}')
-            with col2:
-                if p.type == PredictionType.TARGET_PRICE.value:
-                    st.write(f'目標: {p.target_price:.2f} (現價: {p.created_price:.2f})')
-                elif p.type == PredictionType.DIRECTION.value:
-                    st.write('看漲 📈' if p.predicted_direction == 'up' else '看跌 📉')
-                else:
-                    st.write(f'追蹤 {p.verify_days} 天報酬')
-            with col3:
-                if st.button('取消', key=f'cancel_{p.id}'):
-                    tracker.cancel_prediction(p.id)
-                    st.rerun()
-            st.divider()
+        st.markdown(create_section_header('待驗證清單', icon='📝'), unsafe_allow_html=True)
 
-        if len(pending) > 20:
-            st.caption(f'... 還有 {len(pending) - 20} 筆')
+        # 清單可能過長 → 分頁顯示，避免一次渲染數百張卡片
+        PAGE_SIZE = 20
+        total_pages = (len(pending) + PAGE_SIZE - 1) // PAGE_SIZE
+        page_idx = 0
+        if total_pages > 1:
+            page_idx = st.selectbox(
+                '頁次', list(range(total_pages)),
+                format_func=lambda i: f'第 {i + 1} / {total_pages} 頁'
+                                      f'（{i * PAGE_SIZE + 1}-{min((i + 1) * PAGE_SIZE, len(pending))}）',
+                key='pending_page',
+            )
+        start = page_idx * PAGE_SIZE
+        page_items = pending[start:start + PAGE_SIZE]
 
-    st.markdown('---')
+        type_name_map = {'target_price': '目標價', 'direction': '方向', 'stock_pick': '選股'}
+        # 可摺疊卡片組：每筆預測一張卡片，預設展開首筆
+        for offset, p in enumerate(page_items):
+            type_name = type_name_map.get(p.type, p.type)
+            with st.expander(f'{p.stock_id} {p.stock_name}　·　{type_name}',
+                             expanded=(offset == 0)):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.caption(f'建立: {p.created_at[:10]} | 到期: {p.expire_date}')
+                    if p.type == PredictionType.TARGET_PRICE.value:
+                        st.write(f'目標: {format_number(p.target_price, kind="price")} '
+                                 f'(現價: {format_number(p.created_price, kind="price")})')
+                    elif p.type == PredictionType.DIRECTION.value:
+                        if p.predicted_direction == 'up':
+                            st.markdown(
+                                f'<span style="color:{COLORS["up"]};font-weight:600">▲ 看漲 📈</span>',
+                                unsafe_allow_html=True)
+                        else:
+                            st.markdown(
+                                f'<span style="color:{COLORS["down"]};font-weight:600">▼ 看跌 📉</span>',
+                                unsafe_allow_html=True)
+                    else:
+                        st.write(f'追蹤 {p.verify_days} 天報酬')
+                with col2:
+                    if st.button('取消', key=f'cancel_{p.id}', use_container_width=True):
+                        tracker.cancel_prediction(p.id)
+                        st.rerun()
+
+    st.markdown(create_section_header('驗證操作', icon='🔄'), unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
 
@@ -378,7 +416,7 @@ with tab4:
                     st.markdown('**詳細結果:**')
                     for d in results['details']:
                         icon = '✅' if d['status'] == 'success' else '❌'
-                        ret = f"{d['return']:+.2f}%" if d['return'] else 'N/A'
+                        ret = format_number(d['return'], kind='pct', signed=True) if d['return'] else 'N/A'
                         st.write(f"{icon} {d['stock']} - 報酬: {ret}")
             else:
                 show_empty_state('沒有需要驗證的預測', icon='🔍', suggestion='可能尚未到驗證日期，請稍後再試')
@@ -391,8 +429,7 @@ with tab4:
         - 選股勝率：檢查驗證日收盤價是否高於買入價
         ''')
 
-    st.markdown('---')
-    st.markdown('#### ⏰ 自動化排程')
+    st.markdown(create_section_header('自動化排程', icon='⏰'), unsafe_allow_html=True)
     st.code('''
 # 加入 crontab 每日收盤後執行 (例如每天 15:30)
 30 15 * * 1-5 cd /path/to/finlab_db && python scripts/daily_verify.py

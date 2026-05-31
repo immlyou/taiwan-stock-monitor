@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { Switch } from '@/components/ui/switch'
 
 interface Settings {
   telegram: {
@@ -157,16 +158,11 @@ export default function SettingsPage() {
               <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
                 {tg?.enabled ? '已啟用' : '已停用'}
               </span>
-              <button
-                onClick={() => updateTelegram('enabled', !tg?.enabled)}
-                className="relative w-10 h-5 rounded-full transition-colors"
-                style={{ background: tg?.enabled ? 'var(--primary)' : 'var(--secondary)' }}
-              >
-                <span
-                  className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                  style={{ left: tg?.enabled ? '22px' : '2px' }}
-                />
-              </button>
+              <Switch
+                checked={!!tg?.enabled}
+                onCheckedChange={(v) => updateTelegram('enabled', v)}
+                aria-label="Telegram 通知"
+              />
             </label>
           </div>
           {tg?.enabled && (
@@ -220,16 +216,11 @@ export default function SettingsPage() {
                 透過 SMTP 接收 Email 通知
               </p>
             </div>
-            <button
-              onClick={() => updateEmail('enabled', !em?.enabled)}
-              className="relative w-10 h-5 rounded-full transition-colors"
-              style={{ background: em?.enabled ? 'var(--primary)' : 'var(--secondary)' }}
-            >
-              <span
-                className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                style={{ left: em?.enabled ? '22px' : '2px' }}
-              />
-            </button>
+            <Switch
+              checked={!!em?.enabled}
+              onCheckedChange={(v) => updateEmail('enabled', v)}
+              aria-label="Email 通知"
+            />
           </div>
           {em?.enabled && (
             <div className="grid grid-cols-2 gap-3">
@@ -308,16 +299,11 @@ export default function SettingsPage() {
               />
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => updateSystem('autoBacktest', !sys?.autoBacktest)}
-                className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
-                style={{ background: sys?.autoBacktest ? 'var(--primary)' : 'var(--secondary)' }}
-              >
-                <span
-                  className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-                  style={{ left: sys?.autoBacktest ? '22px' : '2px' }}
-                />
-              </button>
+              <Switch
+                checked={!!sys?.autoBacktest}
+                onCheckedChange={(v) => updateSystem('autoBacktest', v)}
+                aria-label="自動定期回測"
+              />
               <span className="text-sm" style={{ color: 'var(--foreground)' }}>自動定期回測</span>
             </div>
           </div>
@@ -361,7 +347,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.2.0
+              v3.6.0
             </span>
           </div>
 
@@ -423,6 +409,69 @@ export default function SettingsPage() {
 /* ------------------------------------------------------------------ */
 
 const CHANGELOG = [
+  {
+    version: 'v3.6.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：雷達訊號回測，估算 5/10/20 日勝率、平均報酬與最差報酬',
+      '功能新增：訊號追蹤與命中率儀表板，統計最新動作分布與代理命中率',
+      '功能新增：持倉自動健檢，將雷達風險套用到投資組合持股',
+      '功能新增：同業比較雷達，顯示個股在同產業中的雷達排名與百分位',
+      '功能新增：每日操盤報告、智慧推播預覽、事件時間軸、價格計畫、新聞營收解讀與券商籌碼代理訊號',
+    ],
+  },
+  {
+    version: 'v3.5.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：AI 操盤雷達，整合籌碼、營收、技術位置與出貨風險',
+      '功能新增：主力吸籌偵測，辨識法人買超但股價尚未過熱的型態',
+      '功能新增：營收爆發未反應清單，找出基本面轉強但短線漲幅有限的個股',
+      '功能新增：出貨風險警報，提示高位法人轉賣、爆量收低與追價風險',
+      '功能新增：進場等待區與每日觀察清單，提供觀察價、支撐、壓力與失效條件',
+    ],
+  },
+  {
+    version: 'v3.4.1',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：公司營運概況資料層，支援主要產品線、營收來源、業務範圍與產業別',
+      '功能新增：個股頁新增公司營運概況卡，補足僅有技術數據時的基本面脈絡',
+      '功能新增：新增 /stock/{id}/profile API，先讀本機補充資料，再嘗試公開資料來源自動補齊',
+      '資料補充：友輝 4933 新增產品線與 113 年度增光膜內外銷營收結構',
+    ],
+  },
+  {
+    version: 'v3.4.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：Phase 2 評分變化歷史與升降級榜，追蹤量化分數趨勢',
+      '功能新增：Phase 3 智慧警報 2.0，加入評分、突破、跌破與爆量建議',
+      '功能新增：Phase 4 個股 AI 摘要，不依賴外部模型也能產生資料判讀',
+      '功能新增：Phase 5 投資組合診斷，顯示集中度、產業配置、波動與回撤',
+      '功能新增：Phase 6 產業輪動雷達，整合短中期動能與上漲廣度',
+      '功能新增：Phase 7 自訂 Dashboard widget config API 與首屏摘要卡',
+      '版本修正：警報前後端欄位契約對齊，補齊 PATCH 更新與支援類型清單',
+    ],
+  },
+  {
+    version: 'v3.3.0',
+    date: '2026-04-26',
+    tag: 'Feature' as const,
+    changes: [
+      '功能新增：公開工具目錄鏡像至前端 public/tool_catalog.json，方便外部 AI / app 直接讀取工具定義',
+      '功能新增：新增 API router registration smoke test，保護 24 個核心 router 不會在重構時漏掛',
+      '版本修正：README 與前端 README 更新為 FastAPI + Next.js + Streamlit 並存架構',
+      '版本修正：Vercel 部署忽略規則補齊，排除後端、測試、快取與本機工具狀態',
+      '版本修正：修復前端 lint warning，補齊股票搜尋 combobox ARIA 屬性',
+      '版本修正：固定 Turbopack root，避免 Next.js build 誤判 workspace root',
+      '版本修正：持倉總覽同步處理投資組合明細載入錯誤狀態',
+    ],
+  },
   {
     version: 'v3.2.0',
     date: '2026-03-27',

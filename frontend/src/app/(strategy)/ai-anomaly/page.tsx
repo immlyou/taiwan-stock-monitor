@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { fetchAPI } from '@/lib/api/client'
+import { KpiCard } from '@/components/shared/KpiCard'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -27,9 +28,24 @@ type Scope = 'watchlist' | 'market'
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const SEVERITY_CONFIG: Record<string, { icon: string; label: string; color: string; bg: string }> = {
-  high: { icon: '🔴', label: '高風險', color: '#ef4444', bg: '#ef444418' },
-  medium: { icon: '🟡', label: '中風險', color: '#f59e0b', bg: '#f59e0b18' },
-  low: { icon: '🟢', label: '低風險', color: '#22c55e', bg: '#22c55e18' },
+  high: {
+    icon: '🔴',
+    label: '高風險',
+    color: 'var(--rating-f)',
+    bg: 'color-mix(in srgb, var(--rating-f) 9%, transparent)',
+  },
+  medium: {
+    icon: '🟡',
+    label: '中風險',
+    color: 'var(--rating-c)',
+    bg: 'color-mix(in srgb, var(--rating-c) 9%, transparent)',
+  },
+  low: {
+    icon: '🟢',
+    label: '低風險',
+    color: 'var(--rating-a)',
+    bg: 'color-mix(in srgb, var(--rating-a) 9%, transparent)',
+  },
 }
 
 // ─── Shared sub-components ───────────────────────────────────────────────────
@@ -42,30 +58,6 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
     >
       {children}
     </div>
-  )
-}
-
-function KpiCard({
-  label,
-  value,
-  color,
-}: {
-  label: string
-  value: number
-  color?: string
-}) {
-  return (
-    <Card className="p-5">
-      <p className="text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
-        {label}
-      </p>
-      <p
-        className="text-3xl font-bold tabular-nums"
-        style={{ color: color ?? 'var(--foreground)' }}
-      >
-        {value}
-      </p>
-    </Card>
   )
 }
 
@@ -151,7 +143,7 @@ export default function AiAnomalyPage() {
               <span
                 className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform"
                 style={{
-                  background: '#fff',
+                  background: 'var(--primary-foreground)',
                   transform: explain ? 'translateX(20px)' : 'translateX(0)',
                 }}
               />
@@ -192,9 +184,9 @@ export default function AiAnomalyPage() {
         <div className="space-y-5">
           {/* KPI Cards */}
           <div className="grid grid-cols-3 gap-4">
-            <KpiCard label="異常總數" value={data.total} />
-            <KpiCard label="高風險" value={data.high_count} color="#ef4444" />
-            <KpiCard label="中風險" value={data.medium_count} color="#f59e0b" />
+            <KpiCard title="異常總數" value={String(data.total)} />
+            <KpiCard title="高風險" value={String(data.high_count)} accentColor="var(--rating-f)" />
+            <KpiCard title="中風險" value={String(data.medium_count)} accentColor="var(--rating-c)" />
           </div>
 
           {/* AI Explanation */}
@@ -202,8 +194,8 @@ export default function AiAnomalyPage() {
             <div
               className="rounded-lg p-4"
               style={{
-                background: '#3b82f610',
-                border: '1px solid #3b82f630',
+                background: 'color-mix(in srgb, var(--flow-foreign) 6%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--flow-foreign) 19%, transparent)',
               }}
             >
               <div className="flex items-start gap-3">
@@ -211,7 +203,7 @@ export default function AiAnomalyPage() {
                 <div>
                   <p
                     className="text-xs font-semibold mb-1"
-                    style={{ color: '#3b82f6' }}
+                    style={{ color: 'var(--flow-foreign)' }}
                   >
                     AI 綜合說明
                   </p>

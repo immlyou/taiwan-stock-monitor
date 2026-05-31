@@ -5,12 +5,11 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections import Counter
 import json
-import time
 
 from core.logging_config import get_logger
 

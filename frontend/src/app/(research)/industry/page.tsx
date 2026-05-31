@@ -22,9 +22,28 @@ interface IndustryResponse {
   industries: Industry[]
 }
 
+interface IndustryRotation {
+  date: string
+  total: number
+  industries: Array<{
+    industry: string
+    stock_count: number
+    return_5d: number
+    return_20d: number
+    return_60d: number
+    breadth_pct: number
+    rotation_score: number
+    quadrant: string
+  }>
+}
+
 export default function IndustryPage() {
   const { data, isLoading, error } = useSWR<IndustryResponse>(
     '/market/industries',
+    fetchAPI
+  )
+  const { data: rotation } = useSWR<IndustryRotation>(
+    '/market/industry-rotation?top_n=30',
     fetchAPI
   )
 
@@ -61,6 +80,39 @@ export default function IndustryPage() {
         </div>
       ) : (
         <div className="space-y-4">
+          {rotation?.industries?.length ? (
+            <div
+              className="rounded-lg p-4"
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>產業輪動雷達</h3>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                    依 5/20/60 日動能與上漲廣度排序
+                  </p>
+                </div>
+                <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{rotation.date}</span>
+              </div>
+              <div className="grid md:grid-cols-4 gap-2">
+                {rotation.industries.slice(0, 8).map((item) => (
+                  <div key={item.industry} className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <p className="text-sm font-semibold truncate" style={{ color: 'var(--foreground)' }}>{item.industry}</p>
+                      <span className="text-xs" style={{ color: 'var(--primary)' }}>{item.quadrant}</span>
+                    </div>
+                    <p className="text-xl font-bold tabular-nums" style={{ color: getChangeColorVar(item.rotation_score) }}>
+                      {item.rotation_score > 0 ? '+' : ''}{item.rotation_score.toFixed(1)}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>
+                      20日 {item.return_20d > 0 ? '+' : ''}{item.return_20d.toFixed(1)}% / 廣度 {item.breadth_pct.toFixed(0)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {/* 漲跌幅 BarChart */}
           <div
             className="rounded-lg p-4"

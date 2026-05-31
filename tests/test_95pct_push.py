@@ -1,21 +1,20 @@
 """
 覆蓋率最終 95% 衝刺：針對剩餘 135 行精準補齊
 """
-import os
 import sys
 import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ──────────────────────────────────────────────
 # realtime_quote — clear_quote_cache、get_quote_summary、fetch_market_movers
 # ──────────────────────────────────────────────
 from core.realtime_quote import (
-    StockQuote, _parse_quote_data, _get_stock_code,
-    fetch_realtime_quotes, clear_quote_cache, get_quote_summary,
+    StockQuote, _get_stock_code,
+    clear_quote_cache, get_quote_summary,
     fetch_market_movers, _quote_cache,
 )
 
@@ -111,9 +110,7 @@ class TestFetchMarketMovers:
 # ──────────────────────────────────────────────
 from core.notification import (
     TelegramChannel, NotificationManager,
-    LineNotifyChannel, EmailChannel,
 )
-from core.exceptions import NotificationConfigError
 
 
 class TestTelegramChannelSettingsJson:
@@ -176,9 +173,7 @@ class TestNotificationManagerInit:
 # cache_warmer — warmup_on_startup with mocked Streamlit
 # ──────────────────────────────────────────────
 from core.cache_warmer import (
-    CacheWarmer, get_cache_warmer, is_cache_warm,
-    warmup_on_startup, get_warmup_status_summary,
-    trigger_warmup_if_needed,
+    CacheWarmer, get_cache_warmer, warmup_on_startup,
 )
 import core.cache_warmer as cw_module
 
@@ -392,8 +387,7 @@ class TestQuickOptimize:
 # backtest/metrics — 最後幾個邊界
 # ──────────────────────────────────────────────
 from core.backtest.metrics import (
-    calculate_win_rate, calculate_profit_factor,
-    calculate_max_drawdown,
+    calculate_win_rate, calculate_max_drawdown,
 )
 
 

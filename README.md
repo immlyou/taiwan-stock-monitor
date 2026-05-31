@@ -1,6 +1,12 @@
 # 台股戰情中心
 
-基於 FinLab API 的台股分析與選股系統，使用 Streamlit 建構。
+以 FinLab API 為數據核心的台股研究平台，提供選股、回測、籌碼、財報、風險、投資組合與 AI 代理串接功能。
+
+目前專案包含三個主要介面：
+
+- **Next.js 前端**：正式 Web UI，部署在 Vercel
+- **FastAPI API**：資料、策略與分析服務，部署在 Railway
+- **Streamlit App**：舊版本機研究介面，仍保留可用
 
 ## 線上入口
 
@@ -10,114 +16,155 @@
 | API Server (FastAPI on Railway) | https://taiwan-stock-api-production.up.railway.app |
 | API 文件 (Swagger UI) | https://taiwan-stock-api-production.up.railway.app/docs |
 
-## 給第三方 APP / AI 代理串接
-
-想把這個服務接到你自己的 APP、AI 代理、OpenClaw、或 LLM function calling？
-
-👉 **[openclaw_skill/INTEGRATION.md](./openclaw_skill/INTEGRATION.md)** — 完整整合指南（4 種接法）
-
-- **方案 A：MCP stdio** — Claude Desktop / Code / Cursor / OpenClaw MCP 版
-- **方案 B：REST API** — 任何能發 HTTPS 的系統
-- **方案 C：Function Calling Catalog** — OpenAI / Anthropic / Gemini tool use
-- **方案 D：Python skill wrapper** — OpenClaw 舊版
-
-可直接執行的範例程式：[`openclaw_skill/examples/`](./openclaw_skill/examples/)
-機器可讀的工具清單：[`openclaw_skill/tool_catalog.json`](./openclaw_skill/tool_catalog.json) （34 個 tools / JSON Schema）
-
 ## 功能特色
 
-- 22+ 功能頁面，涵蓋選股、回測、籌碼分析、財報分析等
-- 整合 FinLab API 提供完整台股數據
-- 支援多種選股策略（價值投資、成長投資、動能投資）
-- 即時報價與盤後總覽
-- 每日晨報自動生成
+- 台股市場總覽、盤後總覽、熱力圖、資金流向與即時報價
+- 個股技術面、籌碼面、財報與比較分析
+- 選股篩選、策略管理、回測、參數優化與預測驗證
+- 投資組合、交易日誌、自選股與警報設定
+- 每日晨報、AI 智慧選股、AI 異常警報
+- MCP / REST / Function Calling / Python wrapper 對外整合
 
-## 快速開始
+## 專案結構
 
-### 1. 安裝依賴
+```text
+taiwan-stock-monitor/
+├── api/                    # FastAPI 模組化路由層
+│   ├── routers/            # 路由模組（ai, alerts, market, stock …）
+│   ├── deps.py             # 依賴注入
+│   ├── helpers.py          # 工具函式
+│   ├── models.py           # Pydantic 資料模型
+│   └── state.py            # 應用程式狀態
+├── api_server.py           # FastAPI app 入口
+├── app/                    # Streamlit 舊版 UI
+├── core/                   # 資料載入、策略、回測、風險、通知等核心邏輯
+├── data/                   # JSON 狀態與輸出資料
+├── frontend/               # Next.js 前端
+├── openclaw_skill/         # MCP / OpenClaw / function calling 整合
+├── scripts/                # 每日更新、通知、備份與部署腳本
+└── tests/                  # Python 測試
+```
+
+## 環境變數
+
+根目錄 `.env` 供 Python / API / Streamlit 使用：
+
+```env
+FINLAB_API_TOKEN=your_finlab_token
+STOCK_API_KEY=optional_api_key
+CORS_ORIGINS=http://localhost:3000,https://taiwan-stock-monitor.vercel.app
+```
+
+前端 `frontend/.env.local`：
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+生產環境在 Vercel 必須設定 `NEXT_PUBLIC_API_URL` 指向 Railway API。
+
+## 本機開發
+
+### 1. 安裝 Python 依賴
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 設定 FinLab API Token
-
-在 `.env` 檔案中設定：
-
-```
-FINLAB_API_TOKEN=your_token_here
-```
-
-### 3. 更新資料（首次使用或每日更新）
+若只跑 API，可使用較精簡的依賴：
 
 ```bash
-python scripts/daily_update.py
+pip install -r requirements-api.txt
 ```
 
-### 4. 啟動應用程式
+### 2. 啟動 FastAPI
+
+```bash
+python api_server.py --host 0.0.0.0 --port 8000 --reload
+```
+
+API 文件：`http://localhost:8000/docs`
+
+### 3. 啟動 Next.js 前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端網址：`http://localhost:3000`
+
+瀏覽器端會透過 Next.js rewrite 將 `/api/*` 代理到 `NEXT_PUBLIC_API_URL`。
+
+### 4. 啟動 Streamlit 舊版介面
 
 ```bash
 streamlit run app/main.py
 ```
 
-預設開啟 http://localhost:8501
+預設網址：`http://localhost:8501`
 
-## 目錄結構
+## 資料更新
 
-```
-taiwan-stock-monitor/
-├── app/                    # Streamlit 應用程式
-│   ├── main.py            # 主頁面
-│   ├── pages/             # 22 個功能頁面
-│   └── components/        # UI 元件
-├── core/                   # 核心邏輯
-│   ├── data_loader.py     # 資料載入
-│   ├── cache_warmer.py    # 快取預熱
-│   ├── strategies/        # 選股策略
-│   └── ...
-├── scripts/               # 自動化腳本
-│   └── daily_update.py    # 每日更新
-├── config.py              # 系統設定
-├── .env                   # API 金鑰
-├── .streamlit/            # Streamlit 設定
-└── *.pickle               # 資料快取檔
+首次使用或每日資料更新：
+
+```bash
+python scripts/daily_update.py
 ```
 
-## 功能頁面
-
-| 頁面 | 說明 |
-|------|------|
-| 儀表板 | 市場概覽與重要指標 |
-| 選股篩選 | 多維度條件選股 |
-| 回測分析 | 策略歷史回測 |
-| 個股分析 | 單一股票深度分析 |
-| 策略管理 | 自訂策略儲存 |
-| 參數優化 | 策略參數調優 |
-| 風險分析 | 投資組合風險評估 |
-| 產業分析 | 產業輪動分析 |
-| 投資組合 | 持股管理 |
-| 系統設定 | 通知與系統設定 |
-| 自選股 | 個人關注清單 |
-| 警報設定 | 價格與指標警報 |
-| 比較分析 | 多股比較 |
-| 籌碼分析 | 三大法人動向 |
-| 財報分析 | 財務報表分析 |
-| 交易日誌 | 交易紀錄 |
-| 每日晨報 | 每日市場摘要 |
-| 即時報價 | 盤中即時行情 |
-| 市場熱力圖 | 視覺化市場狀態 |
-| 資金流向 | 資金流動分析 |
-| 盤後總覽 | 收盤後市場總結 |
-| 預測驗證 | 策略預測追蹤 |
-
-## 自動化
-
-設定每日自動更新（macOS launchd）：
+macOS launchd 自動更新：
 
 ```bash
 ./scripts/setup_launchd.sh
 ```
 
+FinLab pickle 快取檔很大，預設不應提交到 Git。根目錄的 `*.pickle`、`*.pkl` 是本機資料快取。
+
+## AI / 第三方整合
+
+整合指南：[`openclaw_skill/INTEGRATION.md`](./openclaw_skill/INTEGRATION.md)
+
+支援方式：
+
+- MCP stdio：Claude Desktop / Claude Code / Cursor / OpenClaw MCP
+- REST API：任何可發 HTTPS request 的系統
+- Function Calling Catalog：OpenAI / Anthropic / Gemini tool use
+- Python skill wrapper：OpenClaw 舊版
+
+工具清單：
+
+- [`openclaw_skill/tool_catalog.json`](./openclaw_skill/tool_catalog.json)
+- [`frontend/public/tool_catalog.json`](./frontend/public/tool_catalog.json)
+
+目前工具目錄包含 35 個 tools。
+
+## 產品 Roadmap
+
+後續智能分析功能開發順序見 [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
+
+## 測試與檢查
+
+後端測試：
+
+```bash
+pytest
+```
+
+前端 lint：
+
+```bash
+cd frontend
+npm run lint
+```
+
+## 部署
+
+- API：Railway，設定見 [`railway.toml`](./railway.toml)、[`Procfile`](./Procfile)
+- 前端：Vercel，設定見 [`frontend/vercel.json`](./frontend/vercel.json)、[`.vercelignore`](./.vercelignore)
+
+Vercel 部署只需要 `frontend/` 及必要設定；後端、測試、資料快取與本機工具狀態已由 `.vercelignore` 排除。
+
 ## 授權
 
-僅供個人學習研究使用。
+僅供個人學習研究使用，不提供投資建議或自動交易功能。

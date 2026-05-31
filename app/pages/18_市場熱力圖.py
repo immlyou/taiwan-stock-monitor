@@ -6,20 +6,22 @@
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
-from datetime import datetime
 
 
 from config import STREAMLIT_CONFIG, CACHE_TTL
 from core.data_loader import get_loader
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
-from app.components.empty_state import show_empty_state
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.error_handler import show_error
 from app.components.charts import apply_dark_theme
+from app.components.theme import (
+    COLORS,
+    create_page_title,
+    create_section_header,
+    responsive_columns,
+)
 
 # 頁面設定
 st.set_page_config(
@@ -153,7 +155,7 @@ def create_sector_bar(df):
 
     summary = summary.sort_values('market_value', ascending=False).head(12)
 
-    colors = ['#ef4444' if x > 0 else '#22c55e' for x in summary['change_pct']]
+    colors = [COLORS['up'] if x > 0 else COLORS['down'] for x in summary['change_pct']]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -176,11 +178,18 @@ def create_sector_bar(df):
     return fig
 
 
-# ========== 頁面標題 ==========
-render_page_header('市場熱力圖', icon='🗺️')
+# ========== 全域報價列 ==========
+render_global_ticker_bar()
 
-# ========== 控制列與統計 (整合) ==========
-ctrl_col1, ctrl_col2, stat_col1, stat_col2, stat_col3, stat_col4 = st.columns([1.5, 1.5, 1, 1, 1, 1])
+# ========== 頁面標題 ==========
+st.markdown(
+    create_page_title('市場熱力圖', subtitle='方塊大小=市值，顏色=漲跌幅', icon='🗺️'),
+    unsafe_allow_html=True,
+)
+
+# ========== 控制列 ==========
+st.markdown(create_section_header('檢視設定', icon='🎛️'), unsafe_allow_html=True)
+ctrl_col1, ctrl_col2 = responsive_columns(2)
 
 with ctrl_col1:
     color_option = st.selectbox(
@@ -215,6 +224,9 @@ avg_change = df['change_pct'].mean()
 limit_up = len(df[df['change_pct'] >= 9.5])
 limit_down = len(df[df['change_pct'] <= -9.5])
 
+# ========== 統計列 ==========
+stat_col1, stat_col2, stat_col3, stat_col4 = responsive_columns(4)
+
 with stat_col1:
     st.metric('📈 上漲', f'{up_count}')
 
@@ -230,7 +242,7 @@ with stat_col4:
 st.caption(f'📅 資料日期: {data_date} | 顯示市值前 {len(df)} 大股票')
 
 # ========== 主要內容：熱力圖 + 產業圖 ==========
-st.markdown('---')
+st.markdown(create_section_header('市場全貌', icon='🗺️'), unsafe_allow_html=True)
 
 main_col1, main_col2 = st.columns([3, 1])
 
@@ -253,13 +265,13 @@ with main_col2:
         st.plotly_chart(sector_fig, use_container_width=True)
 
     # 漲幅 Top 5
-    st.markdown('##### 🔥 漲幅 Top 5')
+    st.markdown(create_section_header('漲幅 Top 5', icon='🔥'), unsafe_allow_html=True)
     top_gainers = df.nlargest(5, 'change_pct')[['stock_id', 'name', 'change_pct']]
     for _, row in top_gainers.iterrows():
         st.markdown(
             f"<div style='display:flex;justify-content:space-between;padding:2px 0;font-size:13px'>"
-            f"<span>{row['stock_id']} {row['name'][:4]}</span>"
-            f"<span style='color:#ef4444;font-weight:bold'>{row['change_pct']:+.2f}%</span>"
+            f"<span style='color:{COLORS['text_secondary']}'>{row['stock_id']} {row['name'][:4]}</span>"
+            f"<span style='color:{COLORS['up']};font-weight:bold'>▲ {row['change_pct']:+.2f}%</span>"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -267,13 +279,13 @@ with main_col2:
     st.markdown('')
 
     # 跌幅 Top 5
-    st.markdown('##### 💧 跌幅 Top 5')
+    st.markdown(create_section_header('跌幅 Top 5', icon='💧'), unsafe_allow_html=True)
     top_losers = df.nsmallest(5, 'change_pct')[['stock_id', 'name', 'change_pct']]
     for _, row in top_losers.iterrows():
         st.markdown(
             f"<div style='display:flex;justify-content:space-between;padding:2px 0;font-size:13px'>"
-            f"<span>{row['stock_id']} {row['name'][:4]}</span>"
-            f"<span style='color:#22c55e;font-weight:bold'>{row['change_pct']:+.2f}%</span>"
+            f"<span style='color:{COLORS['text_secondary']}'>{row['stock_id']} {row['name'][:4]}</span>"
+            f"<span style='color:{COLORS['down']};font-weight:bold'>▼ {row['change_pct']:+.2f}%</span>"
             f"</div>",
             unsafe_allow_html=True
         )

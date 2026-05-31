@@ -7,8 +7,7 @@ import time
 import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 # ──────────────────────────────────────────────
@@ -16,10 +15,9 @@ from unittest.mock import MagicMock, patch
 # ──────────────────────────────────────────────
 from core.data_loader import (
     DataCache, DataLoader, get_loader, reset_loader,
-    reset_all_caches, get_active_stocks, is_stock_active,
-    get_data_summary, clear_active_stocks_cache,
-    FinLabQuotaExceededError, is_streamlit_cloud,
-    FINLAB_DATA_MAPPING,
+    reset_all_caches, is_stock_active,
+    clear_active_stocks_cache,
+    is_streamlit_cloud,
 )
 
 

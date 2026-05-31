@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
+import { useWatchlist } from '@/lib/hooks/useWatchlist'
+import { getChangeColorVar } from '@/lib/utils/format'
 
 interface NavItem {
   label: string
@@ -49,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: '選股篩選', href: '/screener' },
       { label: 'AI 智慧選股', href: '/ai-pick' },
+      { label: 'AI 操盤雷達', href: '/trading-radar' },
       { label: 'AI 異常警報', href: '/ai-anomaly' },
       { label: '回測分析', href: '/backtest' },
       { label: '策略管理', href: '/strategies' },
@@ -72,6 +75,55 @@ const NAV_GROUPS: NavGroup[] = [
 const SYSTEM_ITEMS: NavItem[] = [
   { label: '系統設定', href: '/settings' },
 ]
+
+/** 側欄持久自選股快捷：點代號直接前往個股分析（master-detail lite）。 */
+function WatchlistNav({
+  collapsed,
+  onNavigate,
+}: {
+  collapsed: boolean
+  onNavigate: () => void
+}) {
+  const { stocks } = useWatchlist()
+  if (collapsed || stocks.length === 0) return null
+
+  return (
+    <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+      <div
+        className="px-3 py-1 text-xs font-semibold uppercase tracking-wider mb-1"
+        style={{ color: 'var(--muted-foreground)' }}
+      >
+        ⭐ 自選股
+      </div>
+      {stocks.slice(0, 8).map((s) => {
+        const pct = s.change_pct ?? 0
+        return (
+          <Link
+            key={s.stock_id}
+            href={`/stock/${s.stock_id}`}
+            onClick={onNavigate}
+            className="flex items-center justify-between gap-2 px-4 py-1.5 mx-1 rounded-md text-sm transition-colors hover:bg-secondary/50"
+            style={{ color: 'var(--foreground)', minHeight: '36px' }}
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-xs shrink-0" style={{ color: 'var(--primary)' }}>
+                {s.stock_id}
+              </span>
+              <span className="truncate text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                {s.name}
+              </span>
+            </span>
+            {s.change_pct != null && (
+              <span className="num text-xs font-medium shrink-0" style={{ color: getChangeColorVar(pct) }}>
+                {pct > 0 ? '▲' : pct < 0 ? '▼' : ''}{Math.abs(pct).toFixed(2)}%
+              </span>
+            )}
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -211,6 +263,12 @@ export function Sidebar() {
               </div>
             )
           })}
+
+          {/* 持久自選股快捷 */}
+          <WatchlistNav
+            collapsed={!isMobile && sidebarCollapsed}
+            onNavigate={handleLinkClick}
+          />
 
           {/* 系統設定 */}
           <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>

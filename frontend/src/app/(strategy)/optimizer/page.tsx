@@ -212,7 +212,15 @@ export default function OptimizerPage() {
               <span>優化進度</span>
               <span>{progress.toFixed(0)}%</span>
             </div>
-            <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
+            <div
+              role="progressbar"
+              aria-valuenow={Math.round(progress)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="優化進度"
+              className="w-full h-2 rounded-full overflow-hidden"
+              style={{ background: 'var(--secondary)' }}
+            >
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{ width: `${progress}%`, background: 'var(--primary)' }}

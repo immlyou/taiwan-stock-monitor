@@ -10,24 +10,27 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
 from datetime import datetime
 
 
 from config import STREAMLIT_CONFIG, CACHE_TTL
-from core.data_loader import get_loader, get_data_summary, reset_all_caches
+from core.data_loader import get_loader, reset_all_caches
 from core.realtime_quote import fetch_realtime_quotes
 from core.twse_api import get_taiex
-from core.cache_warmer import warmup_on_startup, is_cache_warm, get_cache_warmer
+from core.cache_warmer import warmup_on_startup, is_cache_warm
 from app.components.sidebar import render_sidebar
 from app.components.theme import (
     inject_professional_theme,
     create_kpi_card,
     create_section_header,
     create_stock_card,
+    create_page_title,
+    render_kpi_row,
+    responsive_columns,
+    format_number,
     COLORS,
-    DEFAULT_PLOTLY_LAYOUT,
 )
+from app.components.page_header import render_global_ticker_bar
 from app.components.session_manager import init_session_state
 
 # 頁面設定 - 使用寬版面
@@ -254,38 +257,36 @@ def create_market_gauge(up_count, down_count, total):
     return fig
 
 
+# ========== 全域行情列 ==========
+render_global_ticker_bar()
+
 # ========== 頁面標題區 ==========
+# 載入資料（頁面其他區塊共用）
+data = load_market_overview()
+latest_date = data.get('latest_date', '-')
+
+# 檢查資料是否過期（超過 2 天未更新）
+_data_stale = False
+if latest_date != '-':
+    try:
+        _last_dt = datetime.strptime(latest_date, '%Y-%m-%d')
+        _data_stale = (datetime.now() - _last_dt).days > 2
+    except Exception:
+        pass
+
 header_col1, header_col2, header_col3 = st.columns([3, 1, 1])
 
 with header_col1:
-    st.markdown(f'''
-    <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-size:2.5rem">📊</span>
-        <div>
-            <h1 style="margin:0;padding:0;border:none;font-size:1.8rem;color:{COLORS['text_primary']}">台股戰情中心</h1>
-            <p style="margin:0;color:{COLORS['text_muted']};font-size:0.85rem">Taiwan Stock Command Center</p>
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.markdown(
+        create_page_title('台股戰情中心', subtitle='Taiwan Stock Command Center', icon='📊'),
+        unsafe_allow_html=True,
+    )
 
 with header_col2:
-    # 載入資料
-    data = load_market_overview()
-    latest_date = data.get('latest_date', '-')
-
-    # 檢查資料是否過期（超過 2 天未更新）
-    _data_stale = False
-    if latest_date != '-':
-        try:
-            _last_dt = datetime.strptime(latest_date, '%Y-%m-%d')
-            _data_stale = (datetime.now() - _last_dt).days > 2
-        except Exception:
-            pass
-
     st.markdown(f'''
     <div style="text-align:right;padding-top:12px">
         <span style="color:{COLORS['text_muted']};font-size:0.8rem">📅 資料日期</span><br>
-        <span style="color:{'#fbbf24' if _data_stale else COLORS['text_primary']};font-size:1rem;font-weight:600">{latest_date}</span>
+        <span style="color:{COLORS['warning'] if _data_stale else COLORS['text_primary']};font-size:1rem;font-weight:600">{latest_date}</span>
     </div>
     ''', unsafe_allow_html=True)
     if _data_stale:
@@ -304,92 +305,59 @@ st.markdown('<div style="margin-bottom:1.5rem"></div>', unsafe_allow_html=True)
 # ========== 第一行：關鍵指標 KPI ==========
 st.markdown(create_section_header('關鍵指標', '📈'), unsafe_allow_html=True)
 
-kpi_cols = st.columns(6)
+kpi_items = []
 
 # 加權指數
-with kpi_cols[0]:
-    taiex_index, taiex_change, _ = get_taiex()
-    if taiex_index:
-        delta_color = 'up' if taiex_change and taiex_change >= 0 else 'down'
-        st.markdown(create_kpi_card(
-            '加權指數',
-            f'{taiex_index:,.0f}',
-            f'{taiex_change:+.2f}%' if taiex_change else None,
-            delta_color
-        ), unsafe_allow_html=True)
-    else:
-        st.markdown(create_kpi_card('加權指數', '載入中...'), unsafe_allow_html=True)
+taiex_index, taiex_change, _ = get_taiex()
+if taiex_index:
+    kpi_items.append({
+        'label': '加權指數',
+        'value': format_number(taiex_index, 'int'),
+        'delta': format_number(taiex_change, 'pct', signed=True) if taiex_change else None,
+        'delta_color': 'up' if taiex_change and taiex_change >= 0 else 'down',
+    })
+else:
+    kpi_items.append({'label': '加權指數', 'value': '載入中...'})
 
 # 上漲/下跌
-with kpi_cols[1]:
-    up = data.get('up_count', 0)
-    down = data.get('down_count', 0)
-    delta_color = 'up' if up > down else 'down' if down > up else 'flat'
-    st.markdown(create_kpi_card(
-        '上漲家數',
-        f'{up:,}',
-        f'下跌 {down:,}',
-        delta_color
-    ), unsafe_allow_html=True)
+up = data.get('up_count', 0)
+down = data.get('down_count', 0)
+kpi_items.append({
+    'label': '上漲家數',
+    'value': format_number(up, 'int'),
+    'delta': f'下跌 {format_number(down, "int")}',
+    'delta_color': 'up' if up > down else 'down' if down > up else 'flat',
+})
 
 # 漲停/跌停
-with kpi_cols[2]:
-    limit_up = data.get('limit_up', 0)
-    limit_down = data.get('limit_down', 0)
-    delta_color = 'up' if limit_up > limit_down else 'down' if limit_down > limit_up else 'flat'
-    st.markdown(create_kpi_card(
-        '漲停家數',
-        f'{limit_up:,}',
-        f'跌停 {limit_down:,}',
-        delta_color
-    ), unsafe_allow_html=True)
+limit_up = data.get('limit_up', 0)
+limit_down = data.get('limit_down', 0)
+kpi_items.append({
+    'label': '漲停家數',
+    'value': format_number(limit_up, 'int'),
+    'delta': f'跌停 {format_number(limit_down, "int")}',
+    'delta_color': 'up' if limit_up > limit_down else 'down' if limit_down > limit_up else 'flat',
+})
 
-# 外資
-with kpi_cols[3]:
-    foreign = data.get('foreign_total')
-    if foreign is not None:
-        delta_color = 'up' if foreign >= 0 else 'down'
-        st.markdown(create_kpi_card(
-            '外資',
-            f'{foreign/10000:+,.1f}萬張',
-            '買超' if foreign >= 0 else '賣超',
-            delta_color
-        ), unsafe_allow_html=True)
+# 外資 / 投信 / 自營商
+for _label, _key in (('外資', 'foreign_total'), ('投信', 'trust_total'), ('自營商', 'dealer_total')):
+    _val = data.get(_key)
+    if _val is not None:
+        kpi_items.append({
+            'label': _label,
+            'value': f'{format_number(_val / 10000, "price", signed=True)}萬張',
+            'delta': '買超' if _val >= 0 else '賣超',
+            'delta_color': 'up' if _val >= 0 else 'down',
+        })
     else:
-        st.markdown(create_kpi_card('外資', '-'), unsafe_allow_html=True)
+        kpi_items.append({'label': _label, 'value': '-'})
 
-# 投信
-with kpi_cols[4]:
-    trust = data.get('trust_total')
-    if trust is not None:
-        delta_color = 'up' if trust >= 0 else 'down'
-        st.markdown(create_kpi_card(
-            '投信',
-            f'{trust/10000:+,.1f}萬張',
-            '買超' if trust >= 0 else '賣超',
-            delta_color
-        ), unsafe_allow_html=True)
-    else:
-        st.markdown(create_kpi_card('投信', '-'), unsafe_allow_html=True)
-
-# 自營商
-with kpi_cols[5]:
-    dealer = data.get('dealer_total')
-    if dealer is not None:
-        delta_color = 'up' if dealer >= 0 else 'down'
-        st.markdown(create_kpi_card(
-            '自營商',
-            f'{dealer/10000:+,.1f}萬張',
-            '買超' if dealer >= 0 else '賣超',
-            delta_color
-        ), unsafe_allow_html=True)
-    else:
-        st.markdown(create_kpi_card('自營商', '-'), unsafe_allow_html=True)
+render_kpi_row(kpi_items, cols=6)
 
 st.markdown('<div style="margin-bottom:2rem"></div>', unsafe_allow_html=True)
 
 # ========== 第二行：市場情緒 + 熱力圖 + 即時報價 ==========
-row2_col1, row2_col2, row2_col3 = st.columns([1, 2, 2])
+row2_col1, row2_col2, row2_col3 = st.columns([1.5, 1.5, 2])
 
 # 市場情緒儀表
 with row2_col1:
@@ -477,7 +445,7 @@ with row2_col3:
             </div>
             ''', unsafe_allow_html=True)
 
-    except Exception as e:
+    except Exception:
         st.warning('報價載入失敗')
 
     if st.button('💹 查看更多即時報價', use_container_width=True, key='btn_quote'):
@@ -515,7 +483,7 @@ def create_ranking_table(title: str, data_rows: list, icon: str = '📊'):
             <td style="padding:10px 8px;width:40px;border-bottom:1px solid {COLORS['border']}">
                 <span style="background:{rank_bg};color:{rank_color};padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:600">{i}</span>
             </td>
-            <td style="padding:10px 8px;border-bottom:1px solid {COLORS['border']}">
+            <td style="padding:10px 8px;border-bottom:1px solid {COLORS['border']};max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                 <span style="color:{COLORS['text_primary']};font-weight:600">{row.get('code', '')}</span>
                 <span style="color:{COLORS['text_secondary']};font-size:0.8rem;margin-left:6px">{row.get('name', '')}</span>
             </td>

@@ -1,11 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { StockInput } from '@/components/shared/StockInput'
+import { INDICATOR, CHART_SERIES } from '@/lib/constants/chartColors'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Info } from 'lucide-react'
 import {
-  ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, Legend
 } from 'recharts'
 
 interface TechnicalChartItem {
@@ -41,12 +45,71 @@ const PERIODS: { label: string; value: string; days: number }[] = [
   { label: '1 年', value: '1y', days: 365 },
 ]
 
-const INDICATORS: { key: Indicator; label: string }[] = [
-  { key: 'macd', label: 'MACD' },
-  { key: 'kd', label: 'KD' },
-  { key: 'rsi', label: 'RSI' },
-  { key: 'boll', label: '布林通道' },
+const INDICATORS: { key: Indicator; label: string; title: string; description: string; usage: string }[] = [
+  {
+    key: 'macd',
+    label: 'MACD',
+    title: 'MACD 趨勢動能',
+    description: '用快慢均線的差距判斷趨勢動能與轉折。MACD 線上穿 Signal 線常被視為偏多訊號，下穿則偏弱。',
+    usage: '柱狀體擴大代表動能增強；接近零軸時通常表示趨勢正在轉換。',
+  },
+  {
+    key: 'kd',
+    label: 'KD',
+    title: 'KD 隨機指標',
+    description: '衡量股價在近期高低區間中的相對位置，常用來觀察短線超買、超賣與轉折。',
+    usage: 'K、D 高於 80 偏熱，低於 20 偏冷；K 線上穿 D 線偏多，下穿偏弱。',
+  },
+  {
+    key: 'rsi',
+    label: 'RSI',
+    title: 'RSI 相對強弱',
+    description: '比較近期上漲與下跌力道，判斷買盤或賣壓是否過熱。',
+    usage: 'RSI 高於 70 常代表超買，低於 30 常代表超賣；背離可用來留意趨勢衰退。',
+  },
+  {
+    key: 'boll',
+    label: '布林通道',
+    title: '布林通道 波動區間',
+    description: '以均線加減標準差形成上、中、下軌，觀察價格是否偏離正常波動範圍。',
+    usage: '靠近上軌代表價格偏強或偏熱，靠近下軌代表偏弱或可能反彈；通道收斂常表示波動將放大。',
+  },
 ]
+
+const indicatorMap = Object.fromEntries(INDICATORS.map((indicator) => [indicator.key, indicator])) as Record<Indicator, (typeof INDICATORS)[number]>
+
+function IndicatorHelp({ indicator }: { indicator: Indicator }) {
+  const item = indicatorMap[indicator]
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${item.label} 指標說明`}
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{ color: 'var(--muted-foreground)' }}
+        >
+          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start" className="max-w-72 space-y-1.5 px-3 py-2 leading-relaxed">
+        <p className="font-medium">{item.title}</p>
+        <p className="text-xs opacity-90">{item.description}</p>
+        <p className="text-xs opacity-75">{item.usage}</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function IndicatorHeading({ indicator, children }: { indicator: Indicator; children: ReactNode }) {
+  return (
+    <div className="mb-3 flex items-center gap-1.5">
+      <h3 className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>{children}</h3>
+      <IndicatorHelp indicator={indicator} />
+    </div>
+  )
+}
 
 export default function TechnicalPage() {
   const [stockCode, setStockCode] = useState('')
@@ -71,7 +134,8 @@ export default function TechnicalPage() {
   }
 
   return (
-    <div>
+    <TooltipProvider delayDuration={150}>
+      <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>技術分析</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>收盤價走勢與技術指標</p>
@@ -123,6 +187,7 @@ export default function TechnicalPage() {
                   style={{ accentColor: 'var(--primary)' }}
                 />
                 <span className="text-sm" style={{ color: 'var(--foreground)' }}>{ind.label}</span>
+                <IndicatorHelp indicator={ind.key} />
               </label>
             ))}
           </div>
@@ -166,19 +231,19 @@ export default function TechnicalPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                 <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} domain={['auto', 'auto']} />
-                <Tooltip
+                <ChartTooltip
                   contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
                 />
                 <Legend />
                 <Line type="monotone" dataKey="close" stroke="var(--primary)" dot={false} strokeWidth={2} name="收盤" />
-                <Line type="monotone" dataKey="sma5" stroke="#3b82f6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA5" />
-                <Line type="monotone" dataKey="sma20" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA20" />
-                <Line type="monotone" dataKey="sma60" stroke="#10b981" dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA60" />
+                <Line type="monotone" dataKey="sma5" stroke={INDICATOR.ma5} dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA5" />
+                <Line type="monotone" dataKey="sma20" stroke={INDICATOR.ma20} dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA20" />
+                <Line type="monotone" dataKey="sma60" stroke={INDICATOR.ma60} dot={false} strokeWidth={1} strokeDasharray="4 2" name="MA60" />
                 {activeIndicators.includes('boll') && (
                   <>
-                    <Line type="monotone" dataKey="bb_upper" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林上軌" />
-                    <Line type="monotone" dataKey="bb_mid" stroke="#8b5cf6" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林中軌" />
-                    <Line type="monotone" dataKey="bb_lower" stroke="#f59e0b" dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林下軌" />
+                    <Line type="monotone" dataKey="bb_upper" stroke={CHART_SERIES[1]} dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林上軌" />
+                    <Line type="monotone" dataKey="bb_mid" stroke={CHART_SERIES[3]} dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林中軌" />
+                    <Line type="monotone" dataKey="bb_lower" stroke={CHART_SERIES[1]} dot={false} strokeWidth={1} strokeDasharray="4 2" name="布林下軌" />
                   </>
                 )}
               </ComposedChart>
@@ -191,16 +256,16 @@ export default function TechnicalPage() {
               className="rounded-lg p-4"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
             >
-              <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>MACD</h3>
+              <IndicatorHeading indicator="macd">MACD</IndicatorHeading>
               <ResponsiveContainer width="100%" height={150}>
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
+                  <ChartTooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
                   <Bar dataKey="macd_hist" fill="var(--primary)" name="柱狀" />
-                  <Line type="monotone" dataKey="macd" stroke="#ef4444" dot={false} strokeWidth={1.5} name="MACD" />
-                  <Line type="monotone" dataKey="macd_signal" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="Signal" />
+                  <Line type="monotone" dataKey="macd" stroke={INDICATOR.macd} dot={false} strokeWidth={1.5} name="MACD" />
+                  <Line type="monotone" dataKey="macd_signal" stroke={INDICATOR.signal} dot={false} strokeWidth={1.5} name="Signal" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -212,16 +277,16 @@ export default function TechnicalPage() {
               className="rounded-lg p-4"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
             >
-              <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>KD 指標</h3>
+              <IndicatorHeading indicator="kd">KD 指標</IndicatorHeading>
               <ResponsiveContainer width="100%" height={150}>
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <YAxis domain={[0, 100]} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
+                  <ChartTooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
                   <Legend />
-                  <Line type="monotone" dataKey="kdj_k" stroke="#3b82f6" dot={false} strokeWidth={1.5} name="K" />
-                  <Line type="monotone" dataKey="kdj_d" stroke="#f59e0b" dot={false} strokeWidth={1.5} name="D" />
+                  <Line type="monotone" dataKey="kdj_k" stroke={CHART_SERIES[0]} dot={false} strokeWidth={1.5} name="K" />
+                  <Line type="monotone" dataKey="kdj_d" stroke={CHART_SERIES[1]} dot={false} strokeWidth={1.5} name="D" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -233,14 +298,14 @@ export default function TechnicalPage() {
               className="rounded-lg p-4"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
             >
-              <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>RSI(14)</h3>
+              <IndicatorHeading indicator="rsi">RSI(14)</IndicatorHeading>
               <ResponsiveContainer width="100%" height={150}>
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="date" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <YAxis domain={[0, 100]} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
-                  <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
-                  <Line type="monotone" dataKey="rsi14" stroke="#8b5cf6" dot={false} strokeWidth={1.5} name="RSI" />
+                  <ChartTooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
+                  <Line type="monotone" dataKey="rsi14" stroke={INDICATOR.rsi} dot={false} strokeWidth={1.5} name="RSI" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -254,6 +319,7 @@ export default function TechnicalPage() {
           <p style={{ color: 'var(--muted-foreground)' }}>查無 {stockCode} 的技術分析資料</p>
         </div>
       )}
-    </div>
+      </div>
+    </TooltipProvider>
   )
 }

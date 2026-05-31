@@ -22,20 +22,31 @@ export function formatCurrency(
   }).format(value)
 }
 
+/** 漲跌方向箭頭（雙重編碼用，避免僅靠顏色） */
+export function changeArrow(value: number): string {
+  if (value > 0) return '▲'
+  if (value < 0) return '▼'
+  return ''
+}
+
 /**
  * 格式化百分比
+ * @param withArrow 是否前綴 ▲▼ 方向符號（色盲友善雙重編碼）
  */
-export function formatPercent(value: number, decimals = 2): string {
+export function formatPercent(value: number, decimals = 2, withArrow = false): string {
   const sign = value > 0 ? '+' : ''
-  return `${sign}${value.toFixed(decimals)}%`
+  const arrow = withArrow && value !== 0 ? `${changeArrow(value)} ` : ''
+  return `${arrow}${sign}${value.toFixed(decimals)}%`
 }
 
 /**
  * 格式化漲跌數字（帶正負號）
+ * @param withArrow 是否前綴 ▲▼ 方向符號（色盲友善雙重編碼）
  */
-export function formatChange(value: number, decimals = 2): string {
+export function formatChange(value: number, decimals = 2, withArrow = false): string {
   const sign = value > 0 ? '+' : ''
-  return `${sign}${value.toFixed(decimals)}`
+  const arrow = withArrow && value !== 0 ? `${changeArrow(value)} ` : ''
+  return `${arrow}${sign}${value.toFixed(decimals)}`
 }
 
 /**

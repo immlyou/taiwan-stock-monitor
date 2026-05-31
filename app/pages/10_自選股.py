@@ -6,19 +6,21 @@ import pandas as pd
 import json
 from pathlib import Path
 from datetime import datetime
-import io
 
 
 from config import CACHE_TTL
 from core.data_loader import get_loader, get_active_stocks
 from app.components.sidebar import render_sidebar_mini
 from app.components.session_manager import (
-    init_session_state, get_state, set_state, StateKeys,
-    navigate_to_stock_analysis
+    init_session_state, navigate_to_stock_analysis
 )
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
+from app.components.theme import (
+    create_page_title, create_section_header, create_stock_card,
+    responsive_columns, format_number,
+)
 
 st.set_page_config(page_title='自選股', page_icon='⭐', layout='wide')
 
@@ -34,7 +36,10 @@ init_session_state()
 # 渲染側邊欄
 render_sidebar_mini(current_page='watchlist')
 
-render_page_header('自選股', icon='⭐')
+# 全域行情列
+render_global_ticker_bar()
+
+st.markdown(create_page_title('自選股', subtitle='管理您的觀察清單與個股備註', icon='⭐'), unsafe_allow_html=True)
 
 # 自選股檔案路徑
 WATCHLIST_FILE = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
@@ -139,11 +144,11 @@ if selected_watchlist != '-- 新建清單 --' and selected_watchlist in watchlis
     stocks = watchlist.get('stocks', [])
     notes = watchlist.get('notes', {})
 
-    st.subheader(f'⭐ {selected_watchlist}')
+    st.markdown(create_section_header(selected_watchlist, icon='⭐'), unsafe_allow_html=True)
     st.caption(f"建立於: {watchlist.get('created_at', '未知')[:10]} | 共 {len(stocks)} 檔股票")
 
     # ========== 新增股票 ==========
-    st.markdown('### ➕ 新增股票')
+    st.markdown(create_section_header('新增股票', icon='➕'), unsafe_allow_html=True)
 
     col1, col2 = st.columns([4, 1])
 
@@ -167,11 +172,9 @@ if selected_watchlist != '-- 新建清單 --' and selected_watchlist in watchlis
             else:
                 st.warning('此股票已在清單中')
 
-    st.markdown('---')
-
     # ========== 股票列表 ==========
     if stocks:
-        st.markdown('### 📋 自選股列表')
+        st.markdown(create_section_header('自選股列表', icon='📋'), unsafe_allow_html=True)
 
         # 顯示模式選擇
         view_mode = st.radio('顯示模式', ['表格', '卡片'], horizontal=True)
@@ -227,34 +230,40 @@ if selected_watchlist != '-- 新建清單 --' and selected_watchlist in watchlis
         if view_mode == '表格':
             # 表格顯示
             display_df = watchlist_df[['代號', '名稱', '產業', '現價', '日漲跌', '週漲跌', '月漲跌']].copy()
-            display_df['現價'] = display_df['現價'].apply(lambda x: f'{x:.2f}')
-            display_df['日漲跌'] = display_df['日漲跌'].apply(lambda x: f'{x:+.2f}%')
-            display_df['週漲跌'] = display_df['週漲跌'].apply(lambda x: f'{x:+.2f}%')
-            display_df['月漲跌'] = display_df['月漲跌'].apply(lambda x: f'{x:+.2f}%')
+            display_df['現價'] = display_df['現價'].apply(lambda x: format_number(x, kind='price'))
+            display_df['日漲跌'] = display_df['日漲跌'].apply(lambda x: format_number(x, kind='pct', signed=True))
+            display_df['週漲跌'] = display_df['週漲跌'].apply(lambda x: format_number(x, kind='pct', signed=True))
+            display_df['月漲跌'] = display_df['月漲跌'].apply(lambda x: format_number(x, kind='pct', signed=True))
 
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         else:
-            # 卡片顯示
-            cols = st.columns(3)
+            # 卡片顯示（深色 token，響應式換行）
+            n_cols = 3
+            cols = responsive_columns(n_cols)
 
             for i, row in watchlist_df.iterrows():
-                with cols[i % 3]:
-                    color = '🟢' if row['日漲跌'] >= 0 else '🔴'
+                with cols[i % n_cols]:
+                    price = row['現價']
+                    daily_pct = row['日漲跌']
+                    change_abs = price * daily_pct / 100
+                    extra = f"產業 {row['產業']} ｜ 週 {format_number(row['週漲跌'], kind='pct', signed=True)}"
 
-                    st.markdown(f'''
-                    <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin-bottom: 10px;">
-                        <h4>{row['代號']} {row['名稱']}</h4>
-                        <p style="color: gray; font-size: 0.9em;">{row['產業']}</p>
-                        <p style="font-size: 1.5em; font-weight: bold;">{row['現價']:.2f}</p>
-                        <p>{color} 日: {row['日漲跌']:+.2f}% | 週: {row['週漲跌']:+.2f}%</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    st.markdown(create_stock_card(
+                        stock_id=row['代號'],
+                        name=row['名稱'],
+                        price=price,
+                        change=change_abs,
+                        change_pct=daily_pct,
+                        extra_info=extra,
+                    ), unsafe_allow_html=True)
 
-        st.markdown('---')
+                    if st.button('📊 分析', key=f"analyze_card_{row['代號']}", use_container_width=True):
+                        navigate_to_stock_analysis(row['stock_id'])
+                        st.switch_page('pages/3_個股分析.py')
 
         # ========== 備註管理 ==========
-        st.markdown('### 📝 備註管理')
+        st.markdown(create_section_header('備註管理', icon='📝'), unsafe_allow_html=True)
 
         note_stock = st.selectbox('選擇股票', [f"{s} - {stock_info[stock_info['stock_id']==s]['name'].values[0] if len(stock_info[stock_info['stock_id']==s]) > 0 else ''}" for s in stocks])
 
@@ -271,10 +280,8 @@ if selected_watchlist != '-- 新建清單 --' and selected_watchlist in watchlis
                 save_watchlists(watchlists)
                 st.success('備註已儲存')
 
-        st.markdown('---')
-
         # ========== 股票操作 ==========
-        st.markdown('### ⚙️ 股票操作')
+        st.markdown(create_section_header('股票操作', icon='⚙️'), unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
 
@@ -301,10 +308,8 @@ if selected_watchlist != '-- 新建清單 --' and selected_watchlist in watchlis
                 navigate_to_stock_analysis(stock_id_to_analyze)
                 st.switch_page('pages/3_個股分析.py')
 
-        st.markdown('---')
-
         # ========== 匯出/匯入 ==========
-        st.markdown('### 📤 匯出/匯入')
+        st.markdown(create_section_header('匯出 / 匯入', icon='📤'), unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
 

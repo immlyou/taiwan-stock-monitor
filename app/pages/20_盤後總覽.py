@@ -7,12 +7,6 @@
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-import json
-from pathlib import Path
-from datetime import datetime
 
 
 from config import STREAMLIT_CONFIG, CACHE_TTL
@@ -20,10 +14,17 @@ from core.data_loader import get_loader
 from core.twse_api import get_taiex
 from core.ai_models import PostMarketSummarizer
 from app.components.sidebar import render_sidebar_mini
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
 from app.components.error_handler import show_error
-from app.components.theme import create_kpi_card, create_section_header, inject_professional_theme
+from app.components.theme import (
+    create_kpi_card,
+    create_section_header,
+    create_page_title,
+    render_kpi_row,
+    responsive_columns,
+    inject_professional_theme,
+)
 
 # 頁面設定
 st.set_page_config(
@@ -38,8 +39,11 @@ inject_professional_theme()
 # 渲染側邊欄
 render_sidebar_mini(current_page='after_hours')
 
+# 全域報價列（sidebar 後、標題前呼叫一次）
+render_global_ticker_bar()
+
 # 標題
-render_page_header('盤後總覽', icon='📊')
+st.markdown(create_page_title('盤後總覽', subtitle='每日收盤後籌碼報告', icon='📊'), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=CACHE_TTL['intraday'])
@@ -254,35 +258,24 @@ taiex_index, taiex_change, taiex_date = get_taiex()
 
 market_summary = create_market_summary(data)
 
-idx_col1, idx_col2, idx_col3, idx_col4, idx_col5 = st.columns(5)
+_idx_items = []
+if taiex_index:
+    _idx_items.append({
+        'label': '加權指數',
+        'value': f'{taiex_index:,.2f}',
+        'delta': f'{taiex_change:+.2f}%' if taiex_change else None,
+        'delta_color': 'up' if taiex_change and taiex_change >= 0 else 'down',
+    })
+else:
+    _idx_items.append({'label': '加權指數', 'value': '載入中...'})
 
-with idx_col1:
-    if taiex_index:
-        delta_color = 'up' if taiex_change and taiex_change >= 0 else 'down'
-        st.markdown(create_kpi_card(
-            '加權指數',
-            f'{taiex_index:,.2f}',
-            f'{taiex_change:+.2f}%' if taiex_change else None,
-            delta_color,
-        ), unsafe_allow_html=True)
-    else:
-        st.markdown(create_kpi_card('加權指數', '載入中...'), unsafe_allow_html=True)
+if market_summary:
+    _idx_items.append({'label': '上漲家數', 'value': f"{market_summary['up_count']:,}", 'delta_color': 'up'})
+    _idx_items.append({'label': '下跌家數', 'value': f"{market_summary['down_count']:,}", 'delta_color': 'down'})
+    _idx_items.append({'label': '漲停', 'value': f"{market_summary['limit_up']:,}", 'delta_color': 'up'})
+    _idx_items.append({'label': '跌停', 'value': f"{market_summary['limit_down']:,}", 'delta_color': 'down'})
 
-with idx_col2:
-    if market_summary:
-        st.markdown(create_kpi_card('上漲家數', f"{market_summary['up_count']:,}"), unsafe_allow_html=True)
-
-with idx_col3:
-    if market_summary:
-        st.markdown(create_kpi_card('下跌家數', f"{market_summary['down_count']:,}"), unsafe_allow_html=True)
-
-with idx_col4:
-    if market_summary:
-        st.markdown(create_kpi_card('漲停', f"{market_summary['limit_up']:,}"), unsafe_allow_html=True)
-
-with idx_col5:
-    if market_summary:
-        st.markdown(create_kpi_card('跌停', f"{market_summary['limit_down']:,}"), unsafe_allow_html=True)
+render_kpi_row(_idx_items, cols=5)
 
 # ===== 三大法人買賣超 =====
 st.markdown('---')
@@ -304,102 +297,64 @@ if data.get('dealer') is not None and len(data['dealer']) > 0:
 
 total_all = total_foreign + total_trust + total_dealer
 
-inst_col1, inst_col2, inst_col3, inst_col4 = st.columns(4)
-
-with inst_col1:
-    inst_color = 'up' if total_foreign >= 0 else 'down'
-    st.markdown(create_kpi_card(
-        '外資',
-        f'{total_foreign:+,.0f} 張',
-        '買超' if total_foreign >= 0 else '賣超',
-        inst_color,
-    ), unsafe_allow_html=True)
-
-with inst_col2:
-    inst_color = 'up' if total_trust >= 0 else 'down'
-    st.markdown(create_kpi_card(
-        '投信',
-        f'{total_trust:+,.0f} 張',
-        '買超' if total_trust >= 0 else '賣超',
-        inst_color,
-    ), unsafe_allow_html=True)
-
-with inst_col3:
-    inst_color = 'up' if total_dealer >= 0 else 'down'
-    st.markdown(create_kpi_card(
-        '自營商',
-        f'{total_dealer:+,.0f} 張',
-        '買超' if total_dealer >= 0 else '賣超',
-        inst_color,
-    ), unsafe_allow_html=True)
-
-with inst_col4:
-    inst_color = 'up' if total_all >= 0 else 'down'
-    st.markdown(create_kpi_card(
-        '合計',
-        f'{total_all:+,.0f} 張',
-        '買超' if total_all >= 0 else '賣超',
-        inst_color,
-    ), unsafe_allow_html=True)
+render_kpi_row([
+    {
+        'label': '外資',
+        'value': f'{total_foreign:+,.0f} 張',
+        'delta': '買超' if total_foreign >= 0 else '賣超',
+        'delta_color': 'up' if total_foreign >= 0 else 'down',
+    },
+    {
+        'label': '投信',
+        'value': f'{total_trust:+,.0f} 張',
+        'delta': '買超' if total_trust >= 0 else '賣超',
+        'delta_color': 'up' if total_trust >= 0 else 'down',
+    },
+    {
+        'label': '自營商',
+        'value': f'{total_dealer:+,.0f} 張',
+        'delta': '買超' if total_dealer >= 0 else '賣超',
+        'delta_color': 'up' if total_dealer >= 0 else 'down',
+    },
+    {
+        'label': '合計',
+        'value': f'{total_all:+,.0f} 張',
+        'delta': '買超' if total_all >= 0 else '賣超',
+        'delta_color': 'up' if total_all >= 0 else 'down',
+    },
+], cols=4)
 
 # 買賣超排行
-st.markdown(create_section_header('法人買賣超排行'), unsafe_allow_html=True)
+st.markdown(create_section_header('法人買賣超排行', '🏆'), unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(['🌍 外資', '🏦 投信', '🏢 自營商'])
 
-with tab1:
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('**買超 Top 10**')
-        df = get_top_institutional(data, 'foreign', 10, False)
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            show_empty_state('無資料', icon='📭')
 
-    with col2:
-        st.markdown('**賣超 Top 10**')
-        df = get_top_institutional(data, 'foreign', 10, True)
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            show_empty_state('無資料', icon='📭')
+def _render_inst_ranking(inst_type):
+    """單欄全寬呈現買超 / 賣超 Top 10。"""
+    st.markdown('**買超 Top 10**')
+    df_buy = get_top_institutional(data, inst_type, 10, False)
+    if len(df_buy) > 0:
+        st.dataframe(df_buy, use_container_width=True, hide_index=True)
+    else:
+        show_empty_state('無資料', icon='📭')
+
+    st.markdown('**賣超 Top 10**')
+    df_sell = get_top_institutional(data, inst_type, 10, True)
+    if len(df_sell) > 0:
+        st.dataframe(df_sell, use_container_width=True, hide_index=True)
+    else:
+        show_empty_state('無資料', icon='📭')
+
+
+with tab1:
+    _render_inst_ranking('foreign')
 
 with tab2:
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('**買超 Top 10**')
-        df = get_top_institutional(data, 'investment_trust', 10, False)
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            show_empty_state('無資料', icon='📭')
-
-    with col2:
-        st.markdown('**賣超 Top 10**')
-        df = get_top_institutional(data, 'investment_trust', 10, True)
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            show_empty_state('無資料', icon='📭')
+    _render_inst_ranking('investment_trust')
 
 with tab3:
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('**買超 Top 10**')
-        df = get_top_institutional(data, 'dealer', 10, False)
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            show_empty_state('無資料', icon='📭')
-
-    with col2:
-        st.markdown('**賣超 Top 10**')
-        df = get_top_institutional(data, 'dealer', 10, True)
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            show_empty_state('無資料', icon='📭')
+    _render_inst_ranking('dealer')
 
 # ===== 融資融券變化 =====
 st.markdown('---')
@@ -447,7 +402,7 @@ else:
     show_empty_state('尚未建立自選股清單', icon='⭐', suggestion='請至「自選股」頁面建立您的第一個清單')
 
     # 顯示範例
-    st.markdown(create_section_header('範例：熱門股票籌碼'), unsafe_allow_html=True)
+    st.markdown(create_section_header('範例：熱門股票籌碼', '🔥'), unsafe_allow_html=True)
     example_stocks = ['2330', '2317', '2454', '2881', '0050']
     df = get_watchlist_summary(data, example_stocks)
     if len(df) > 0:
@@ -705,8 +660,7 @@ else:
         st.markdown(_disclaimer)
 
 # ========== AI 盤後摘要 ==========
-st.markdown('---')
-st.markdown('### 🤖 AI 盤後摘要')
+st.markdown(create_section_header('AI 盤後摘要', '🤖'), unsafe_allow_html=True)
 
 if st.button('📝 生成 AI 覆盤報告', type='primary', use_container_width=True):
     with st.spinner('AI 正在撰寫盤後摘要...'):
@@ -760,7 +714,7 @@ if 'post_market_summary' in st.session_state:
     result = st.session_state['post_market_summary']
 
     # 完整報告
-    st.markdown('#### 📋 完整報告')
+    st.markdown(create_section_header('完整報告', '📋'), unsafe_allow_html=True)
     st.info(result.get('summary', ''))
 
     # Telegram 精簡版

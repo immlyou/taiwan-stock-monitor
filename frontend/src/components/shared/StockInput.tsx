@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useId } from 'react'
 import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -39,6 +39,9 @@ export function StockInput({
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const comboboxId = useId()
+  const listboxId = `${comboboxId}-listbox`
+  const getOptionId = useCallback((index: number) => `${comboboxId}-option-${index}`, [comboboxId])
 
   // 當外部 value 清空時同步清空輸入框顯示
   useEffect(() => {
@@ -101,12 +104,12 @@ export function StockInput({
         const next = Math.min(activeIndex + 1, results.length - 1)
         setActiveIndex(next)
         if (!isOpen && results.length > 0) setIsOpen(true)
-        document.getElementById(`stock-option-${next}`)?.scrollIntoView({ block: 'nearest' })
+        document.getElementById(getOptionId(next))?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         const prev = Math.max(activeIndex - 1, -1)
         setActiveIndex(prev)
-        if (prev >= 0) document.getElementById(`stock-option-${prev}`)?.scrollIntoView({ block: 'nearest' })
+        if (prev >= 0) document.getElementById(getOptionId(prev))?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (isOpen && results.length > 0) {
@@ -117,7 +120,7 @@ export function StockInput({
         setIsOpen(false)
       }
     },
-    [isOpen, results, activeIndex, handleSelect]
+    [isOpen, results, activeIndex, handleSelect, getOptionId]
   )
 
   // 點擊外部關閉
@@ -161,6 +164,8 @@ export function StockInput({
           }}
           aria-label="搜尋股票"
           aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-activedescendant={isOpen && activeIndex >= 0 ? getOptionId(activeIndex) : undefined}
           aria-expanded={isOpen}
           role="combobox"
           autoComplete="off"
@@ -175,6 +180,7 @@ export function StockInput({
 
       {isOpen && results.length > 0 && (
         <div
+          id={listboxId}
           className="absolute top-full left-0 right-0 mt-1 rounded-md border shadow-lg z-50"
           style={{
             background: 'var(--card)',
@@ -200,7 +206,7 @@ export function StockInput({
           {results.map((result, index) => (
             <button
               key={result.stock_id}
-              id={`stock-option-${index}`}
+              id={getOptionId(index)}
               onMouseDown={(e) => {
                 e.preventDefault()
                 handleSelect(result)

@@ -3,7 +3,7 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 

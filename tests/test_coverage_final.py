@@ -8,7 +8,6 @@ import pickle
 import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -201,8 +200,7 @@ class TestGetHotStocksIntegrated:
 # notification — abstract base 行 37, 42（docstring 後的 pass）
 # ──────────────────────────────────────────────
 from core.notification import (
-    NotificationChannel, LineNotifyChannel, TelegramChannel,
-    NotificationManager,
+    NotificationChannel, NotificationManager,
 )
 
 
@@ -352,7 +350,7 @@ class TestYfinanceOtcPath:
 # ──────────────────────────────────────────────
 # prediction_tracker — 補齊更多 _save_data / 驗證路徑
 # ──────────────────────────────────────────────
-from core.prediction_tracker import PredictionTracker, PredictionStatus, Prediction
+from core.prediction_tracker import PredictionTracker, PredictionStatus
 
 
 class TestPredictionTrackerExtra:

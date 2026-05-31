@@ -7,14 +7,43 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
 from app.components.theme import DEFAULT_PLOTLY_LAYOUT, COLORS, CHART_PALETTE
 
 
-def apply_dark_theme(fig, height=400, **kwargs):
-    """套用統一深色主題到任何 Plotly 圖表"""
-    layout_args = {**DEFAULT_PLOTLY_LAYOUT, 'height': height, **kwargs}
+# ===== 全站圖表標準設定（高度/圖例/hover/colorscale）=====
+CHART_CONFIG = {
+    # 標準高度（大圖 / 中圖 / 小並排）
+    'height_lg': 500,
+    'height_md': 400,
+    'height_sm': 300,
+    # 水平圖例（置於圖上方，省垂直空間）
+    'legend': dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    # 十字線 hover
+    'hovermode': 'x unified',
+    # 漲跌類連續色階（紅在上＝高值，符合台股紅漲綠跌）
+    'diverging_scale': 'RdYlGn_r',
+    # 日期軸格式
+    'date_tickformat': '%Y-%m-%d',
+}
+
+
+def apply_dark_theme(fig, height=None, *, standard_legend=True, unified_hover=False, **kwargs):
+    """套用統一深色主題到任何 Plotly 圖表。
+
+    standard_legend: 套用水平圖例（caller 傳 legend 可覆寫）
+    unified_hover: 套用 'x unified' 十字線（時間序列圖建議開啟）
+    """
+    if height is None:
+        height = CHART_CONFIG['height_md']
+    defaults = {**DEFAULT_PLOTLY_LAYOUT, 'height': height}
+    if standard_legend:
+        defaults['legend'] = CHART_CONFIG['legend']
+    if unified_hover:
+        defaults['hovermode'] = CHART_CONFIG['hovermode']
+    # caller kwargs 最後合併，可覆寫任何預設
+    layout_args = {**defaults, **kwargs}
     fig.update_layout(**layout_args)
     return fig
 
@@ -245,8 +274,8 @@ def create_drawdown_chart(portfolio_values: pd.Series,
             y=drawdown,
             name='回撤',
             fill='tozeroy',
-            fillcolor='rgba(239, 68, 68, 0.3)',
-            line=dict(color=COLORS['up'], width=1),
+            fillcolor='rgba(246, 70, 93, 0.3)',
+            line=dict(color=COLORS['danger'], width=1),
         )
     )
 
@@ -293,10 +322,10 @@ def create_metrics_gauge(value: float,
             'axis': {'range': [min_val, max_val]},
             'bar': {'color': CHART_PALETTE[0]},
             'steps': [
-                {'range': [min_val, thresholds['poor']], 'color': '#FF6B6B'},
-                {'range': [thresholds['poor'], thresholds['fair']], 'color': '#FFD93D'},
-                {'range': [thresholds['fair'], thresholds['good']], 'color': '#6BCB77'},
-                {'range': [thresholds['good'], max_val], 'color': '#4D96FF'},
+                {'range': [min_val, thresholds['poor']], 'color': 'rgba(246, 70, 93, 0.25)'},
+                {'range': [thresholds['poor'], thresholds['fair']], 'color': 'rgba(245, 158, 11, 0.25)'},
+                {'range': [thresholds['fair'], thresholds['good']], 'color': 'rgba(16, 185, 129, 0.25)'},
+                {'range': [thresholds['good'], max_val], 'color': 'rgba(59, 130, 246, 0.25)'},
             ],
         }
     ))
@@ -350,11 +379,11 @@ def create_heatmap(df: pd.DataFrame,
         z=df.values,
         x=df.columns,
         y=df.index,
-        colorscale='RdYlGn',
+        colorscale=CHART_CONFIG['diverging_scale'],
         zmid=0,
     ))
 
-    apply_dark_theme(fig, height=500, title=title)
+    apply_dark_theme(fig, height=CHART_CONFIG['height_lg'], title=title)
 
     return fig
 
@@ -380,7 +409,7 @@ def create_monthly_returns_heatmap(returns: pd.Series,
         z=pivot.values,
         x=pivot.columns,
         y=pivot.index,
-        colorscale='RdYlGn',
+        colorscale=CHART_CONFIG['diverging_scale'],
         zmid=0,
         text=np.round(pivot.values, 1),
         texttemplate='%{text}%',

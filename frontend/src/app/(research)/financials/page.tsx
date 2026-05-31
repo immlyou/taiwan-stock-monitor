@@ -4,6 +4,8 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { StockInput } from '@/components/shared/StockInput'
+import { CHART_SERIES, UP, DOWN } from '@/lib/constants/chartColors'
+import { formatCurrency, formatDate, formatPercent } from '@/lib/utils/format'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
@@ -24,14 +26,8 @@ interface FinancialData {
   dividend_yield: TimePoint[]
 }
 
-function formatDate(dateStr: string) {
-  // "2025-04-10" -> "2025/04"
-  return dateStr.slice(0, 7).replace('-', '/')
-}
-
-function formatRevenue(value: number) {
-  return (value / 1e8).toFixed(1) + ' 億'
-}
+// "2025-04-10" -> "2025/04"（沿用 format.ts 的 formatDate，取年月）
+const toYearMonth = (dateStr: string) => formatDate(dateStr).slice(0, 7)
 
 export default function FinancialsPage() {
   const [stockCode, setStockCode] = useState('')
@@ -42,17 +38,17 @@ export default function FinancialsPage() {
   )
 
   const revenueChartData = (data?.monthly_revenue ?? []).map(p => ({
-    date: formatDate(p.date),
+    date: toYearMonth(p.date),
     value: p.value,
   }))
 
   const yoyChartData = (data?.revenue_yoy ?? []).map(p => ({
-    date: formatDate(p.date),
+    date: toYearMonth(p.date),
     value: p.value,
   }))
 
   const momChartData = (data?.revenue_mom ?? []).map(p => ({
-    date: formatDate(p.date),
+    date: toYearMonth(p.date),
     value: p.value,
   }))
 
@@ -61,7 +57,7 @@ export default function FinancialsPage() {
     const pbPoint = data?.pb_ratio?.find(x => x.date === p.date)
     const dyPoint = data?.dividend_yield?.find(x => x.date === p.date)
     return {
-      date: formatDate(p.date),
+      date: toYearMonth(p.date),
       pe: p.value,
       pb: pbPoint?.value ?? null,
       dy: dyPoint?.value ?? null,
@@ -122,7 +118,7 @@ export default function FinancialsPage() {
                 <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} tickFormatter={(v) => (v / 1e8).toFixed(0) + '億'} />
                 <Tooltip
                   contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
-                  formatter={(v) => [formatRevenue(Number(v ?? 0)), '月營收']}
+                  formatter={(v) => [formatCurrency(Number(v ?? 0), { compact: true, decimals: 1 }), '月營收']}
                 />
                 <Bar dataKey="value" fill="var(--primary)" name="月營收" radius={[2, 2, 0, 0]} />
               </BarChart>
@@ -142,7 +138,7 @@ export default function FinancialsPage() {
                     contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
                     formatter={(v) => [`${Number(v ?? 0).toFixed(2)}%`, '年增率']}
                   />
-                  <Line type="monotone" dataKey="value" stroke="#22c55e" dot={false} strokeWidth={2} name="YoY%" />
+                  <Line type="monotone" dataKey="value" stroke={CHART_SERIES[0]} dot={false} strokeWidth={2} name="YoY%" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -157,7 +153,7 @@ export default function FinancialsPage() {
                     contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
                     formatter={(v) => [`${Number(v ?? 0).toFixed(2)}%`, '月增率']}
                   />
-                  <Line type="monotone" dataKey="value" stroke="#3b82f6" dot={false} strokeWidth={2} name="MoM%" />
+                  <Line type="monotone" dataKey="value" stroke={CHART_SERIES[1]} dot={false} strokeWidth={2} name="MoM%" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -174,9 +170,9 @@ export default function FinancialsPage() {
                   <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                   <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }} />
                   <Legend />
-                  <Line type="monotone" dataKey="pe" stroke="#f59e0b" dot={false} strokeWidth={2} name="本益比 PE" connectNulls />
-                  <Line type="monotone" dataKey="pb" stroke="#8b5cf6" dot={false} strokeWidth={2} name="股價淨值比 PB" connectNulls />
-                  <Line type="monotone" dataKey="dy" stroke="#22c55e" dot={false} strokeWidth={2} name="殖利率 DY%" connectNulls />
+                  <Line type="monotone" dataKey="pe" stroke={CHART_SERIES[2]} dot={false} strokeWidth={2} name="本益比 PE" connectNulls />
+                  <Line type="monotone" dataKey="pb" stroke={CHART_SERIES[3]} dot={false} strokeWidth={2} name="股價淨值比 PB" connectNulls />
+                  <Line type="monotone" dataKey="dy" stroke={CHART_SERIES[0]} dot={false} strokeWidth={2} name="殖利率 DY%" connectNulls />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -203,18 +199,18 @@ export default function FinancialsPage() {
                     return (
                       <tr key={r.date} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{r.date.slice(0, 7)}</td>
-                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatRevenue(r.value)}</td>
+                        <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{formatCurrency(r.value, { compact: true, decimals: 1 })}</td>
                         <td
                           className="py-2 px-4 tabular-nums"
-                          style={{ color: yoy?.value >= 0 ? 'var(--stock-up)' : 'var(--stock-down)' }}
+                          style={{ color: yoy?.value >= 0 ? UP : DOWN }}
                         >
-                          {yoy ? `${yoy.value >= 0 ? '+' : ''}${yoy.value.toFixed(2)}%` : '—'}
+                          {yoy ? formatPercent(yoy.value, 2) : '—'}
                         </td>
                         <td
                           className="py-2 px-4 tabular-nums"
-                          style={{ color: mom?.value >= 0 ? 'var(--stock-up)' : 'var(--stock-down)' }}
+                          style={{ color: mom?.value >= 0 ? UP : DOWN }}
                         >
-                          {mom ? `${mom.value >= 0 ? '+' : ''}${mom.value.toFixed(2)}%` : '—'}
+                          {mom ? formatPercent(mom.value, 2) : '—'}
                         </td>
                       </tr>
                     )

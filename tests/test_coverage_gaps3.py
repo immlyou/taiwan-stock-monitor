@@ -20,8 +20,7 @@ from unittest.mock import MagicMock, patch
 # ──────────────────────────────────────────────
 from core.data_loader import (
     DataLoader, DataCache, is_streamlit_cloud,
-    init_finlab, get_active_stocks, is_stock_active,
-    _finlab_initialized, FINLAB_DATA_MAPPING,
+    init_finlab, is_stock_active,
 )
 import core.data_loader as dl_module
 
@@ -133,7 +132,7 @@ class TestGetActiveStocksDetailed:
 # ──────────────────────────────────────────────
 # hidden_gems — 各 private scan 方法直接測試
 # ──────────────────────────────────────────────
-from core.hidden_gems import HiddenGemsScanner, _safe_last, _latest_row, _last_n_rows
+from core.hidden_gems import HiddenGemsScanner
 
 
 @pytest.fixture(scope="module")
@@ -410,7 +409,7 @@ class TestHotStocksAdditional:
 # ──────────────────────────────────────────────
 # portfolio_optimizer — quick_optimize
 # ──────────────────────────────────────────────
-from core.portfolio_optimizer import optimize_portfolio, PortfolioOptimizer
+from core.portfolio_optimizer import optimize_portfolio
 
 
 class TestQuickOptimize:
@@ -507,7 +506,7 @@ class TestGridSearchEdgeCases:
 from core.backtest.metrics import (
     calculate_total_return, calculate_annualized_return,
     calculate_volatility, calculate_sharpe_ratio,
-    calculate_sortino_ratio, calculate_calmar_ratio,
+    calculate_calmar_ratio,
     calculate_metrics,
 )
 
@@ -561,7 +560,7 @@ class TestMetricsEdgeCases2:
 # ──────────────────────────────────────────────
 # health_check — 改善覆蓋率
 # ──────────────────────────────────────────────
-from core.health_check import HealthChecker, CheckResult, HealthStatus, check_system_health, get_health_summary
+from core.health_check import HealthChecker, HealthStatus, check_system_health, get_health_summary
 
 
 class TestHealthCheckAdditional:
@@ -631,7 +630,6 @@ class TestHealthCheckAdditional:
         checker.data_dir = tmp_path
 
         # mock stat 回傳超大 size
-        import unittest.mock as um
         original_stat = Path.stat
         def mock_stat(self):
             if str(self).endswith(".log"):

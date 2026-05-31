@@ -4,7 +4,18 @@
 將選股篩選與回測分析頁面中重複的策略參數 slider/checkbox UI 抽取為共用函數。
 """
 import streamlit as st
-from typing import Dict, Optional
+from typing import Dict
+
+from app.components.theme import COLORS, responsive_columns, create_section_header
+
+
+def _param_help(text: str):
+    """常顯淡字參數說明（取代預設關閉的 slider tooltip）。"""
+    st.markdown(
+        f'<div style="color:{COLORS["text_muted"]};font-size:0.75rem;'
+        f'margin:-6px 0 8px;line-height:1.3">{text}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_strategy_params(
@@ -40,14 +51,14 @@ def render_strategy_params(
     if strategy_type == '價值投資':
         defaults = strategy_presets.get('value', {}).get(preset_key, {}).get('params', {})
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = responsive_columns(3)
         with col1:
             params['pe_max'] = st.slider(
                 '本益比上限', 1.0, 50.0,
                 defaults.get('pe_max', 15.0), 0.5,
                 key=f'{key_prefix}pe',
-                help='PE 越低代表股價相對盈餘越便宜' if show_help else None,
             )
+            _param_help('PE 越低代表股價相對盈餘越便宜')
             params['use_pe'] = st.checkbox(
                 '使用本益比', value=defaults.get('use_pe', True),
                 key=f'{key_prefix}use_pe',
@@ -57,8 +68,8 @@ def render_strategy_params(
                 '股價淨值比上限', 0.1, 5.0,
                 defaults.get('pb_max', 1.5), 0.1,
                 key=f'{key_prefix}pb',
-                help='PB < 1 表示股價低於帳面價值' if show_help else None,
             )
+            _param_help('PB < 1 表示股價低於帳面價值')
             params['use_pb'] = st.checkbox(
                 '使用股價淨值比', value=defaults.get('use_pb', True),
                 key=f'{key_prefix}use_pb',
@@ -68,8 +79,8 @@ def render_strategy_params(
                 '殖利率下限 (%)', 0.0, 15.0,
                 defaults.get('dividend_yield_min', 4.0), 0.5,
                 key=f'{key_prefix}dy',
-                help='殖利率越高，股息回報越好' if show_help else None,
             )
+            _param_help('殖利率越高，股息回報越好')
             params['use_dividend'] = st.checkbox(
                 '使用殖利率', value=defaults.get('use_dividend', True),
                 key=f'{key_prefix}use_dy',
@@ -78,14 +89,14 @@ def render_strategy_params(
     elif strategy_type == '成長投資':
         defaults = strategy_presets.get('growth', {}).get(preset_key, {}).get('params', {})
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = responsive_columns(3)
         with col1:
             params['revenue_yoy_min'] = st.slider(
                 '營收年增率下限 (%)', -50.0, 200.0,
                 defaults.get('revenue_yoy_min', 20.0), 5.0,
                 key=f'{key_prefix}yoy',
-                help='與去年同期相比的成長率' if show_help else None,
             )
+            _param_help('與去年同期相比的成長率')
             params['use_yoy'] = st.checkbox(
                 '使用年增率', value=defaults.get('use_yoy', True),
                 key=f'{key_prefix}use_yoy',
@@ -95,8 +106,8 @@ def render_strategy_params(
                 '營收月增率下限 (%)', -50.0, 100.0,
                 defaults.get('revenue_mom_min', 10.0), 5.0,
                 key=f'{key_prefix}mom',
-                help='與上個月相比的成長率' if show_help else None,
             )
+            _param_help('與上個月相比的成長率')
             params['use_mom'] = st.checkbox(
                 '使用月增率', value=defaults.get('use_mom', True),
                 key=f'{key_prefix}use_mom',
@@ -106,8 +117,8 @@ def render_strategy_params(
                 '連續成長月數', 1, 12,
                 defaults.get('consecutive_months', 3), 1,
                 key=f'{key_prefix}consec',
-                help='確認成長趨勢的持續性' if show_help else None,
             )
+            _param_help('確認成長趨勢的持續性')
             params['use_consecutive'] = st.checkbox(
                 '使用連續成長', value=True,
                 key=f'{key_prefix}use_consec',
@@ -116,14 +127,14 @@ def render_strategy_params(
     elif strategy_type == '動能投資':
         defaults = strategy_presets.get('momentum', {}).get(preset_key, {}).get('params', {})
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = responsive_columns(3)
         with col1:
             params['breakout_days'] = st.slider(
                 '突破天數', 5, 120,
                 defaults.get('breakout_days', 20), 5,
                 key=f'{key_prefix}breakout',
-                help='突破近N日高點' if show_help else None,
             )
+            _param_help('突破近 N 日高點')
             params['use_breakout'] = st.checkbox(
                 '使用價格突破', value=defaults.get('use_breakout', True),
                 key=f'{key_prefix}use_breakout',
@@ -133,8 +144,8 @@ def render_strategy_params(
                 '量比下限', 0.5, 5.0,
                 defaults.get('volume_ratio', 1.5), 0.1,
                 key=f'{key_prefix}vol',
-                help='成交量相對於均量的倍數' if show_help else None,
             )
+            _param_help('成交量相對於均量的倍數')
             params['use_volume'] = st.checkbox(
                 '使用成交量', value=defaults.get('use_volume', True),
                 key=f'{key_prefix}use_vol',
@@ -150,15 +161,16 @@ def render_strategy_params(
                 defaults.get('rsi_max', 80), 5,
                 key=f'{key_prefix}rsi_max',
             )
+            _param_help('RSI 介於上下限之間視為動能適中')
             params['use_rsi'] = st.checkbox(
                 '使用 RSI', value=defaults.get('use_rsi', True),
                 key=f'{key_prefix}use_rsi',
             )
 
     elif strategy_type == '綜合策略':
-        col1, col2 = st.columns(2)
+        col1, col2 = responsive_columns(2)
         with col1:
-            st.markdown('**因子權重**')
+            st.markdown(create_section_header('因子權重', icon='⚖️'), unsafe_allow_html=True)
             params['value_weight'] = st.slider(
                 '價值因子', 0.0, 1.0, 0.4, 0.1, key=f'{key_prefix}val_w',
             )
@@ -169,7 +181,7 @@ def render_strategy_params(
                 '動能因子', 0.0, 1.0, 0.3, 0.1, key=f'{key_prefix}mom_w',
             )
         with col2:
-            st.markdown('**篩選條件**')
+            st.markdown(create_section_header('篩選條件', icon='🔍'), unsafe_allow_html=True)
             params['top_n'] = st.slider(
                 '選取前 N 名', 5, 50, 20, 5, key=f'{key_prefix}topn',
             )

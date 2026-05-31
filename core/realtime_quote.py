@@ -9,10 +9,8 @@
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-import pandas as pd
 from dataclasses import dataclass
 import urllib3
-import json
 
 # 抑制 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

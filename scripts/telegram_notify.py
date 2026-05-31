@@ -30,18 +30,18 @@ def send_update_notification(success=True, updated_count=0, error_count=0, detai
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
 
     if success:
-        message = f"✅ *台股戰情中心* 資料更新完成！\n\n"
+        message = "✅ *台股戰情中心* 資料更新完成！\n\n"
         message += f"📊 更新時間：{now}\n"
         message += f"📈 成功更新：{updated_count} 項資料\n"
         if error_count > 0:
             message += f"⚠️ 更新失敗：{error_count} 項\n"
         message += f"\n🌐 [開啟戰情中心]({CLOUD_URL})"
     else:
-        message = f"❌ *台股戰情中心* 資料更新失敗\n\n"
+        message = "❌ *台股戰情中心* 資料更新失敗\n\n"
         message += f"⏰ 時間：{now}\n"
         if details:
             message += f"📝 錯誤：{details}\n"
-        message += f"\n請檢查日誌：`cat ~/Documents/taiwan-stock-monitor/update.log`"
+        message += "\n請檢查日誌：`cat ~/Documents/taiwan-stock-monitor/update.log`"
 
     return _send_telegram_message(message)
 
@@ -55,7 +55,7 @@ def send_market_summary(summary_data):
     """
     now = datetime.now().strftime('%Y-%m-%d')
 
-    message = f"📈 *台股戰情中心 - 每日摘要*\n"
+    message = "📈 *台股戰情中心 - 每日摘要*\n"
     message += f"📅 {now}\n\n"
 
     if summary_data.get('index'):

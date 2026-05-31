@@ -3,14 +3,13 @@
 """
 import json
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 from dataclasses import dataclass
 
 
-from core.indicators import calculate_rsi, calculate_macd, calculate_sma
+from core.indicators import calculate_rsi, calculate_sma
 
 
 @dataclass

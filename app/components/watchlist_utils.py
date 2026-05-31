@@ -3,7 +3,7 @@
 """
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # 自選股檔案路徑
 WATCHLIST_FILE = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'

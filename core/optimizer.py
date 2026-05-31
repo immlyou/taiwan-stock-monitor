@@ -2,11 +2,9 @@
 策略參數優化器模組 - Grid Search 與交叉驗證
 """
 import pandas as pd
-import numpy as np
 from typing import Dict, List, Any, Callable, Optional, Tuple
 from dataclasses import dataclass
 from itertools import product
-from pathlib import Path
 
 from core.logging_config import get_logger
 

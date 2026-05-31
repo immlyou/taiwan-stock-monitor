@@ -14,7 +14,7 @@ Goodinfo 資料來源模組
 import re
 import time
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 import requests
@@ -239,7 +239,6 @@ def fetch_ohlcv(stock_id: str, use_cache: bool = True) -> Optional[list]:
     list of dict: [{date, open, high, low, close, volume}, ...]
     按日期升序排列。
     """
-    from typing import List
 
     cache_key = f"goodinfo_ohlcv_{stock_id}"
     if use_cache and cache_key in _goodinfo_cache:

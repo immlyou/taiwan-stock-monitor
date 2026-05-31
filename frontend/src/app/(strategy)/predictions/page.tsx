@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { KpiCard } from '@/components/shared/KpiCard'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { formatPrice, formatPercent } from '@/lib/utils/format'
 
 interface Prediction {
   id: string
@@ -36,8 +39,8 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 }
 
 export default function PredictionsPage() {
-  const { data: predictions, isLoading } = useSWR<Prediction[]>(SWR_KEY, fetchAPI)
-  const { data: stats } = useSWR<PredictionStats>(STATS_KEY, fetchAPI)
+  const { data: predictions, isLoading, error } = useSWR<Prediction[]>(SWR_KEY, fetchAPI)
+  const { data: stats, error: statsError } = useSWR<PredictionStats>(STATS_KEY, fetchAPI)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -95,25 +98,24 @@ export default function PredictionsPage() {
       </div>
 
       {/* 統計卡片 */}
-      {stats && (
+      {statsError ? (
+        <div className="mb-6">
+          <EmptyState
+            title="無法載入統計資料"
+            description="請確認後端服務是否正常運行，或稍後再試"
+            icon="!"
+          />
+        </div>
+      ) : stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           {[
-            { label: '總預測數', value: stats.total },
-            { label: '正確次數', value: stats.correct, color: 'var(--stock-down)' },
-            { label: '錯誤次數', value: stats.wrong, color: 'var(--stock-up)' },
-            { label: '進行中', value: stats.pending, color: 'var(--primary)' },
-            { label: '準確率', value: `${stats.accuracy.toFixed(1)}%`, color: stats.accuracy >= 60 ? 'var(--stock-down)' : 'var(--stock-up)' },
-          ].map(({ label, value, color }) => (
-            <div
-              key={label}
-              className="rounded-lg p-4"
-              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-            >
-              <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>{label}</p>
-              <p className="text-2xl font-bold tabular-nums" style={{ color: color ?? 'var(--foreground)' }}>
-                {value}
-              </p>
-            </div>
+            { title: '總預測數', value: String(stats.total), accentColor: 'var(--primary)' },
+            { title: '正確次數', value: String(stats.correct), accentColor: 'var(--stock-down)' },
+            { title: '錯誤次數', value: String(stats.wrong), accentColor: 'var(--stock-up)' },
+            { title: '進行中', value: String(stats.pending), accentColor: 'var(--primary)' },
+            { title: '準確率', value: formatPercent(stats.accuracy, 1).replace('+', ''), accentColor: stats.accuracy >= 60 ? 'var(--stock-down)' : 'var(--stock-up)' },
+          ].map(({ title, value, accentColor }) => (
+            <KpiCard key={title} title={title} value={value} accentColor={accentColor} />
           ))}
         </div>
       )}
@@ -124,6 +126,17 @@ export default function PredictionsPage() {
           {[...Array(5)].map((_, i) => (
             <div key={i} className="h-16 rounded-lg animate-pulse" style={{ background: 'var(--card)' }} />
           ))}
+        </div>
+      ) : error ? (
+        <div
+          className="rounded-lg"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <EmptyState
+            title="無法載入預測記錄"
+            description="請確認後端服務是否正常運行，或稍後再試"
+            icon="!"
+          />
         </div>
       ) : predictions && predictions.length > 0 ? (
         <div
@@ -153,10 +166,10 @@ export default function PredictionsPage() {
                         {p.direction === 'up' ? '看漲' : '看跌'}
                       </td>
                       <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {p.targetPrice.toFixed(2)}
+                        {formatPrice(p.targetPrice)}
                       </td>
                       <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
-                        {p.currentPrice.toFixed(2)}
+                        {formatPrice(p.currentPrice)}
                       </td>
                       <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{p.targetDate}</td>
                       <td className="py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{p.createdAt.slice(0, 10)}</td>
@@ -169,7 +182,7 @@ export default function PredictionsPage() {
                         </span>
                       </td>
                       <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--muted-foreground)' }}>
-                        {p.actualPrice != null ? p.actualPrice.toFixed(2) : '—'}
+                        {p.actualPrice != null ? formatPrice(p.actualPrice) : '—'}
                       </td>
                       <td className="py-2 px-4">
                         <button

@@ -1,9 +1,8 @@
 """
 通知系統模組 - 支援 LINE Notify、Telegram 和 Email
 """
-import os
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from pathlib import Path
 from datetime import datetime
 

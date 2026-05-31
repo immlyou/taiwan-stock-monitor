@@ -10,7 +10,7 @@ import numpy as np
 from pathlib import Path
 
 
-from core.alerts import AlertEngine, AlertResult
+from core.alerts import AlertEngine
 
 
 # ──────────────────────────────────────────────

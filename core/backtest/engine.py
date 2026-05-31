@@ -2,11 +2,8 @@
 回測引擎模組
 """
 import pandas as pd
-import numpy as np
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
 
 from config import TRADING_COSTS, BACKTEST_DEFAULTS, PRICE_LIMITS
 from core.backtest.metrics import calculate_metrics, compare_with_benchmark, PerformanceMetrics

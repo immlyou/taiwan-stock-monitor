@@ -3,12 +3,12 @@
 涵蓋：LineNotifyChannel、TelegramChannel、EmailChannel、NotificationManager
 """
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from core.exceptions import NotificationSendError, NotificationConfigError
 from core.notification import (
     LineNotifyChannel, TelegramChannel, EmailChannel,
-    NotificationManager, get_notification_manager, send_notification,
+    NotificationManager, send_notification,
     NotificationChannel,
 )
 

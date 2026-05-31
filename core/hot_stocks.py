@@ -9,12 +9,8 @@
 
 用於每日晨報功能
 """
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from pathlib import Path
 
 
 from core.data_loader import get_loader

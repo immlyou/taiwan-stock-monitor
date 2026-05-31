@@ -9,14 +9,11 @@
       alerts（check_alerts_and_notify、_load_alerts、disable/enable）、
       prediction_tracker（_save_data、verify direction）
 """
-import json
-import uuid
 import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ──────────────────────────────────────────────
@@ -207,7 +204,7 @@ class TestFetchStockMargin:
 # ──────────────────────────────────────────────
 # data_loader — FinLab 路徑
 # ──────────────────────────────────────────────
-from core.data_loader import DataLoader, DataCache, FinLabQuotaExceededError
+from core.data_loader import DataLoader
 
 
 class TestDataLoaderFinLabPath:
@@ -239,7 +236,7 @@ class TestDataLoaderFinLabPath:
 # ──────────────────────────────────────────────
 # strategies/base — CombinedStrategy edge cases
 # ──────────────────────────────────────────────
-from core.strategies.base import CombinedStrategy, BaseStrategy, StrategyResult
+from core.strategies.base import CombinedStrategy
 from core.strategies.value import ValueStrategy
 
 
@@ -411,7 +408,7 @@ class TestCheckAlertsAndNotify:
 # ──────────────────────────────────────────────
 # prediction_tracker — save/load
 # ──────────────────────────────────────────────
-from core.prediction_tracker import PredictionTracker, PredictionStatus, get_tracker
+from core.prediction_tracker import PredictionTracker, PredictionStatus
 
 
 class TestPredictionTrackerSaveLoad:
@@ -478,7 +475,7 @@ class TestPredictionTrackerSaveLoad:
 # ──────────────────────────────────────────────
 # 補齊 money_flow 剩餘缺口
 # ──────────────────────────────────────────────
-from core.money_flow import calculate_institutional_flow, InstitutionalFlow
+from core.money_flow import calculate_institutional_flow
 
 
 class TestMoneyFlowEdgeCases:

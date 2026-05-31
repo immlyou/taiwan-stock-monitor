@@ -14,7 +14,7 @@ import hashlib
 import feedparser
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Tuple, Set
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections import defaultdict

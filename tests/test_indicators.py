@@ -1,10 +1,8 @@
 """
 技術指標模組測試
 """
-import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
 
 
 from core.indicators import (

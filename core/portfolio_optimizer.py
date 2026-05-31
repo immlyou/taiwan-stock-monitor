@@ -3,10 +3,9 @@
 """
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 from dataclasses import dataclass, field
 from scipy.optimize import minimize
-from pathlib import Path
 
 
 from core.logging_config import get_logger

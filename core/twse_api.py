@@ -6,7 +6,6 @@ import requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 import pandas as pd
-from functools import lru_cache
 # 證交所 API 設定
 TWSE_INDEX_URL = "https://www.twse.com.tw/exchangeReport/FMTQIK"
 TWSE_DAILY_URL = "https://www.twse.com.tw/exchangeReport/MI_INDEX"

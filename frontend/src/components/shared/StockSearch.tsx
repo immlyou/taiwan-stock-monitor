@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useId } from 'react'
 import { Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -23,6 +23,9 @@ export function StockSearch() {
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const comboboxId = useId()
+  const listboxId = `${comboboxId}-listbox`
+  const getOptionId = useCallback((index: number) => `${comboboxId}-option-${index}`, [comboboxId])
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -76,12 +79,12 @@ export function StockSearch() {
         e.preventDefault()
         const next = Math.min(activeIndex + 1, results.length - 1)
         setActiveIndex(next)
-        document.getElementById(`header-search-${next}`)?.scrollIntoView({ block: 'nearest' })
+        document.getElementById(getOptionId(next))?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         const prev = Math.max(activeIndex - 1, -1)
         setActiveIndex(prev)
-        if (prev >= 0) document.getElementById(`header-search-${prev}`)?.scrollIntoView({ block: 'nearest' })
+        if (prev >= 0) document.getElementById(getOptionId(prev))?.scrollIntoView({ block: 'nearest' })
       } else if (e.key === 'Enter' && activeIndex >= 0) {
         e.preventDefault()
         handleSelect(results[activeIndex])
@@ -89,7 +92,7 @@ export function StockSearch() {
         setIsOpen(false)
       }
     },
-    [isOpen, results, activeIndex, handleSelect]
+    [isOpen, results, activeIndex, handleSelect, getOptionId]
   )
 
   // 點擊外部關閉
@@ -129,6 +132,8 @@ export function StockSearch() {
           }}
           aria-label="搜尋股票"
           aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-activedescendant={isOpen && activeIndex >= 0 ? getOptionId(activeIndex) : undefined}
           aria-expanded={isOpen}
           role="combobox"
         />
@@ -143,6 +148,7 @@ export function StockSearch() {
       {/* 下拉結果 */}
       {isOpen && results.length > 0 && (
         <div
+          id={listboxId}
           className="absolute top-full left-0 right-0 mt-1 rounded-md border shadow-lg z-50"
           style={{
             background: 'var(--card)',
@@ -165,7 +171,7 @@ export function StockSearch() {
             return (
               <button
                 key={id}
-                id={`header-search-${index}`}
+                id={getOptionId(index)}
                 onMouseDown={(e) => { e.preventDefault(); handleSelect(result) }}
                 onMouseEnter={() => setActiveIndex(index)}
                 className={cn(

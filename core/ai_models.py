@@ -1292,7 +1292,6 @@ class AnomalyDetector:
             stock_id, name, anomaly_type, severity ('high'/'medium'/'low'),
             description, values (dict)
         """
-        import pandas as pd
 
         close = data_loader.get('close')
         volume = data_loader.get('volume')

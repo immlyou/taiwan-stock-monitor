@@ -8,7 +8,7 @@ import streamlit as st
 import traceback
 import logging
 from datetime import datetime
-from typing import Optional, Callable, Any
+from typing import Callable, Any
 from functools import wraps
 
 # 設定日誌

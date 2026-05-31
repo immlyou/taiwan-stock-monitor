@@ -2,19 +2,15 @@
 補齊 report_generator、cache_warmer、realtime_quote、data_sources 剩餘缺口
 """
 import io
-import sys
 import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 
 # ──────────────────────────────────────────────
 # ExcelReportGenerator
 # ──────────────────────────────────────────────
-from core.report_generator import PDFReportGenerator
 
 
 @pytest.fixture(scope="module")
@@ -187,8 +183,7 @@ class TestExcelReportGenerator:
 # ──────────────────────────────────────────────
 from core.cache_warmer import (
     CacheWarmer, get_warmup_status_summary,
-    trigger_warmup_if_needed, get_cache_warmer,
-    is_cache_warm, _setup_default_tasks,
+    trigger_warmup_if_needed, is_cache_warm, _setup_default_tasks,
 )
 import core.cache_warmer as cw_module
 
@@ -401,7 +396,6 @@ class TestFetchMarketMovers:
 # ──────────────────────────────────────────────
 # data_sources — TWSE institutional / margin / FinMind
 # ──────────────────────────────────────────────
-import core.data_sources as ds
 from core.data_sources import (
     _twse_institutional, _twse_margin_fallback,
     _finmind_fundamentals, _source_cache, _source_cache_ts,

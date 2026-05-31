@@ -4,6 +4,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
 import { StockSearch } from '@/components/shared/StockSearch'
 import { QuotaBanner } from '@/components/shared/QuotaBanner'
+import { MarketTicker } from '@/components/layout/MarketTicker'
 
 export function Header() {
   const {
@@ -27,6 +28,7 @@ export function Header() {
         transition: 'left 0.3s',
       }}
     >
+      <MarketTicker />
       <QuotaBanner />
       {/* 主列 */}
       <div className="flex items-center gap-2 md:gap-4 px-3 md:px-4 h-14">

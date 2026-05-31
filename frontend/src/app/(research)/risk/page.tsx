@@ -5,6 +5,7 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { StockInput } from '@/components/shared/StockInput'
+import { formatPrice } from '@/lib/utils/format'
 
 interface RiskMetrics {
   var_95: number
@@ -155,49 +156,49 @@ export default function RiskPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <KpiCard
                   title="VaR 95% (日)"
-                  value={`${stockRisk.risk_metrics.var_95.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.var_95)}%`}
                   subValue="95% 信心水準"
-                  accentColor="var(--destructive)"
+                  accentColor="var(--stock-down)"
                 />
                 <KpiCard
                   title="VaR 99% (日)"
-                  value={`${stockRisk.risk_metrics.var_99.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.var_99)}%`}
                   subValue="99% 信心水準"
-                  accentColor="#dc2626"
+                  accentColor="var(--stock-down)"
                 />
                 <KpiCard
                   title="CVaR 95%"
-                  value={`${stockRisk.risk_metrics.cvar_95.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.cvar_95)}%`}
                   subValue="條件風險值"
-                  accentColor="#f97316"
+                  accentColor="var(--flow-trust)"
                 />
                 <KpiCard
                   title="CVaR 99%"
-                  value={`${stockRisk.risk_metrics.cvar_99.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.cvar_99)}%`}
                   subValue="條件風險值"
-                  accentColor="#f97316"
+                  accentColor="var(--flow-trust)"
                 />
                 <KpiCard
                   title="Beta 係數"
-                  value={stockRisk.risk_metrics.beta.toFixed(2)}
+                  value={formatPrice(stockRisk.risk_metrics.beta)}
                   subValue="相對大盤波動"
-                  accentColor="#8b5cf6"
+                  accentColor="var(--flow-dealer)"
                 />
                 <KpiCard
                   title="年化波動度"
-                  value={`${stockRisk.risk_metrics.volatility.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.volatility)}%`}
                   subValue="年化標準差"
-                  accentColor="#f59e0b"
+                  accentColor="var(--flow-trust)"
                 />
                 <KpiCard
                   title="下行波動度"
-                  value={`${stockRisk.risk_metrics.downside_volatility.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.downside_volatility)}%`}
                   subValue="負報酬標準差"
-                  accentColor="#f97316"
+                  accentColor="var(--flow-trust)"
                 />
                 <KpiCard
                   title="最大回撤"
-                  value={`${stockRisk.risk_metrics.max_drawdown.toFixed(2)}%`}
+                  value={`${formatPrice(stockRisk.risk_metrics.max_drawdown)}%`}
                   subValue="歷史最大跌幅"
                   accentColor="var(--stock-down)"
                 />
@@ -212,14 +213,14 @@ export default function RiskPage() {
                 <div className="space-y-2 text-sm" style={{ color: 'var(--foreground)' }}>
                   <p>
                     <span className="font-medium" style={{ color: 'var(--primary)' }}>VaR（風險值）：</span>
-                    在 95% 信心水準下，單日最大損失不超過 {stockRisk.risk_metrics.var_95.toFixed(2)}%；99% 水準下為 {stockRisk.risk_metrics.var_99.toFixed(2)}%
+                    在 95% 信心水準下，單日最大損失不超過 {formatPrice(stockRisk.risk_metrics.var_95)}%；99% 水準下為 {formatPrice(stockRisk.risk_metrics.var_99)}%
                   </p>
                   <p>
-                    <span className="font-medium" style={{ color: '#f97316' }}>CVaR（條件風險值）：</span>
-                    超越 VaR 臨界時，預期平均損失約為 {stockRisk.risk_metrics.cvar_95.toFixed(2)}%（95% 水準）
+                    <span className="font-medium" style={{ color: 'var(--flow-trust)' }}>CVaR（條件風險值）：</span>
+                    超越 VaR 臨界時，預期平均損失約為 {formatPrice(stockRisk.risk_metrics.cvar_95)}%（95% 水準）
                   </p>
                   <p>
-                    <span className="font-medium" style={{ color: '#8b5cf6' }}>Beta：</span>
+                    <span className="font-medium" style={{ color: 'var(--flow-dealer)' }}>Beta：</span>
                     {stockRisk.risk_metrics.beta > 1 ? '波動度高於大盤，高風險高報酬特性' : stockRisk.risk_metrics.beta < 1 ? '波動度低於大盤，相對穩定' : '與大盤同步波動'}
                   </p>
                 </div>
@@ -279,11 +280,11 @@ export default function RiskPage() {
           ) : portRisk ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <KpiCard title="組合 VaR 95%" value={portRisk.portfolio_risk.var_95 != null ? `${portRisk.portfolio_risk.var_95.toFixed(2)}%` : 'N/A'} accentColor="var(--destructive)" />
-                <KpiCard title="組合 VaR 99%" value={portRisk.portfolio_risk.var_99 != null ? `${portRisk.portfolio_risk.var_99.toFixed(2)}%` : 'N/A'} accentColor="#dc2626" />
-                <KpiCard title="年化波動率" value={`${portRisk.portfolio_risk.weighted_volatility.toFixed(2)}%`} accentColor="#f59e0b" />
-                <KpiCard title="最大回撤" value={`${portRisk.portfolio_risk.max_drawdown.toFixed(2)}%`} accentColor="#f97316" />
-                <KpiCard title="持股數" value={`${portRisk.holdings}`} accentColor="#8b5cf6" />
+                <KpiCard title="組合 VaR 95%" value={portRisk.portfolio_risk.var_95 != null ? `${formatPrice(portRisk.portfolio_risk.var_95)}%` : 'N/A'} accentColor="var(--stock-down)" />
+                <KpiCard title="組合 VaR 99%" value={portRisk.portfolio_risk.var_99 != null ? `${formatPrice(portRisk.portfolio_risk.var_99)}%` : 'N/A'} accentColor="var(--stock-down)" />
+                <KpiCard title="年化波動率" value={`${formatPrice(portRisk.portfolio_risk.weighted_volatility)}%`} accentColor="var(--flow-trust)" />
+                <KpiCard title="最大回撤" value={`${formatPrice(portRisk.portfolio_risk.max_drawdown)}%`} accentColor="var(--flow-trust)" />
+                <KpiCard title="持股數" value={`${portRisk.holdings}`} accentColor="var(--flow-dealer)" />
               </div>
 
               {/* 個股風險明細 */}
@@ -308,9 +309,9 @@ export default function RiskPage() {
                         <tr key={sr.stock_id} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td className="px-3 py-2 font-semibold" style={{ color: 'var(--primary)' }}>{sr.stock_id}</td>
                           <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--foreground)' }}>{(sr.weight * 100).toFixed(0)}%</td>
-                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--foreground)' }}>{sr.volatility.toFixed(2)}%</td>
-                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--stock-down)' }}>{sr.var_95.toFixed(2)}%</td>
-                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--stock-down)' }}>{sr.max_drawdown.toFixed(2)}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--foreground)' }}>{formatPrice(sr.volatility)}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--stock-down)' }}>{formatPrice(sr.var_95)}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--stock-down)' }}>{formatPrice(sr.max_drawdown)}%</td>
                         </tr>
                       ))}
                     </tbody>

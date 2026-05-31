@@ -9,11 +9,9 @@
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
 import json
 from pathlib import Path
-from datetime import datetime, timedelta
-import plotly.graph_objects as go
+from datetime import datetime
 
 
 from config import STREAMLIT_CONFIG, CACHE_TTL
@@ -21,11 +19,21 @@ from core.data_loader import get_loader, get_data_summary
 from core.cache_warmer import warmup_on_startup, is_cache_warm
 from core.realtime_quote import fetch_realtime_quotes
 from app.components.sidebar import render_sidebar_mini
-from app.components.error_handler import show_error, safe_execute, create_error_boundary
+from app.components.error_handler import show_error
 from app.components.session_manager import init_session_state
-from app.components.page_header import render_page_header
+from app.components.page_header import render_page_header, render_global_ticker_bar
 from app.components.empty_state import show_empty_state
-from app.components.theme import create_kpi_card, inject_professional_theme, COLORS
+from app.components.theme import (
+    create_kpi_card,
+    create_stock_card,
+    render_kpi_row,
+    responsive_columns,
+    create_section_header,
+    render_data_table,
+    format_number,
+    inject_professional_theme,
+    COLORS,
+)
 
 st.set_page_config(
     page_title=f"{STREAMLIT_CONFIG['page_title']} - 投資組合",
@@ -45,6 +53,9 @@ inject_professional_theme()
 
 # 渲染側邊欄
 render_sidebar_mini(current_page='dashboard')
+
+# 全域報價跑馬燈
+render_global_ticker_bar()
 
 
 # 資料載入函數
@@ -96,7 +107,7 @@ latest_screening = load_latest_screening()
 alerts_data = load_alerts()
 
 # ========== 投資組合總覽 (KPI) ==========
-st.markdown('---')
+st.markdown(create_section_header('投資組合總覽', icon='💼'), unsafe_allow_html=True)
 
 # 判斷是否為盤中時間，若是則取得即時報價
 def _is_market_open():
@@ -167,91 +178,83 @@ for portfolio_name, portfolio in portfolios.items():
             })
 
 # KPI 卡片
-kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5 = st.columns(5)
-
 total_pnl = total_portfolio_value - total_portfolio_cost
+pnl_color = 'up' if total_pnl >= 0 else 'down'
 
-with kpi_col1:
-    st.markdown(create_kpi_card('總市值', f'{total_portfolio_value:,.0f}'), unsafe_allow_html=True)
+if total_portfolio_cost > 0:
+    total_pnl_pct = (total_portfolio_value / total_portfolio_cost - 1) * 100
+    pct_color = 'up' if total_pnl_pct >= 0 else 'down'
+    return_value = format_number(total_pnl_pct, kind='pct', signed=True)
+    return_delta_color = pct_color
+else:
+    return_value = '-'
+    return_delta_color = 'flat'
 
-with kpi_col2:
-    st.markdown(create_kpi_card('總成本', f'{total_portfolio_cost:,.0f}'), unsafe_allow_html=True)
-
-with kpi_col3:
-    pnl_color = 'up' if total_pnl >= 0 else 'down'
-    st.markdown(create_kpi_card(
-        '總損益',
-        f'{total_pnl:+,.0f}',
-        '獲利' if total_pnl >= 0 else '虧損',
-        pnl_color,
-    ), unsafe_allow_html=True)
-
-with kpi_col4:
-    if total_portfolio_cost > 0:
-        total_pnl_pct = (total_portfolio_value / total_portfolio_cost - 1) * 100
-        pct_color = 'up' if total_pnl_pct >= 0 else 'down'
-        st.markdown(create_kpi_card(
-            '報酬率',
-            f'{total_pnl_pct:+.2f}%',
-            delta_color=pct_color,
-        ), unsafe_allow_html=True)
-    else:
-        st.markdown(create_kpi_card('報酬率', '-'), unsafe_allow_html=True)
-
-with kpi_col5:
-    st.markdown(create_kpi_card('持股檔數', f'{len(all_holdings)}'), unsafe_allow_html=True)
+render_kpi_row([
+    {'label': '總市值', 'value': format_number(total_portfolio_value, kind='int')},
+    {'label': '總成本', 'value': format_number(total_portfolio_cost, kind='int')},
+    {
+        'label': '總損益',
+        'value': format_number(total_pnl, kind='int', signed=True),
+        'delta': '獲利' if total_pnl >= 0 else '虧損',
+        'delta_color': pnl_color,
+    },
+    {'label': '報酬率', 'value': return_value, 'delta_color': return_delta_color},
+    {'label': '持股檔數', 'value': format_number(len(all_holdings), kind='int')},
+])
 
 # ========== 持股明細 + 損益排行 ==========
-st.markdown('---')
-
 if all_holdings:
-    detail_col, rank_col = st.columns([3, 2])
+    st.markdown(create_section_header('持股明細', icon='📋'), unsafe_allow_html=True)
 
-    with detail_col:
-        st.markdown('##### 📋 持股明細')
+    holdings_df = pd.DataFrame(all_holdings)
+    display_df = holdings_df[['stock_id', 'name', 'portfolio', 'shares', 'cost_price', 'current_price', 'pnl', 'pnl_pct']].copy()
+    display_df.columns = ['代號', '名稱', '組合', '股數', '成本', '現價', '損益', '報酬%']
+    display_df['成本'] = display_df['成本'].apply(lambda x: format_number(x, kind='price'))
+    display_df['現價'] = display_df['現價'].apply(lambda x: format_number(x, kind='price'))
+    display_df['損益'] = display_df['損益'].apply(lambda x: format_number(x, kind='int', signed=True))
+    display_df['報酬%'] = display_df['報酬%'].apply(lambda x: format_number(x, kind='pct', signed=True))
 
-        holdings_df = pd.DataFrame(all_holdings)
-        display_df = holdings_df[['stock_id', 'name', 'portfolio', 'shares', 'cost_price', 'current_price', 'pnl', 'pnl_pct']].copy()
-        display_df.columns = ['代號', '名稱', '組合', '股數', '成本', '現價', '損益', '報酬%']
-        display_df['成本'] = display_df['成本'].apply(lambda x: f'{x:.2f}')
-        display_df['現價'] = display_df['現價'].apply(lambda x: f'{x:.2f}')
-        display_df['損益'] = display_df['損益'].apply(lambda x: f'{x:+,.0f}')
-        display_df['報酬%'] = display_df['報酬%'].apply(lambda x: f'{x:+.2f}%')
+    render_data_table(
+        display_df,
+        freeze_cols=1,
+        numeric_cols=['股數'],
+        height=480,
+    )
 
-        st.dataframe(display_df, use_container_width=True, hide_index=True, height=350)
+    rank_col, dist_col = st.columns([3, 2])
+
+    def _rank_row(h):
+        is_up = h['pnl'] >= 0
+        color = COLORS['up'] if is_up else COLORS['down']
+        arrow = '▲' if is_up else '▼'
+        return (
+            f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
+            f"<span style='color:{COLORS['text_secondary']}'>{h['stock_id']} {h['name'][:4]}</span>"
+            f"<span style='color:{color};font-weight:bold'>{arrow} "
+            f"{format_number(h['pnl'], kind='int', signed=True)} "
+            f"({format_number(h['pnl_pct'], kind='pct', signed=True)})</span>"
+            f"</div>"
+        )
 
     with rank_col:
-        # 獲利排行
-        st.markdown('##### 🔥 獲利 Top 5')
+        # 損益排行
+        st.markdown(create_section_header('損益排行', icon='🔥'), unsafe_allow_html=True)
         sorted_holdings = sorted(all_holdings, key=lambda x: x['pnl'], reverse=True)
+
+        st.caption('獲利 Top 5')
         for h in sorted_holdings[:5]:
-            color = COLORS['up'] if h['pnl'] >= 0 else COLORS['down']
-            st.markdown(
-                f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
-                f"<span>{h['stock_id']} {h['name'][:4]}</span>"
-                f"<span style='color:{color};font-weight:bold'>{h['pnl']:+,.0f} ({h['pnl_pct']:+.1f}%)</span>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+            st.markdown(_rank_row(h), unsafe_allow_html=True)
 
         st.markdown('')
 
-        # 虧損排行
-        st.markdown('##### 💧 虧損 Top 5')
+        st.caption('虧損 Top 5')
         for h in sorted_holdings[-5:][::-1]:
-            color = COLORS['up'] if h['pnl'] >= 0 else COLORS['down']
-            st.markdown(
-                f"<div style='display:flex;justify-content:space-between;padding:4px 0;font-size:13px'>"
-                f"<span>{h['stock_id']} {h['name'][:4]}</span>"
-                f"<span style='color:{color};font-weight:bold'>{h['pnl']:+,.0f} ({h['pnl_pct']:+.1f}%)</span>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+            st.markdown(_rank_row(h), unsafe_allow_html=True)
 
-        st.markdown('')
-
+    with dist_col:
         # 組合分布
-        st.markdown('##### 📊 組合分布')
+        st.markdown(create_section_header('組合分布', icon='📊'), unsafe_allow_html=True)
         portfolio_summary = holdings_df.groupby('portfolio').agg({
             'market_value': 'sum',
             'stock_id': 'count'
@@ -274,8 +277,7 @@ else:
             st.switch_page('pages/1_選股篩選.py')
 
 # ========== 選股結果追蹤 ==========
-st.markdown('---')
-st.markdown('##### 🔍 最新選股結果')
+st.markdown(create_section_header('最新選股結果', icon='🔍'), unsafe_allow_html=True)
 
 if latest_screening and latest_screening.get('stocks'):
     screening_stocks = latest_screening['stocks'][:12]
@@ -284,8 +286,8 @@ if latest_screening and latest_screening.get('stocks'):
 
     st.caption(f'策略: {strategy} | 日期: {screening_date} | 共 {len(latest_screening["stocks"])} 檔')
 
-    # 3 欄顯示
-    cols = st.columns(4)
+    # 4 欄顯示
+    cols = responsive_columns(4)
     for i, stock_id in enumerate(screening_stocks):
         info = stock_info[stock_info['stock_id'] == stock_id]
         name = info['name'].values[0] if len(info) > 0 else ''
@@ -295,24 +297,20 @@ if latest_screening and latest_screening.get('stocks'):
             if len(prices) >= 2:
                 current = prices.iloc[-1]
                 prev = prices.iloc[-2]
+                change = current - prev
                 change_pct = (current / prev - 1) * 100
-                color = COLORS['up'] if change_pct >= 0 else COLORS['down']
             else:
                 current = prices.iloc[-1] if len(prices) > 0 else 0
+                change = 0
                 change_pct = 0
-                color = COLORS['flat']
         else:
             current = 0
+            change = 0
             change_pct = 0
-            color = COLORS['flat']
 
         with cols[i % 4]:
             st.markdown(
-                f"<div class='kpi-card' style='background:{COLORS['secondary']};border:1px solid {COLORS['border']};padding:10px 12px;border-radius:8px;margin-bottom:8px'>"
-                f"<div style='font-size:0.75rem;color:{COLORS['text_secondary']}'>{stock_id} {name[:4]}</div>"
-                f"<div style='font-size:1.1rem;font-weight:700;color:{color};margin-top:4px'>{current:,.2f}</div>"
-                f"<div style='font-size:0.7rem;color:{color}'>{change_pct:+.2f}%</div>"
-                f"</div>",
+                create_stock_card(stock_id, name[:4], current, change, change_pct),
                 unsafe_allow_html=True
             )
 else:
@@ -321,7 +319,7 @@ else:
         st.switch_page('pages/1_選股篩選.py')
 
 # ========== 警報狀態 ==========
-st.markdown('---')
+st.markdown(create_section_header('警報與系統', icon='🔔'), unsafe_allow_html=True)
 
 with st.expander('🔔 警報狀態'):
     alerts = alerts_data.get('alerts', [])

@@ -3,7 +3,8 @@
 """
 import streamlit as st
 from core.data_loader import get_loader, get_data_summary
-from core.cache_warmer import get_cache_warmer, is_cache_warm, get_warmup_status_summary
+from core.cache_warmer import get_cache_warmer, get_warmup_status_summary
+from app.components.theme import COLORS
 
 
 def check_authentication():
@@ -15,18 +16,20 @@ def check_authentication():
         st.session_state["current_user"] = "user"
 
 
-# 專業配色 (與 theme.py 一致)
+# 專業配色 — 單一色彩來源，全部衍生自 theme.COLORS（避免漲跌色與全站漂移）
 SIDEBAR_COLORS = {
-    'bg_primary': '#0f172a',
+    'bg_primary': '#0f172a',                 # 側欄底色（比主背景更深）
     'bg_secondary': '#1e293b',
-    'accent': '#3b82f6',
-    'accent_gradient': 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-    'text_primary': '#f1f5f9',
-    'text_secondary': '#94a3b8',
-    'text_muted': '#64748b',
+    'accent': COLORS['accent'],
+    'accent_gradient': f"linear-gradient(135deg, {COLORS['accent']} 0%, {COLORS['flow_dealer']} 100%)",
+    'text_primary': COLORS['text_primary'],
+    'text_secondary': COLORS['text_secondary'],
+    'text_muted': COLORS['text_muted'],
     'border': '#334155',
-    'success': '#22c55e',
-    'danger': '#ef4444',
+    'success': COLORS['down_strong'],        # 系統在線（綠）
+    'danger': COLORS['danger'],
+    'up': COLORS['up'],                        # 漲（紅）
+    'down': COLORS['down'],                     # 跌（綠）
 }
 
 
@@ -242,8 +245,8 @@ def apply_sidebar_style():
             margin-top: 2px;
         }}
 
-        .delta-up {{ color: #ef4444; }}
-        .delta-down {{ color: #22c55e; }}
+        .delta-up {{ color: {SIDEBAR_COLORS['up']}; }}
+        .delta-down {{ color: {SIDEBAR_COLORS['down']}; }}
 
         /* 頁面標籤 */
         .page-tag {{
@@ -515,11 +518,52 @@ def render_cache_status(compact: bool = False):
             ''', unsafe_allow_html=True)
         else:
             # 未預熱
-            st.markdown(f'''
+            st.markdown('''
             <div class="cache-task-info">首頁載入時將自動預熱</div>
             ''', unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_watchlist_quicknav(max_items: int = 8, key_prefix: str = ''):
+    """側欄持久自選股快捷導覽（master-detail lite）：點代號直接跳個股分析，不需逐頁挑選。"""
+    try:
+        from app.components.watchlist_utils import get_all_watched_stocks
+        from app.components.session_manager import navigate_to_stock_analysis
+        watched = get_all_watched_stocks()
+    except Exception:
+        watched = []
+
+    st.markdown('<div class="nav-group-title">⭐ 自選快捷</div>', unsafe_allow_html=True)
+    if not watched:
+        st.markdown(
+            f'<div style="color:{SIDEBAR_COLORS["text_muted"]};font-size:0.72rem;padding:4px 2px">'
+            f'尚無自選股，至「自選股」頁加入</div>', unsafe_allow_html=True)
+        return
+
+    try:
+        loader = get_loader()
+        close = loader.get('close')
+    except Exception:
+        close = None
+
+    for sid in watched[:max_items]:
+        chg_html = ''
+        if close is not None and sid in getattr(close, 'columns', []):
+            s = close[sid].dropna()
+            if len(s) >= 2:
+                pct = (s.iloc[-1] / s.iloc[-2] - 1) * 100
+                c = SIDEBAR_COLORS['up'] if pct >= 0 else SIDEBAR_COLORS['down']
+                arrow = '▲' if pct >= 0 else '▼'
+                chg_html = f'<span style="color:{c};font-size:0.72rem;float:right">{arrow}{abs(pct):.2f}%</span>'
+        cols = st.columns([1])
+        with cols[0]:
+            if st.button(f'{sid}', key=f'{key_prefix}wl_{sid}', use_container_width=True, type='secondary'):
+                navigate_to_stock_analysis(sid)
+                st.switch_page('pages/3_個股分析.py')
+            if chg_html:
+                st.markdown(f'<div style="margin-top:-8px;margin-bottom:6px">{chg_html}</div>',
+                            unsafe_allow_html=True)
 
 
 def render_sidebar(current_page: str = None):
@@ -536,7 +580,7 @@ def render_sidebar(current_page: str = None):
 
     with st.sidebar:
         # Logo 與標題
-        st.markdown(f'''
+        st.markdown('''
         <div class="sidebar-logo">
             <div class="sidebar-logo-icon">📊</div>
             <h1 class="sidebar-logo-title">台股分析系統</h1>
@@ -618,7 +662,7 @@ def render_sidebar(current_page: str = None):
             </div>
             ''', unsafe_allow_html=True)
         else:
-            st.error(f"數據載入錯誤")
+            st.error("數據載入錯誤")
 
         st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
@@ -648,6 +692,11 @@ def render_sidebar(current_page: str = None):
 
         st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
+        # 持久自選股快捷
+        render_watchlist_quicknav(key_prefix='full_')
+
+        st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
+
         # 快取預熱狀態
         st.markdown('<div class="nav-group-title">系統狀態</div>', unsafe_allow_html=True)
         render_cache_status(compact=False)
@@ -669,7 +718,7 @@ def render_sidebar(current_page: str = None):
                 st.toast('快取已清除！', icon='✅')
 
         # 版本資訊
-        st.markdown(f'''
+        st.markdown('''
         <div class="version-info">
             <div>v2.4.0 | 2026</div>
             <div>Powered by <a href="#">FinLab</a></div>
@@ -691,7 +740,7 @@ def render_sidebar_mini(current_page: str = None):
 
     with st.sidebar:
         # Logo 與標題
-        st.markdown(f'''
+        st.markdown('''
         <div class="sidebar-logo">
             <div class="sidebar-logo-icon">📊</div>
             <h1 class="sidebar-logo-title">台股分析系統</h1>
@@ -784,6 +833,11 @@ def render_sidebar_mini(current_page: str = None):
 
         st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
+        # 持久自選股快捷
+        render_watchlist_quicknav(max_items=6, key_prefix='mini_')
+
+        st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
+
         # 快取預熱狀態 (緊湊模式)
         render_cache_status(compact=True)
 
@@ -802,7 +856,7 @@ def render_sidebar_mini(current_page: str = None):
                 st.switch_page("pages/0_持倉總覽.py")
 
         # 版本資訊
-        st.markdown(f'''
+        st.markdown('''
         <div class="version-info">
             <div>v2.4.0</div>
         </div>

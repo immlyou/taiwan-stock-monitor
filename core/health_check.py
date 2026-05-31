@@ -1,12 +1,10 @@
 """
 系統健康檢查模組
 """
-import os
 import shutil
 import psutil
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List
 from dataclasses import dataclass, field
 import pandas as pd
 
