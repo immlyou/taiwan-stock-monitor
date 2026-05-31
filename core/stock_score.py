@@ -55,6 +55,10 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     result = df.copy()
     result.columns = [_stock_id(c) for c in result.columns]
+    # 正規化後可能產生重複欄位（如 "2330 台積電" 與 "2330"），或原始雲端資料本身含重複代號；
+    # 去重以避免後續 reindex/選欄報「cannot reindex on an axis with duplicate labels」。
+    if result.columns.duplicated().any():
+        result = result.loc[:, ~result.columns.duplicated()]
     return result
 
 
