@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from api.deps import verify_api_key
 from api.helpers import _get_stock_name_map
 from api.state import loader
-from core.advisor import analyze_portfolio, advisor_narrative
+from core.advisor import analyze_portfolio, advisor_narrative, extract_holdings_from_image
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,11 @@ class AdvisorHolding(BaseModel):
     cost_price: float = Field(default=0, ge=0)
 
 
+class ExtractHoldingsRequest(BaseModel):
+    image_base64: str = Field(description="持股截圖的 base64（不含 data: 前綴）")
+    media_type: str = Field(default="image/png", description="image/png | image/jpeg | image/webp")
+
+
 class AdvisorRequest(BaseModel):
     portfolio_id: Optional[str] = Field(default=None, description="從既有投組載入持股（與 holdings 二擇一）")
     holdings: Optional[List[AdvisorHolding]] = Field(default=None, description="直接提供持股")
@@ -38,6 +43,16 @@ class AdvisorRequest(BaseModel):
     target_roi: Optional[float] = Field(default=None, description="目標年化報酬率(%)")
     risk_tolerance: str = Field(default="moderate", description="conservative | moderate | aggressive")
     horizon_months: int = Field(default=12, ge=1, le=120, description="投資期限(月)")
+
+
+@router.post("/advisor/extract-holdings")
+async def advisor_extract_holdings(req: ExtractHoldingsRequest) -> Dict[str, Any]:
+    """從持股截圖（base64）以 Claude Vision 擷取持股清單，供顧問分析使用。不碰 FinLab。"""
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: extract_holdings_from_image(req.image_base64, req.media_type))
+    if not res.get("holdings"):
+        raise HTTPException(status_code=422, detail=f"擷取失敗: {res.get('error') or '未辨識出持股'}")
+    return res
 
 
 @router.post("/advisor/analyze")

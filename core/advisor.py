@@ -251,3 +251,70 @@ def advisor_narrative(analysis: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         logger.error("顧問敘述生成失敗: %s", e)
         return {"narrative": "", "error": str(e)}
+
+
+def extract_holdings_from_image(image_base64: str, media_type: str = "image/png") -> Dict[str, Any]:
+    """用 Claude Vision 從持股截圖擷取持股清單。不碰 FinLab（額度爆也可用）。
+
+    回傳 {"holdings": [{stock_id, name, shares, cost_price}], "error": None|str}。
+    """
+    global _client
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"holdings": [], "error": "ANTHROPIC_API_KEY 未設定"}
+    try:
+        if _client is None:
+            import anthropic
+            _client = anthropic.Anthropic(api_key=api_key)
+    except ImportError:
+        return {"holdings": [], "error": "anthropic 套件未安裝"}
+
+    prompt = (
+        "這是一張台股券商 App/網頁的持股（庫存）截圖。請逐檔擷取持股並輸出 JSON。\n"
+        '格式：{"holdings":[{"stock_id":"2330","name":"台積電","shares":1000,"cost_price":900.0}]}\n'
+        "規則：\n"
+        "- stock_id：4 位數字代號字串（如 2330）。\n"
+        "- shares：股數。若截圖單位是『張』請 ×1000 換成股數；若是『股』直接用。\n"
+        "- cost_price：每股成本價（找不到就填 0）。\n"
+        "- name：股票名稱，找不到填空字串。\n"
+        "只輸出 JSON，不要任何說明文字或 markdown。"
+    )
+    try:
+        msg = _client.messages.create(
+            model=_NARRATIVE_MODEL,
+            max_tokens=2000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        text = (msg.content[0].text or "").strip()
+        # 去除可能的 ```json 包裹
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        import json as _json
+        data = _json.loads(text)
+        raw = data.get("holdings", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        clean: List[Dict[str, Any]] = []
+        for h in raw:
+            if not isinstance(h, dict):
+                continue
+            sid = str(h.get("stock_id", "")).strip()
+            if not sid:
+                continue
+            clean.append({
+                "stock_id": sid,
+                "name": str(h.get("name", "") or ""),
+                "shares": _num(h.get("shares")) or 0.0,
+                "cost_price": _num(h.get("cost_price")) or 0.0,
+            })
+        return {"holdings": clean, "error": None if clean else "未從截圖辨識出持股"}
+    except Exception as e:  # noqa: BLE001
+        logger.error("持股截圖擷取失敗: %s", e)
+        return {"holdings": [], "error": str(e)}
