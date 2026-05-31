@@ -192,7 +192,7 @@ def calculate_score_table(
     volume = _normalize_columns(data.get("volume", pd.DataFrame()))
     volume_score = pd.Series(dtype=float)
     if not volume.empty:
-        recent_volume = volume[stocks].loc[:latest_date].tail(20)
+        recent_volume = volume.reindex(columns=stocks).loc[:latest_date].tail(20)
         if len(recent_volume) >= 2:
             volume_ratio = recent_volume.iloc[-1] / recent_volume.mean()
             volume_score = _percentile_score(volume_ratio, higher_is_better=True, positive_only=True)
@@ -208,7 +208,7 @@ def calculate_score_table(
     for key in ["foreign_investors", "investment_trust", "dealer"]:
         df = _normalize_columns(data.get(key, pd.DataFrame()))
         if not df.empty:
-            flow = df[stocks].loc[:latest_date].tail(5).sum()
+            flow = df.reindex(columns=stocks).loc[:latest_date].tail(5).sum()
             chip_components.append(_percentile_score(flow, higher_is_better=True))
     foreign_holding = _latest_row(data.get("foreign_holding", pd.DataFrame()), latest_date).reindex(stocks)
     chip_components.append(_percentile_score(foreign_holding, higher_is_better=True))
@@ -236,7 +236,7 @@ def calculate_score_table(
 
     liquidity_score = pd.Series(dtype=float)
     if not volume.empty:
-        turnover = volume[stocks].loc[:latest_date].tail(20).mean() * latest_close
+        turnover = volume.reindex(columns=stocks).loc[:latest_date].tail(20).mean() * latest_close
         liquidity_score = _percentile_score(turnover, higher_is_better=True, positive_only=True)
 
     risk_score = _mean_components([
