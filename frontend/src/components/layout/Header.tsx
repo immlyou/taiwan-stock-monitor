@@ -4,6 +4,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
 import { StockSearch } from '@/components/shared/StockSearch'
 import { QuotaBanner } from '@/components/shared/QuotaBanner'
+import { RefreshDataButton } from '@/components/shared/RefreshDataButton'
 import { MarketTicker } from '@/components/layout/MarketTicker'
 
 export function Header() {
@@ -65,6 +66,9 @@ export function Header() {
 
         {/* 右側區域 */}
         <div className="ml-auto flex items-center gap-2 md:gap-4 shrink-0">
+          {/* 強制手動更新最新股票資料 */}
+          <RefreshDataButton />
+
           {/* 資料日期：手機版隱藏 */}
           {dataDate && !isMobile && (
             <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>

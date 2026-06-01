@@ -1,15 +1,26 @@
-"""系統層端點：/ 與 /health"""
+"""系統層端點：/ 、/health 與 /refresh"""
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from datetime import datetime
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.deps import verify_api_key
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["系統"])
+
+# 同一時間只允許一個手動更新進行，避免重複下載浪費 FinLab 額度。
+_refresh_lock = threading.Lock()
+
+# 手動更新時強制重新下載的核心價格資料集（最新股價／成交量）。
+# 只更新每日會變動的價格資料，避免一次重抓全部資料集而爆掉 FinLab 額度。
+_REFRESH_KEYS = ["close", "open", "high", "low", "volume"]
 
 
 @router.get("/")
@@ -78,5 +89,63 @@ async def health() -> Dict[str, Any]:
         "version": "2.0.0",
         "data_status": "warming_up",
         "finlab": finlab_info,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@router.post("/refresh", dependencies=[Depends(verify_api_key)])
+async def refresh_data() -> Dict[str, Any]:
+    """強制手動更新最新股票資料。
+
+    清除核心價格資料集（close/open/high/low/volume）的記憶體快取後，
+    立即重新下載一次（雲端模式走 FinLab API；本地模式重讀 pickle），
+    讓後續查詢取得最新資料。回傳更新後的最新資料日期與結果。
+
+    同一時間僅允許一個更新進行，重複請求會收到 409，避免浪費 FinLab 額度。
+    """
+    from core.data_loader import DataCache, FinLabQuotaExceededError
+    from api.state import loader
+
+    if not _refresh_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="資料更新進行中，請稍候再試。")
+
+    try:
+        cache = DataCache()
+
+        def _reload() -> Dict[str, Any]:
+            # 先清掉舊快取，讓 get() 強制重新下載並重新填入快取。
+            for key in _REFRESH_KEYS:
+                cache.clear_key(key)
+
+            loaded: list[str] = []
+            failed: list[str] = []
+            for key in _REFRESH_KEYS:
+                try:
+                    loader.get(key)  # use_cache=True：重新下載並回填快取
+                    loaded.append(key)
+                except FinLabQuotaExceededError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("手動更新 %s 失敗: %s", key, exc)
+                    failed.append(key)
+
+            latest_date = None
+            close = cache.get("close")
+            if close is not None and not close.empty:
+                latest_date = close.index.max().strftime("%Y-%m-%d")
+
+            return {"loaded": loaded, "failed": failed, "latest_date": latest_date}
+
+        # 重新下載可能耗時（全市場資料集），放到 thread pool 執行，
+        # 避免阻塞事件迴圈。FinLabQuotaExceededError 由全域 handler 轉成 503。
+        result = await asyncio.get_event_loop().run_in_executor(None, _reload)
+    finally:
+        _refresh_lock.release()
+
+    return {
+        "status": "ok",
+        "refreshed": result["loaded"],
+        "failed": result["failed"],
+        "latest_data_date": result["latest_date"],
         "timestamp": datetime.now().isoformat(),
     }

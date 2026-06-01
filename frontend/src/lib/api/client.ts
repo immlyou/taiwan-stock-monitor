@@ -99,6 +99,21 @@ export async function fetchAPI<T>(
   }
 }
 
+// 系統相關 API
+export interface RefreshResult {
+  status: string
+  refreshed: string[]
+  failed: string[]
+  latest_data_date: string | null
+  timestamp: string
+}
+
+export const systemApi = {
+  // 強制手動更新最新股票資料；重新下載可能耗時，逾時設定為 90 秒
+  refresh: () =>
+    fetchAPI<RefreshResult>('/refresh', { method: 'POST' }, 90000),
+}
+
 // 市場相關 API
 export const marketApi = {
   getSummary: () => fetchAPI<Record<string, unknown>>('/market/summary'),
