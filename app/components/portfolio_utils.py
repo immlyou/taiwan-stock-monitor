@@ -6,6 +6,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from core.json_store import file_lock, save_json_atomic
+
 # 投資組合檔案路徑
 PORTFOLIO_FILE = Path(__file__).parent.parent.parent / 'data' / 'portfolios.json'
 PORTFOLIO_FILE.parent.mkdir(exist_ok=True)
@@ -20,9 +22,8 @@ def load_portfolios() -> Dict:
 
 
 def save_portfolios(portfolios: Dict) -> None:
-    """儲存所有投資組合"""
-    with open(PORTFOLIO_FILE, 'w', encoding='utf-8') as f:
-        json.dump(portfolios, f, ensure_ascii=False, indent=2, default=str)
+    """儲存所有投資組合（atomic write，避免進程中斷毀檔）"""
+    save_json_atomic(PORTFOLIO_FILE, portfolios)
 
 
 def get_portfolio_names() -> List[str]:
@@ -33,29 +34,31 @@ def get_portfolio_names() -> List[str]:
 
 def create_portfolio(name: str) -> bool:
     """建立新投資組合"""
-    portfolios = load_portfolios()
+    with file_lock(PORTFOLIO_FILE):
+        portfolios = load_portfolios()
 
-    if name in portfolios:
-        return False
+        if name in portfolios:
+            return False
 
-    portfolios[name] = {
-        'created_at': datetime.now().isoformat(),
-        'holdings': [],
-    }
-    save_portfolios(portfolios)
-    return True
+        portfolios[name] = {
+            'created_at': datetime.now().isoformat(),
+            'holdings': [],
+        }
+        save_portfolios(portfolios)
+        return True
 
 
 def delete_portfolio(name: str) -> bool:
     """刪除投資組合"""
-    portfolios = load_portfolios()
+    with file_lock(PORTFOLIO_FILE):
+        portfolios = load_portfolios()
 
-    if name not in portfolios:
-        return False
+        if name not in portfolios:
+            return False
 
-    del portfolios[name]
-    save_portfolios(portfolios)
-    return True
+        del portfolios[name]
+        save_portfolios(portfolios)
+        return True
 
 
 def add_holding(portfolio_name: str,
@@ -84,24 +87,25 @@ def add_holding(portfolio_name: str,
     bool
         是否成功
     """
-    portfolios = load_portfolios()
+    with file_lock(PORTFOLIO_FILE):
+        portfolios = load_portfolios()
 
-    if portfolio_name not in portfolios:
-        return False
+        if portfolio_name not in portfolios:
+            return False
 
-    if buy_date is None:
-        buy_date = datetime.now().strftime('%Y-%m-%d')
+        if buy_date is None:
+            buy_date = datetime.now().strftime('%Y-%m-%d')
 
-    new_holding = {
-        'stock_id': stock_id,
-        'shares': shares,
-        'cost_price': cost_price,
-        'buy_date': buy_date,
-    }
+        new_holding = {
+            'stock_id': stock_id,
+            'shares': shares,
+            'cost_price': cost_price,
+            'buy_date': buy_date,
+        }
 
-    portfolios[portfolio_name]['holdings'].append(new_holding)
-    save_portfolios(portfolios)
-    return True
+        portfolios[portfolio_name]['holdings'].append(new_holding)
+        save_portfolios(portfolios)
+        return True
 
 
 def add_holdings_batch(portfolio_name: str,
@@ -130,59 +134,61 @@ def add_holdings_batch(portfolio_name: str,
     int
         成功新增的股票數量
     """
-    portfolios = load_portfolios()
+    with file_lock(PORTFOLIO_FILE):
+        portfolios = load_portfolios()
 
-    if portfolio_name not in portfolios:
-        return 0
+        if portfolio_name not in portfolios:
+            return 0
 
-    if buy_date is None:
-        buy_date = datetime.now().strftime('%Y-%m-%d')
+        if buy_date is None:
+            buy_date = datetime.now().strftime('%Y-%m-%d')
 
-    if prices is None:
-        prices = {}
+        if prices is None:
+            prices = {}
 
-    count = 0
-    existing_stocks = [h['stock_id'] for h in portfolios[portfolio_name]['holdings']]
+        count = 0
+        existing_stocks = [h['stock_id'] for h in portfolios[portfolio_name]['holdings']]
 
-    for stock_id in stocks:
-        if stock_id in existing_stocks:
-            continue
+        for stock_id in stocks:
+            if stock_id in existing_stocks:
+                continue
 
-        cost_price = prices.get(stock_id, 0)
+            cost_price = prices.get(stock_id, 0)
 
-        new_holding = {
-            'stock_id': stock_id,
-            'shares': default_shares,
-            'cost_price': cost_price,
-            'buy_date': buy_date,
-        }
+            new_holding = {
+                'stock_id': stock_id,
+                'shares': default_shares,
+                'cost_price': cost_price,
+                'buy_date': buy_date,
+            }
 
-        portfolios[portfolio_name]['holdings'].append(new_holding)
-        count += 1
+            portfolios[portfolio_name]['holdings'].append(new_holding)
+            count += 1
 
-    save_portfolios(portfolios)
-    return count
+        save_portfolios(portfolios)
+        return count
 
 
 def remove_holding(portfolio_name: str, stock_id: str) -> bool:
     """從投資組合移除持股"""
-    portfolios = load_portfolios()
+    with file_lock(PORTFOLIO_FILE):
+        portfolios = load_portfolios()
 
-    if portfolio_name not in portfolios:
+        if portfolio_name not in portfolios:
+            return False
+
+        holdings = portfolios[portfolio_name]['holdings']
+        original_length = len(holdings)
+
+        portfolios[portfolio_name]['holdings'] = [
+            h for h in holdings if h['stock_id'] != stock_id
+        ]
+
+        if len(portfolios[portfolio_name]['holdings']) < original_length:
+            save_portfolios(portfolios)
+            return True
+
         return False
-
-    holdings = portfolios[portfolio_name]['holdings']
-    original_length = len(holdings)
-
-    portfolios[portfolio_name]['holdings'] = [
-        h for h in holdings if h['stock_id'] != stock_id
-    ]
-
-    if len(portfolios[portfolio_name]['holdings']) < original_length:
-        save_portfolios(portfolios)
-        return True
-
-    return False
 
 
 def get_portfolio_holdings(portfolio_name: str) -> List[Dict]:

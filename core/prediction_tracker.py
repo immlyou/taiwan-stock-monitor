@@ -15,6 +15,18 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 import uuid
 
+from core.timeutils import now_taipei
+
+
+def _now() -> datetime:
+    """台北牆鐘時間（naive）。
+
+    既有 created_at / expire_date 等欄位都存 naive 字串並互相比較，
+    這裡去掉 tzinfo 以維持比較相容，但語意改為台北時間
+    （UTC 容器上 naive datetime.now() 會差 8 小時）。
+    """
+    return now_taipei().replace(tzinfo=None)
+
 # 資料儲存路徑
 DATA_DIR = Path(__file__).parent.parent / 'data'
 PREDICTIONS_FILE = DATA_DIR / 'predictions.json'
@@ -101,16 +113,12 @@ class PredictionTracker:
                 self.verification_log = []
 
     def _save_data(self):
-        """儲存資料"""
+        """儲存資料（atomic write，避免進程中斷毀檔導致預測歷史全失）"""
+        from core.json_store import save_json_atomic
+
         DATA_DIR.mkdir(exist_ok=True)
-
-        # 儲存預測記錄
-        with open(PREDICTIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump([asdict(p) for p in self.predictions], f, ensure_ascii=False, indent=2)
-
-        # 儲存驗證日誌
-        with open(VERIFICATION_LOG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.verification_log, f, ensure_ascii=False, indent=2)
+        save_json_atomic(PREDICTIONS_FILE, [asdict(p) for p in self.predictions])
+        save_json_atomic(VERIFICATION_LOG_FILE, self.verification_log)
 
     def add_target_price_prediction(
         self,
@@ -135,7 +143,7 @@ class PredictionTracker:
         source : str - 來源
         notes : str - 備註
         """
-        now = datetime.now()
+        now = _now()
         expire_date = (now + timedelta(days=verify_days)).strftime('%Y-%m-%d')
 
         prediction = Prediction(
@@ -179,7 +187,7 @@ class PredictionTracker:
         source : str - 來源
         notes : str - 備註
         """
-        now = datetime.now()
+        now = _now()
         expire_date = (now + timedelta(days=verify_days)).strftime('%Y-%m-%d')
 
         prediction = Prediction(
@@ -225,7 +233,7 @@ class PredictionTracker:
         strategy_params : Dict - 策略參數
         notes : str - 備註
         """
-        now = datetime.now()
+        now = _now()
         expire_date = (now + timedelta(days=verify_days)).strftime('%Y-%m-%d')
 
         prediction = Prediction(
@@ -294,7 +302,15 @@ class PredictionTracker:
         --------
         Dict - 驗證結果摘要
         """
-        today = datetime.now().date()
+        # 用台北時區的「今天」：UTC 容器的 naive date 在台灣 00:00–08:00 間會差一天
+        from core.timeutils import today_taipei
+        today = today_taipei()
+
+        # 防衛：index 必須是 DatetimeIndex，否則下面的 .date 會 AttributeError
+        if not isinstance(price_data.index, pd.DatetimeIndex):
+            price_data = price_data.copy()
+            price_data.index = pd.to_datetime(price_data.index)
+
         results = {
             'verified_count': 0,
             'success_count': 0,
@@ -377,7 +393,7 @@ class PredictionTracker:
 
             # 記錄驗證時間
             if prediction.status != PredictionStatus.PENDING.value:
-                prediction.verified_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                prediction.verified_at = _now().strftime('%Y-%m-%d %H:%M:%S')
                 results['verified_count'] += 1
                 results['details'].append({
                     'id': prediction.id,
@@ -393,7 +409,7 @@ class PredictionTracker:
                 expire_date = datetime.strptime(prediction.expire_date, '%Y-%m-%d').date()
                 if today > expire_date + timedelta(days=3):  # 給 3 天緩衝
                     prediction.status = PredictionStatus.EXPIRED.value
-                    prediction.verified_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    prediction.verified_at = _now().strftime('%Y-%m-%d %H:%M:%S')
                     results['expired_count'] += 1
 
         self._save_data()
@@ -401,7 +417,7 @@ class PredictionTracker:
         # 記錄驗證日誌
         if results['verified_count'] > 0:
             self.verification_log.append({
-                'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'date': _now().strftime('%Y-%m-%d %H:%M:%S'),
                 'results': results
             })
             self._save_data()
@@ -421,7 +437,7 @@ class PredictionTracker:
         --------
         Dict - 統計結果
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = _now() - timedelta(days=days)
 
         # 篩選預測
         filtered = [
@@ -507,7 +523,7 @@ class PredictionTracker:
 
     def get_recent_predictions(self, days: int = 7, status: str = None) -> List[Prediction]:
         """取得最近的預測記錄"""
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = _now() - timedelta(days=days)
         filtered = [
             p for p in self.predictions
             if datetime.strptime(p.created_at, '%Y-%m-%d %H:%M:%S') >= cutoff_date
@@ -525,14 +541,14 @@ class PredictionTracker:
         for p in self.predictions:
             if p.id == prediction_id and p.status == PredictionStatus.PENDING.value:
                 p.status = PredictionStatus.CANCELLED.value
-                p.verified_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                p.verified_at = _now().strftime('%Y-%m-%d %H:%M:%S')
                 self._save_data()
                 return True
         return False
 
     def to_dataframe(self, days: int = 30) -> pd.DataFrame:
         """轉換為 DataFrame 方便分析"""
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = _now() - timedelta(days=days)
         filtered = [
             p for p in self.predictions
             if datetime.strptime(p.created_at, '%Y-%m-%d %H:%M:%S') >= cutoff_date

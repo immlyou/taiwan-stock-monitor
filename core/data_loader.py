@@ -50,6 +50,23 @@ class FinLabQuotaExceededError(Exception):
     """FinLab API 每日額度超限"""
     pass
 
+
+def _is_quota_error(e: Exception) -> bool:
+    """判斷例外是否為 FinLab 每日額度超限。
+
+    只比對額度錯誤的特定字樣（FinLab 實際訊息為 "Usage exceed 5000 MB" 類）。
+    刻意不比對單獨的 "limit" / "exceed" / "5000"——
+    "rate limit"、"timeout limit"、股號 5000 等無關錯誤會被誤判成額度超限，
+    導致誤發告警或漏判後繼續打 API 燒額度。
+    """
+    if "quota" in type(e).__name__.lower():
+        return True
+    err_str = str(e).lower()
+    return any(
+        pattern in err_str
+        for pattern in ("quota", "usage exceed", "5000 mb", "5000mb")
+    )
+
 # FinLab 快取 TTL（秒）：從環境變數讀取，預設 24 小時
 # 設為 0 表示不使用記憶體快取（每次都重新下載）
 FINLAB_CACHE_TTL: int = int(os.getenv("FINLAB_CACHE_TTL", "86400"))
@@ -205,8 +222,7 @@ class DataLoader:
             df = data.get(api_name)
             _finlab_quota_exceeded = False
         except Exception as e:
-            err_str = str(e).lower()
-            if "quota" in err_str or "limit" in err_str or "exceed" in err_str or "5000" in err_str:
+            if _is_quota_error(e):
                 _finlab_quota_exceeded = True
                 _log.error("FinLab 額度超限: %s", e)
                 try:
@@ -260,11 +276,17 @@ class DataLoader:
             return pd.DataFrame(data)
 
     def _normalize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """標準化 DataFrame 格式 - 以日期為 index"""
+        """標準化 DataFrame 格式 - 以日期為 index，並保證遞增排序。
+
+        下游大量依賴「.iloc[-1] / .tail(n) = 最新資料」，FinLab 回傳的
+        date-indexed frame 沒有排序保證，這裡統一 sort_index 維持不變量。
+        """
         if 'date' in df.columns:
             df = df.copy()
             df['date'] = pd.to_datetime(df['date'])
             df = df.set_index('date')
+        if not df.index.is_monotonic_increasing:
+            df = df.sort_index()
         return df
 
     def get(self, data_key: str, use_cache: bool = True) -> pd.DataFrame:

@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
+from core.json_store import save_json_atomic
+
 # 自選股檔案路徑
 WATCHLIST_FILE = Path(__file__).parent.parent.parent / 'data' / 'watchlists.json'
 WATCHLIST_FILE.parent.mkdir(exist_ok=True)
@@ -22,9 +24,8 @@ def load_watchlists() -> Dict:
 
 
 def save_watchlists(watchlists: Dict) -> None:
-    """儲存所有自選股清單"""
-    with open(WATCHLIST_FILE, 'w', encoding='utf-8') as f:
-        json.dump(watchlists, f, ensure_ascii=False, indent=2, default=str)
+    """儲存所有自選股清單（atomic write，避免進程中斷毀檔）"""
+    save_json_atomic(WATCHLIST_FILE, watchlists)
 
 
 def get_watchlist_names() -> List[str]:

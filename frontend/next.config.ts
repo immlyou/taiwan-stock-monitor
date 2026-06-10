@@ -14,14 +14,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/:path*`,
-      },
-    ];
-  },
+  // /api/* 的後端轉發改由 src/app/api/[...path]/route.ts 處理
+  // （rewrite 無法注入 Authorization header，故移除）
 };
 
 export default nextConfig;

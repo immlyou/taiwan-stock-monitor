@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.deps import verify_api_key
+from api.deps import rate_limit, verify_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,15 @@ async def health() -> Dict[str, Any]:
     }
 
 
-@router.post("/refresh", dependencies=[Depends(verify_api_key)])
+@router.post(
+    "/refresh",
+    dependencies=[
+        Depends(verify_api_key),
+        # 手動更新會觸發 FinLab 重新下載，限制每 IP 每 5 分鐘最多 3 次，
+        # 配合 _refresh_lock 的單飛行 409，避免額度被惡意燒光。
+        Depends(rate_limit(max_calls=3, window_seconds=300)),
+    ],
+)
 async def refresh_data() -> Dict[str, Any]:
     """強制手動更新最新股票資料。
 

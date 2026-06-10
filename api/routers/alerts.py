@@ -13,6 +13,7 @@ from api.models import AlertCreateRequest, AlertUpdateRequest
 from api.state import loader
 from core.alerts import AlertEngine
 from core.intelligence import evaluate_smart_alerts
+from core.json_store import file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -63,18 +64,19 @@ async def alerts_smart_preview(
 async def alert_create(req: AlertCreateRequest):
     """新增警報設定。"""
     try:
-        engine = AlertEngine()
-        alert = {
-            "id": str(uuid.uuid4()),
-            "stock_id": req.stock_id,
-            "type": req.type,
-            "value": req.value,
-            "note": req.note or "",
-            "enabled": True,
-            "created_at": datetime.now().isoformat(),
-        }
-        engine.alerts_data.setdefault("alerts", []).append(alert)
-        engine._save_alerts()
+        with file_lock(AlertEngine.ALERTS_FILE):
+            engine = AlertEngine()
+            alert = {
+                "id": str(uuid.uuid4()),
+                "stock_id": req.stock_id,
+                "type": req.type,
+                "value": req.value,
+                "note": req.note or "",
+                "enabled": True,
+                "created_at": datetime.now().isoformat(),
+            }
+            engine.alerts_data.setdefault("alerts", []).append(alert)
+            engine._save_alerts()
         return {"message": "新增成功", "alert": alert}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -84,20 +86,21 @@ async def alert_create(req: AlertCreateRequest):
 async def alert_update(alert_id: str, req: AlertUpdateRequest):
     """更新警報啟用狀態、觸發值或備註。"""
     try:
-        engine = AlertEngine()
-        alerts = engine.alerts_data.get("alerts", [])
-        for alert in alerts:
-            if alert.get("id") == alert_id:
-                if req.enabled is not None:
-                    alert["enabled"] = req.enabled
-                if req.value is not None:
-                    alert["value"] = req.value
-                    alert["triggered"] = False
-                    alert.pop("triggered_at", None)
-                if req.note is not None:
-                    alert["note"] = req.note
-                engine._save_alerts()
-                return {"message": "更新成功", "alert": alert}
+        with file_lock(AlertEngine.ALERTS_FILE):
+            engine = AlertEngine()
+            alerts = engine.alerts_data.get("alerts", [])
+            for alert in alerts:
+                if alert.get("id") == alert_id:
+                    if req.enabled is not None:
+                        alert["enabled"] = req.enabled
+                    if req.value is not None:
+                        alert["value"] = req.value
+                        alert["triggered"] = False
+                        alert.pop("triggered_at", None)
+                    if req.note is not None:
+                        alert["note"] = req.note
+                    engine._save_alerts()
+                    return {"message": "更新成功", "alert": alert}
         raise HTTPException(status_code=404, detail=f"找不到警報: {alert_id}")
     except HTTPException:
         raise
@@ -109,14 +112,15 @@ async def alert_update(alert_id: str, req: AlertUpdateRequest):
 async def alert_reset(alert_id: str):
     """重設已觸發警報狀態。"""
     try:
-        engine = AlertEngine()
-        alerts = engine.alerts_data.get("alerts", [])
-        for alert in alerts:
-            if alert.get("id") == alert_id:
-                alert["triggered"] = False
-                alert.pop("triggered_at", None)
-                engine._save_alerts()
-                return {"message": "重設成功", "alert": alert}
+        with file_lock(AlertEngine.ALERTS_FILE):
+            engine = AlertEngine()
+            alerts = engine.alerts_data.get("alerts", [])
+            for alert in alerts:
+                if alert.get("id") == alert_id:
+                    alert["triggered"] = False
+                    alert.pop("triggered_at", None)
+                    engine._save_alerts()
+                    return {"message": "重設成功", "alert": alert}
         raise HTTPException(status_code=404, detail=f"找不到警報: {alert_id}")
     except HTTPException:
         raise
@@ -128,13 +132,14 @@ async def alert_reset(alert_id: str):
 async def alert_delete(alert_id: str):
     """刪除警報設定。"""
     try:
-        engine = AlertEngine()
-        alerts = engine.alerts_data.get("alerts", [])
-        original_len = len(alerts)
-        engine.alerts_data["alerts"] = [a for a in alerts if a.get("id") != alert_id]
-        if len(engine.alerts_data["alerts"]) == original_len:
-            raise HTTPException(status_code=404, detail=f"找不到警報: {alert_id}")
-        engine._save_alerts()
+        with file_lock(AlertEngine.ALERTS_FILE):
+            engine = AlertEngine()
+            alerts = engine.alerts_data.get("alerts", [])
+            original_len = len(alerts)
+            engine.alerts_data["alerts"] = [a for a in alerts if a.get("id") != alert_id]
+            if len(engine.alerts_data["alerts"]) == original_len:
+                raise HTTPException(status_code=404, detail=f"找不到警報: {alert_id}")
+            engine._save_alerts()
         return {"message": "刪除成功"}
     except HTTPException:
         raise

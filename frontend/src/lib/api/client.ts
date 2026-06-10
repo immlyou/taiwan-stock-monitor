@@ -1,8 +1,9 @@
-// 客戶端走 Next.js rewrite proxy (/api/* → Railway)
-// 伺服器端（SSR / Server Components）直接打 Railway API
+// 客戶端走 Next.js route handler proxy (/api/* → Railway，server 端注入 Bearer token)
+// 伺服器端（SSR / Server Components）直接打 Railway API 並自帶 token
 //
 // 生產環境必須在 Vercel 專案設定中加入：
 //   NEXT_PUBLIC_API_URL = https://your-app.up.railway.app
+//   STOCK_API_KEY       = <與 Railway 相同的金鑰>（server-only，不可加 NEXT_PUBLIC_ 前綴）
 //
 // 若未設定且非 localhost，則在建置時提早報錯而非靜默 timeout
 const _rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -54,13 +55,22 @@ export async function fetchAPI<T>(
 
   const url = `${API_URL}${path}`
 
+  // SSR / Server Components 直連 Railway，需自帶金鑰；
+  // 瀏覽器端 process.env.STOCK_API_KEY 必為 undefined（非 NEXT_PUBLIC_，
+  // 不會被打包進 client bundle），token 由 /api proxy 注入。
+  const serverAuthHeaders: Record<string, string> =
+    typeof window === 'undefined' && process.env.STOCK_API_KEY
+      ? { Authorization: `Bearer ${process.env.STOCK_API_KEY}` }
+      : {}
+
   try {
     const response = await fetch(url, {
+      ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...serverAuthHeaders,
         ...options?.headers,
       },
-      ...options,
       signal: options?.signal ?? controller.signal,
     })
 

@@ -52,11 +52,14 @@ function useRealtimeQuotes() {
 
   const { data, error, isLoading } = useSWR<BatchQuoteResponse>(
     stockIds.length ? ['quote-batch', stockIds.join(',')] : null,
-    () =>
+    // POST body 從 SWR key 衍生而非閉包捕捉 stockIds：
+    // 避免 watchlist 從預設清單切換到使用者清單時，快取中的舊 fetcher
+    // 帶著過期的股票組合送出請求（key 與 body 脫鉤）。
+    ([, ids]: [string, string]) =>
       fetchAPI<BatchQuoteResponse>('/quote/realtime/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_ids: stockIds }),
+        body: JSON.stringify({ stock_ids: ids.split(',') }),
       }),
     {
       refreshInterval: POLL_INTERVAL,

@@ -6,14 +6,32 @@ import { formatCurrency, formatChange, formatPercent } from '@/lib/utils/format'
 
 export const MARKET_TICKER_HEIGHT = 32
 
+// 以 Asia/Taipei 取得台北當地的星期與時分（使用者本機時區無關）
+function getTaipeiNowParts(): { day: number; mins: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Taipei',
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  const dayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  }
+  const day = dayMap[get('weekday')] ?? 0
+  // hour12:false 在部分環境會把午夜回傳成 '24'
+  const hour = Number(get('hour')) % 24
+  const mins = hour * 60 + Number(get('minute'))
+  return { day, mins }
+}
+
 function useIsMarketOpen() {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     const check = () => {
-      const now = new Date()
-      const day = now.getDay() // 0=日, 6=六
-      const mins = now.getHours() * 60 + now.getMinutes()
-      // 台股盤中 09:00–13:30（以使用者本機時間判斷）
+      // 台股盤中 09:00–13:30，以台北時間判斷（非使用者本機時間）
+      const { day, mins } = getTaipeiNowParts()
       setOpen(day >= 1 && day <= 5 && mins >= 540 && mins <= 810)
     }
     check()

@@ -4,12 +4,13 @@
 import json
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
 from typing import List, Dict
 from dataclasses import dataclass
 
 
 from core.indicators import calculate_rsi, calculate_sma
+from core.json_store import file_lock
+from core.timeutils import now_taipei
 
 
 @dataclass
@@ -221,6 +222,7 @@ class AlertEngine:
             觸發的警報結果
         """
         triggered_results = []
+        triggered_ids = []
 
         for alert in self.alerts_data.get('alerts', []):
             # 跳過已停用或已觸發的警報
@@ -230,14 +232,24 @@ class AlertEngine:
             result = self.check_alert(alert, data)
 
             if result.is_triggered:
-                # 更新警報狀態
+                # 更新警報狀態（觸發時間用台北時區）
                 alert['triggered'] = True
-                alert['triggered_at'] = datetime.now().isoformat()
+                alert['triggered_at'] = now_taipei().isoformat()
                 triggered_results.append(result)
+                triggered_ids.append(alert.get('id'))
 
-        # 儲存更新後的警報狀態
+        # 儲存更新後的警報狀態。在鎖內重新載入並只回寫 triggered 標記，
+        # 避免用本實例的舊快照整檔覆蓋掉其他請求併發做的修改。
         if triggered_results:
-            self._save_alerts()
+            with file_lock(self.ALERTS_FILE):
+                fresh = self._load_alerts()
+                now_iso = now_taipei().isoformat()
+                for alert in fresh.get('alerts', []):
+                    if alert.get('id') in triggered_ids and not alert.get('triggered'):
+                        alert['triggered'] = True
+                        alert['triggered_at'] = now_iso
+                self.alerts_data = fresh
+                self._save_alerts()
 
         return triggered_results
 

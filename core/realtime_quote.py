@@ -258,8 +258,9 @@ def _parse_quote_data(item: dict) -> Optional[StockQuote]:
         ex = item.get('ex', 'tse')
         market = '上市' if ex == 'tse' else '上櫃'
 
-        # 判斷是否盤中
-        now = datetime.now()
+        # 判斷是否盤中（必須用台北時間：Railway 容器跑 UTC，naive now() 會差 8 小時）
+        from core.timeutils import now_taipei
+        now = now_taipei()
         is_trading = (
             now.weekday() < 5 and  # 週一到週五
             datetime.strptime('09:00', '%H:%M').time() <= now.time() <= datetime.strptime('13:30', '%H:%M').time()

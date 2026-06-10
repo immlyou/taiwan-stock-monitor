@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -63,27 +62,18 @@ async def ai_anomalies(
 
     stock_ids = None
     if scope == "watchlist":
-        # 收集自選股 + 持倉
+        # 收集自選股 + 持倉（走共用 utils，路徑統一指向 repo 根目錄 data/）
         try:
-            watchlist_file = Path(__file__).parent / "data" / "watchlists.json"
-            portfolio_file = Path(__file__).parent / "data" / "portfolios.json"
-            ids = set()
-            if watchlist_file.exists():
-                import json
-                wl_data = json.loads(watchlist_file.read_text(encoding="utf-8"))
-                if isinstance(wl_data, dict):
-                    for wl in wl_data.values():
-                        for s in (wl.get("stocks", []) if isinstance(wl, dict) else []):
-                            ids.add(s if isinstance(s, str) else s.get("stock_id", ""))
-            if portfolio_file.exists():
-                import json
-                pf_data = json.loads(portfolio_file.read_text(encoding="utf-8"))
-                if isinstance(pf_data, dict):
-                    for p in pf_data.values():
-                        for h in (p.get("holdings", []) if isinstance(p, dict) else []):
-                            ids.add(h.get("stock_id", ""))
+            from app.components.portfolio_utils import load_portfolios
+            from app.components.watchlist_utils import get_all_watched_stocks
+
+            ids = set(get_all_watched_stocks())
+            for p in load_portfolios().values():
+                for h in (p.get("holdings", []) if isinstance(p, dict) else []):
+                    ids.add(h.get("stock_id", ""))
             stock_ids = list(ids - {""}) if ids else None
         except Exception:
+            logger.exception("收集 watchlist/portfolio 股票清單失敗，改為全市場掃描")
             stock_ids = None
 
     anomalies = await loop.run_in_executor(None, detector.detect, loader, stock_ids)

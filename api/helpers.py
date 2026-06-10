@@ -64,10 +64,10 @@ def _load_json_file(filename: str, default=None):
 
 
 def _save_json_file(filename: str, data) -> None:
-    """安全寫入 data/ 目錄下的 JSON 檔案"""
-    path = DATA_DIR / filename
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    """安全寫入 data/ 目錄下的 JSON 檔案（atomic write）"""
+    from core.json_store import save_json_atomic
+
+    save_json_atomic(DATA_DIR / filename, data)
 
 
 # ─── 股票對照表 ─────────────────────────────────────────

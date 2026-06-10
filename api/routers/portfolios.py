@@ -41,16 +41,20 @@ async def portfolios_list():
 async def portfolio_create(req: PortfolioCreateRequest):
     """建立新投資組合。"""
     try:
-        from app.components.portfolio_utils import load_portfolios, save_portfolios
-        portfolios = load_portfolios()
-        if req.name in portfolios:
-            raise HTTPException(status_code=409, detail=f"投資組合 '{req.name}' 已存在")
-        portfolios[req.name] = {
-            "description": req.description or "",
-            "created_at": datetime.now().isoformat(),
-            "holdings": [],
-        }
-        save_portfolios(portfolios)
+        from app.components.portfolio_utils import (
+            PORTFOLIO_FILE, load_portfolios, save_portfolios,
+        )
+        from core.json_store import file_lock
+        with file_lock(PORTFOLIO_FILE):
+            portfolios = load_portfolios()
+            if req.name in portfolios:
+                raise HTTPException(status_code=409, detail=f"投資組合 '{req.name}' 已存在")
+            portfolios[req.name] = {
+                "description": req.description or "",
+                "created_at": datetime.now().isoformat(),
+                "holdings": [],
+            }
+            save_portfolios(portfolios)
         return {"message": "建立成功", "id": req.name, "name": req.name}
     except HTTPException:
         raise
@@ -152,17 +156,21 @@ async def portfolio_diagnostics(portfolio_id: str):
 async def portfolio_update(portfolio_id: str, req: PortfolioUpdateRequest):
     """更新投資組合（描述或持股清單）。"""
     try:
-        from app.components.portfolio_utils import load_portfolios, save_portfolios
-        portfolios = load_portfolios()
-        if portfolio_id not in portfolios:
-            raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+        from app.components.portfolio_utils import (
+            PORTFOLIO_FILE, load_portfolios, save_portfolios,
+        )
+        from core.json_store import file_lock
+        with file_lock(PORTFOLIO_FILE):
+            portfolios = load_portfolios()
+            if portfolio_id not in portfolios:
+                raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
 
-        if req.description is not None:
-            portfolios[portfolio_id]["description"] = req.description
-        if req.holdings is not None:
-            portfolios[portfolio_id]["holdings"] = [h.dict() for h in req.holdings]
+            if req.description is not None:
+                portfolios[portfolio_id]["description"] = req.description
+            if req.holdings is not None:
+                portfolios[portfolio_id]["holdings"] = [h.model_dump() for h in req.holdings]
 
-        save_portfolios(portfolios)
+            save_portfolios(portfolios)
         return {"message": "更新成功", "id": portfolio_id}
     except HTTPException:
         raise
@@ -174,12 +182,16 @@ async def portfolio_update(portfolio_id: str, req: PortfolioUpdateRequest):
 async def portfolio_delete(portfolio_id: str):
     """刪除投資組合。"""
     try:
-        from app.components.portfolio_utils import load_portfolios, save_portfolios
-        portfolios = load_portfolios()
-        if portfolio_id not in portfolios:
-            raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
-        del portfolios[portfolio_id]
-        save_portfolios(portfolios)
+        from app.components.portfolio_utils import (
+            PORTFOLIO_FILE, load_portfolios, save_portfolios,
+        )
+        from core.json_store import file_lock
+        with file_lock(PORTFOLIO_FILE):
+            portfolios = load_portfolios()
+            if portfolio_id not in portfolios:
+                raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+            del portfolios[portfolio_id]
+            save_portfolios(portfolios)
         return {"message": "刪除成功"}
     except HTTPException:
         raise

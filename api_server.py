@@ -30,7 +30,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.deps import API_KEY
+from api.deps import API_KEY, IS_CLOUD
 from api.response import SafeJSONResponse
 from api.state import loader
 from core.data_loader import FinLabQuotaExceededError
@@ -68,9 +68,12 @@ logger = logging.getLogger(__name__)
 
 
 # ── CORS 設定 ───────────────────────────────────────────
-_cors_origins_raw = os.getenv("CORS_ORIGINS", "*")
+# 雲端環境未設定 CORS_ORIGINS 時預設「拒絕所有跨域」（fail-closed）。
+# 瀏覽器流量一律走 Next.js 的 /api proxy（server-to-server，不經 CORS），
+# 因此雲端不需要開放任何跨域來源；本地開發才預設 '*'。
+_cors_origins_raw = os.getenv("CORS_ORIGINS", "" if IS_CLOUD else "*")
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
-_cors_allow_credentials = _cors_origins != ["*"]
+_cors_allow_credentials = bool(_cors_origins) and _cors_origins != ["*"]
 
 
 # ── Lifespan：startup 警告 + 資料預熱 ───────────────────
@@ -79,14 +82,21 @@ async def _lifespan(app: FastAPI):
     _log = logging.getLogger(__name__)
 
     if not API_KEY:
-        _log.warning(
-            "STOCK_API_KEY 環境變數未設定——所有 API 端點無需認證即可存取。"
-            " 生產環境請務必設定此變數。"
-        )
+        if IS_CLOUD:
+            _log.error(
+                "STOCK_API_KEY 未設定且偵測到雲端環境——"
+                "所有受保護端點將回 503（fail-closed）。"
+                "請在 Railway 設定 STOCK_API_KEY 後重新部署。"
+            )
+        else:
+            _log.warning(
+                "STOCK_API_KEY 環境變數未設定——本地開發模式，"
+                "所有 API 端點無需認證即可存取。"
+            )
     if not _cors_allow_credentials:
         _log.warning(
-            "CORS_ORIGINS 未設定或為 '*'，已停用 allow_credentials。"
-            " 生產環境請設定 CORS_ORIGINS 為具體域名。"
+            "CORS_ORIGINS 未設定（雲端預設拒絕所有跨域；本地預設 '*'）。"
+            " 若需瀏覽器直連後端，請設定 CORS_ORIGINS 為具體域名。"
         )
 
     # 資料預熱：把常用資料集預先載入快取
