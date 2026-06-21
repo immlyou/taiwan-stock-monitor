@@ -56,6 +56,13 @@ async def health() -> Dict[str, Any]:
         "cached_datasets": cache_stats.get("total_items", 0),
     }
 
+    # 排程器狀態（純記憶體查詢，不觸發任何下載）。
+    try:
+        from core.scheduler import get_scheduler_status
+        scheduler_info = get_scheduler_status()
+    except Exception:  # noqa: BLE001 — health 不應因此失敗
+        scheduler_info = {"enabled": False, "running": False}
+
     if _finlab_quota_exceeded:
         return {
             "status": "degraded",
@@ -66,6 +73,7 @@ async def health() -> Dict[str, Any]:
             "fallback_active": True,
             "fallback_sources": ["yfinance", "twse", "finmind"],
             "finlab": finlab_info,
+            "scheduler": scheduler_info,
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -80,6 +88,7 @@ async def health() -> Dict[str, Any]:
             "latest_data_date": close.index.max().strftime("%Y-%m-%d"),
             "total_stocks": len(close.columns),
             "finlab": finlab_info,
+            "scheduler": scheduler_info,
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -89,6 +98,7 @@ async def health() -> Dict[str, Any]:
         "version": "2.0.0",
         "data_status": "warming_up",
         "finlab": finlab_info,
+        "scheduler": scheduler_info,
         "timestamp": datetime.now().isoformat(),
     }
 

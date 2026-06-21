@@ -140,7 +140,22 @@ async def _lifespan(app: FastAPI):
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _safe_load)  # 不 await：背景預熱，不阻塞啟動
 
+    # 背景排程器：盤中自動警報檢查（環境開關 ENABLE_SCHEDULER；雲端預設開）。
+    # 在獨立執行緒運作，不阻塞啟動與 /health。
+    try:
+        from core.scheduler import start_scheduler
+        start_scheduler()
+    except Exception:  # noqa: BLE001 — 排程啟動失敗不可拖垮整個 app
+        _log.exception("排程器啟動失敗")
+
     yield
+
+    # ── 關閉：停掉排程器 ─────────────────────────────────
+    try:
+        from core.scheduler import shutdown_scheduler
+        shutdown_scheduler()
+    except Exception:  # noqa: BLE001
+        _log.exception("排程器關閉失敗")
 
 
 # ── App 建構 ────────────────────────────────────────────

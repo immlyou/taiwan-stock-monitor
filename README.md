@@ -68,7 +68,16 @@ taiwan-stock-monitor/
 FINLAB_API_TOKEN=your_finlab_token
 STOCK_API_KEY=optional_api_key
 CORS_ORIGINS=http://localhost:3000,https://taiwan-stock-monitor.vercel.app
+
+# 背景排程器（盤中自動警報檢查）
+ENABLE_SCHEDULER=1            # 1/0；未設定時雲端預設開、本地預設關
+ALERT_CHECK_INTERVAL_MIN=5   # 盤中每幾分鐘檢查一次警報（預設 5）
+ALERT_NOTIFY_COOLDOWN_SEC=3600  # 同一警報通知冷卻秒數，避免重複轟炸（預設 3600）
 ```
+
+> 排程器在 API 進程內以 APScheduler 運作，平日 09:00–13:30（台北時區）
+> 自動檢查所有啟用警報並送通知；狀態可在 `GET /health` 的 `scheduler` 欄位查看。
+> 通知節流（cooldown）是自動排程的安全閥，務必與排程一起啟用。
 
 前端 `frontend/.env.local`：
 

@@ -297,7 +297,8 @@ class AlertEngine:
 
 
 def check_alerts_and_notify(data: Dict[str, pd.DataFrame],
-                            send_notification: bool = True) -> List[AlertResult]:
+                            send_notification: bool = True,
+                            cooldown_sec: int | None = None) -> List[AlertResult]:
     """
     檢查警報並發送通知
 
@@ -307,6 +308,10 @@ def check_alerts_and_notify(data: Dict[str, pd.DataFrame],
         數據字典
     send_notification : bool
         是否發送通知
+    cooldown_sec : int, optional
+        每條警報的通知冷卻秒數。自動排程開啟後，盤中會反覆檢查；
+        透過節流避免同一警報重複轟炸。None 時讀 env
+        ALERT_NOTIFY_COOLDOWN_SEC（預設 3600 秒）。
 
     Returns:
     --------
@@ -318,11 +323,18 @@ def check_alerts_and_notify(data: Dict[str, pd.DataFrame],
 
     if triggered and send_notification:
         try:
-            from core.notification import send_notification as notify
+            import os
+            from core.notification import send_notification as notify, get_throttle
 
+            if cooldown_sec is None:
+                cooldown_sec = int(os.getenv('ALERT_NOTIFY_COOLDOWN_SEC', '3600'))
+            throttle = get_throttle()
+
+            # 逐條套用節流：冷卻期內已通知過的警報不再列入本次訊息。
             messages = []
             for result in triggered:
-                messages.append(f"🔔 {result.stock_id}: {result.message}")
+                if throttle.allow(f'alert:{result.alert_id}', cooldown_sec):
+                    messages.append(f"🔔 {result.stock_id}: {result.message}")
 
             if messages:
                 notify(

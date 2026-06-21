@@ -1,6 +1,7 @@
 """
 通知系統模組 - 支援 LINE Notify、Telegram 和 Email
 """
+import time
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict
 from pathlib import Path
@@ -8,9 +9,14 @@ from datetime import datetime
 
 from config import NOTIFICATION_CONFIG
 from core.exceptions import NotificationSendError, NotificationConfigError
+from core.json_store import file_lock, save_json_atomic
 from core.logging_config import get_logger
 
 logger = get_logger('notification')
+
+# 通知節流狀態檔（記錄每個 dedup key 最近一次送出的 epoch 秒數）。
+# 放在 Railway Volume 掛載的 data/ 下，跨 redeploy 不遺失，避免重啟後重新轟炸。
+_THROTTLE_FILE = Path(__file__).parent.parent / 'data' / 'notify_throttle.json'
 
 
 class NotificationChannel(ABC):
@@ -361,6 +367,64 @@ class EmailChannel(NotificationChannel):
             raise NotificationSendError('Email', str(e))
 
 
+class NotificationThrottle:
+    """通知節流器 — 同一 dedup key 在冷卻時間內只送一次。
+
+    自動排程開啟後，盤中每隔數分鐘就會重跑警報檢查；若無節流，
+    同一條件可能反覆送出通知造成 alert fatigue。本類別以檔案持久化
+    每個 key 最近送出時間，是「排程自動化的前置安全閥」。
+
+    狀態存在 data/notify_throttle.json（Railway Volume，跨 redeploy 保留）。
+    所有讀寫以 file_lock 互斥 + 原子寫入，與其他使用者 JSON 檔一致。
+    """
+
+    def __init__(self, path: Optional[Path] = None):
+        self.path = Path(path) if path else _THROTTLE_FILE
+
+    def _load(self) -> Dict[str, float]:
+        if self.path.exists():
+            try:
+                import json
+                with open(self.path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def allow(self, key: str, cooldown_sec: float, now: Optional[float] = None) -> bool:
+        """若 key 不在冷卻期內則回傳 True 並記錄本次送出；否則回傳 False。
+
+        檢查與記錄在同一把鎖內完成，避免併發下重複放行。
+        cooldown_sec <= 0 表示不節流（永遠放行，且仍記錄時間）。
+        """
+        now = time.time() if now is None else now
+        with file_lock(self.path):
+            data = self._load()
+            last = data.get(key)
+            if cooldown_sec > 0 and last is not None and (now - float(last)) < cooldown_sec:
+                return False
+            data[key] = now
+            # 順手清掉遠超冷卻期的舊紀錄，避免檔案無限成長。
+            if cooldown_sec > 0:
+                cutoff = now - max(cooldown_sec * 10, 86400)
+                data = {k: v for k, v in data.items() if float(v) >= cutoff}
+            save_json_atomic(self.path, data)
+            return True
+
+
+# 全域節流器單例
+_throttle: Optional[NotificationThrottle] = None
+
+
+def get_throttle() -> NotificationThrottle:
+    """取得通知節流器單例。"""
+    global _throttle
+    if _throttle is None:
+        _throttle = NotificationThrottle()
+    return _throttle
+
+
 class NotificationManager:
     """
     通知管理器 - 統一管理所有通知頻道
@@ -392,7 +456,8 @@ class NotificationManager:
         else:
             logger.warning(f'通知頻道 {name} 未配置，跳過註冊')
 
-    def send(self, title: str, message: str, channels: Optional[List[str]] = None) -> Dict[str, bool]:
+    def send(self, title: str, message: str, channels: Optional[List[str]] = None,
+             dedup_key: Optional[str] = None, cooldown_sec: float = 0) -> Dict[str, bool]:
         """
         發送通知到指定頻道
 
@@ -404,12 +469,21 @@ class NotificationManager:
             通知內容
         channels : list, optional
             指定頻道列表，None 表示發送到所有頻道
+        dedup_key : str, optional
+            節流去重 key。提供時，同一 key 在 cooldown_sec 內只會送出一次，
+            其餘呼叫直接跳過（回傳空 dict）。
+        cooldown_sec : float
+            冷卻秒數，搭配 dedup_key 使用；<=0 不節流。
 
         Returns:
         --------
         dict
-            各頻道發送結果 {頻道名: 是否成功}
+            各頻道發送結果 {頻道名: 是否成功}；被節流跳過時回傳 {}。
         """
+        if dedup_key is not None and not get_throttle().allow(dedup_key, cooldown_sec):
+            logger.info('通知被節流跳過 (key=%s, cooldown=%ss): %s', dedup_key, cooldown_sec, title)
+            return {}
+
         results = {}
         target_channels = channels or list(self.channels.keys())
 
@@ -450,7 +524,8 @@ def get_notification_manager() -> NotificationManager:
     return _notification_manager
 
 
-def send_notification(title: str, message: str, channels: Optional[List[str]] = None) -> Dict[str, bool]:
+def send_notification(title: str, message: str, channels: Optional[List[str]] = None,
+                      dedup_key: Optional[str] = None, cooldown_sec: float = 0) -> Dict[str, bool]:
     """
     快速發送通知的便利函數
 
@@ -462,6 +537,10 @@ def send_notification(title: str, message: str, channels: Optional[List[str]] = 
         通知內容
     channels : list, optional
         指定頻道列表
+    dedup_key : str, optional
+        節流去重 key（同一 key 在 cooldown_sec 內只送一次）
+    cooldown_sec : float
+        冷卻秒數；<=0 不節流
 
     Returns:
     --------
@@ -469,4 +548,4 @@ def send_notification(title: str, message: str, channels: Optional[List[str]] = 
         各頻道發送結果
     """
     manager = get_notification_manager()
-    return manager.send(title, message, channels)
+    return manager.send(title, message, channels, dedup_key=dedup_key, cooldown_sec=cooldown_sec)
