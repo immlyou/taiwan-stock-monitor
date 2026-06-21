@@ -62,6 +62,7 @@ data/alerts.json
 data/portfolios.json
 data/trading_journal.json
 data/notify_throttle.json
+data/finlab_cache/
 
 # Reports
 reports/

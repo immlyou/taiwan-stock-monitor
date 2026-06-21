@@ -132,8 +132,13 @@ async def refresh_data() -> Dict[str, Any]:
 
         def _reload() -> Dict[str, Any]:
             # 先清掉舊快取，讓 get() 強制重新下載並重新填入快取。
+            # 同時清除 Volume 持久化快取，否則 get() 會從磁碟讀回舊資料而非重新下載。
             for key in _REFRESH_KEYS:
                 cache.clear_key(key)
+            try:
+                loader.clear_finlab_disk_cache(_REFRESH_KEYS)
+            except Exception:  # noqa: BLE001 — 清磁碟快取失敗不應中斷更新
+                logger.warning("清除 FinLab 磁碟快取失敗，繼續嘗試重新下載")
 
             loaded: list[str] = []
             failed: list[str] = []

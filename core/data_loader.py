@@ -44,6 +44,25 @@ FINLAB_DATA_MAPPING = {key: entry['finlab_key'] for key, entry in DATA_REGISTRY.
 # FinLab 流量追蹤（用於 /health 端點回報）
 _finlab_usage_mb: float = 0.0
 _finlab_quota_exceeded: bool = False
+# 熔斷器：計數器與旗標所屬的台北日期。FinLab 額度每日（台灣午夜）重置，
+# 跨日後自動歸零用量並關閉熔斷，讓新的一天重新嘗試。
+_finlab_counter_date = None
+
+
+def _reset_finlab_counters_if_new_day() -> None:
+    """台灣跨日後重置 FinLab 用量與熔斷旗標（額度午夜重置）。
+
+    熔斷器只在「同一天」短路：額度爆掉當天直接拒絕呼叫、不再浪費失敗請求；
+    台灣午夜過後第一次呼叫會偵測到日期改變，歸零並放行重試。
+    """
+    global _finlab_usage_mb, _finlab_quota_exceeded, _finlab_counter_date
+    from core.timeutils import today_taipei
+
+    today = today_taipei()
+    if _finlab_counter_date != today:
+        _finlab_counter_date = today
+        _finlab_usage_mb = 0.0
+        _finlab_quota_exceeded = False
 
 
 class FinLabQuotaExceededError(Exception):
@@ -206,12 +225,22 @@ class DataLoader:
         """從 FinLab API 載入數據，並累計流量計數器"""
         global _finlab_usage_mb, _finlab_quota_exceeded
 
+        import logging
+        _log = logging.getLogger(__name__)
+
+        # 熔斷器：跨日重置後，若今天已知額度超限就直接拒絕，
+        # 不再送出注定失敗的請求（FinLab 失敗仍可能計入流量、且徒增延遲）。
+        _reset_finlab_counters_if_new_day()
+        if _finlab_quota_exceeded:
+            _log.warning("FinLab 熔斷器開啟（今日額度已超限），跳過下載: %s", data_key)
+            raise FinLabQuotaExceededError(
+                "FinLab API 今日額度已超限，已停止呼叫並改走備用資料來源（午夜重置後自動恢復）"
+            )
+
         if not init_finlab():
             raise RuntimeError("FinLab API 未初始化，請設定 FINLAB_API_TOKEN")
 
         from finlab import data
-        import logging
-        _log = logging.getLogger(__name__)
 
         api_name = FINLAB_DATA_MAPPING.get(data_key)
         if not api_name:
@@ -275,6 +304,74 @@ class DataLoader:
         else:
             return pd.DataFrame(data)
 
+    # ── FinLab 資料集的 Volume 持久化快取 ───────────────────────
+    # 雲端模式重啟後，記憶體 DataCache 會清空，導致預熱重新向 FinLab 下載
+    # 整個市場資料、燒掉每日額度。把下載結果落地到 Railway 持久 Volume
+    # (data/finlab_cache/)，重啟後直接從磁碟讀，不再重打 FinLab。
+    _FINLAB_DISK_CACHE_DIR = Path(__file__).parent.parent / 'data' / 'finlab_cache'
+
+    def _finlab_disk_path(self, data_key: str) -> Path:
+        return self._FINLAB_DISK_CACHE_DIR / f'{data_key}.pkl'
+
+    def _load_finlab_disk_cache(self, data_key: str, ignore_ttl: bool = False) -> Optional[pd.DataFrame]:
+        """讀取 Volume 上的持久化快取。
+
+        ignore_ttl=False：僅在檔案新鮮（age < FINLAB_CACHE_TTL）時回傳。
+        ignore_ttl=True ：忽略新鮮度（熔斷／額度超限時的 stale fallback）。
+        讀不到或過期回傳 None。
+        """
+        import time as _time
+        import logging
+        path = self._finlab_disk_path(data_key)
+        try:
+            if not path.exists():
+                return None
+            if not ignore_ttl and FINLAB_CACHE_TTL > 0:
+                age = _time.time() - path.stat().st_mtime
+                if age >= FINLAB_CACHE_TTL:
+                    return None
+            with open(path, 'rb') as f:
+                df = pickle.load(f)
+            if isinstance(df, pd.DataFrame):
+                return df
+            return None
+        except Exception as e:  # noqa: BLE001 — 快取讀取失敗不可阻斷主流程
+            logging.getLogger(__name__).warning("讀取 FinLab 磁碟快取失敗 %s: %s", data_key, e)
+            return None
+
+    def _save_finlab_disk_cache(self, data_key: str, df: pd.DataFrame) -> None:
+        """原子寫入 Volume 持久化快取（tmp + os.replace，中斷不留壞檔）。"""
+        import logging
+        try:
+            self._FINLAB_DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            path = self._finlab_disk_path(data_key)
+            tmp_path = path.with_name(path.name + '.tmp')
+            with open(tmp_path, 'wb') as f:
+                pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
+            tmp_path.replace(path)
+        except Exception as e:  # noqa: BLE001 — 寫快取失敗不可阻斷主流程
+            logging.getLogger(__name__).warning("寫入 FinLab 磁碟快取失敗 %s: %s", data_key, e)
+
+    def clear_finlab_disk_cache(self, keys: Optional[List[str]] = None) -> None:
+        """刪除 Volume 持久化快取，強制下次 get() 重新向 FinLab 下載。
+
+        keys=None 清除全部；否則只清指定 keys。供 /refresh 等「強制更新」使用，
+        避免清掉記憶體快取後又從磁碟讀回舊資料。
+        """
+        import logging
+        try:
+            if not self._FINLAB_DISK_CACHE_DIR.exists():
+                return
+            targets = (
+                [self._finlab_disk_path(k) for k in keys]
+                if keys is not None
+                else list(self._FINLAB_DISK_CACHE_DIR.glob('*.pkl'))
+            )
+            for path in targets:
+                path.unlink(missing_ok=True)
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning("清除 FinLab 磁碟快取失敗: %s", e)
+
     def _normalize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """標準化 DataFrame 格式 - 以日期為 index，並保證遞增排序。
 
@@ -318,7 +415,39 @@ class DataLoader:
             # 雲端模式：使用 FinLab API
             if data_key not in FINLAB_DATA_MAPPING:
                 raise KeyError(f"未知的數據鍵: {data_key}. 可用的鍵: {list(FINLAB_DATA_MAPPING.keys())}")
-            df = self._load_from_finlab(data_key)
+
+            # 記憶體 miss 時，先試 Volume 上的持久化快取（重啟後免重打 FinLab）。
+            if use_cache:
+                disk_df = self._load_finlab_disk_cache(data_key)
+                if disk_df is not None:
+                    if self._use_global_cache:
+                        self._global_cache.set(data_key, disk_df)
+                    else:
+                        self._cache[data_key] = disk_df
+                    return disk_df
+
+            try:
+                df = self._load_from_finlab(data_key)
+            except FinLabQuotaExceededError:
+                # 額度超限／熔斷開啟：退而求其次，供應磁碟上的舊快取（忽略 TTL），
+                # 比整個失敗好。沒有任何磁碟快取時才往上拋。
+                stale = self._load_finlab_disk_cache(data_key, ignore_ttl=True)
+                if stale is not None:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "FinLab 額度超限，供應磁碟舊快取: %s", data_key
+                    )
+                    if use_cache:
+                        if self._use_global_cache:
+                            self._global_cache.set(data_key, stale)
+                        else:
+                            self._cache[data_key] = stale
+                    return stale
+                raise
+
+            # 下載成功 → 落地到 Volume 持久化，供下次重啟使用。
+            if use_cache:
+                self._save_finlab_disk_cache(data_key, df)
         else:
             # 本地模式：從 pickle 載入
             if data_key not in DATA_FILES:
@@ -608,6 +737,12 @@ def reset_all_caches() -> None:
     # 清除 DataCache 全域快取（_active_stocks_* 也一併清除）
     cache = DataCache()
     cache.clear()
+
+    # 清除 Volume 持久化快取（強制重載時連磁碟層一起失效，否則會讀回舊資料）
+    try:
+        DataLoader().clear_finlab_disk_cache()
+    except Exception:
+        pass
 
     # 清除 Streamlit @st.cache_data 快取
     try:

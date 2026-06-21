@@ -7,6 +7,10 @@
 
 ## 🆕 2026-06
 
+### 後端 / FinLab 額度與快取
+- **FinLab 配額熔斷器**（`core/data_loader.py`）：偵測到當日額度超限後，`_load_from_finlab` 直接短路拒絕呼叫，不再送出注定失敗的請求；台灣午夜跨日後自動歸零用量並恢復（額度每日重置）。
+- **FinLab 資料 Volume 持久化快取**：雲端模式下載的資料集落地到 `data/finlab_cache/<key>.pkl`（Railway 持久 Volume）。`get()` 查找順序 記憶體 → 磁碟（夠新免打 FinLab）→ 下載。**重啟不再重燒額度**。額度超限時改供應磁碟舊快取（stale fallback）而非整個失敗。`/refresh` 與 `reset_all_caches()` 會一併失效磁碟層以強制重新下載。
+
 ### 後端 / 自動化
 - **背景排程器**（`core/scheduler.py`，APScheduler）：API 進程內定時任務，平日 09:00–13:30（台北時區）**自動檢查警報並送通知**，不再只能手動 POST `/alerts/check` 或靠外部 cron。環境開關 `ENABLE_SCHEDULER`（雲端預設開、本地預設關）、`ALERT_CHECK_INTERVAL_MIN`（預設 5 分）。狀態見 `GET /health` 的 `scheduler` 欄位。單一 uvicorn worker 不會重複排程；`max_instances=1`+`coalesce` 防重疊。
 - **通知節流**（`core/notification.py` `NotificationThrottle`）：同一警報在冷卻期內只送一次（`ALERT_NOTIFY_COOLDOWN_SEC`，預設 1 小時），是自動排程的安全閥，避免盤中反覆檢查造成 alert fatigue。狀態持久化於 `data/notify_throttle.json`（Railway Volume，跨 redeploy 保留）。`NotificationManager.send()` 新增 `dedup_key`/`cooldown_sec` 參數，可供其他通知重用。
