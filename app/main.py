@@ -21,12 +21,10 @@ from core.cache_warmer import warmup_on_startup, is_cache_warm
 from app.components.sidebar import render_sidebar
 from app.components.theme import (
     inject_professional_theme,
-    create_kpi_card,
     create_section_header,
     create_stock_card,
     create_page_title,
     render_kpi_row,
-    responsive_columns,
     format_number,
     COLORS,
 )

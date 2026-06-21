@@ -294,8 +294,8 @@ class TestCacheWarmerRemaining:
             assert summary["status"] == "ready"
             assert "completed_at" in summary
 
-    def test_get_warmup_status_summary_idle(self):
-        """全新 warmer 應為 idle"""
+    def test_get_warmup_status_summary_function_idle(self):
+        """全新 warmer 應為 idle（透過 get_warmup_status_summary 函式）"""
         warmer = CacheWarmer()
 
         with patch("core.cache_warmer.get_cache_warmer", return_value=warmer):

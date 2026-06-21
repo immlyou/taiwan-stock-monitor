@@ -12,3 +12,36 @@ py-modules = ["config"]
 
 [tool.setuptools.packages.find]
 include = ["core*", "app*", "scripts*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "legacy",
+    "examples",
+    ".gstack",
+    "openclaw_skill/examples",
+    "frontend",
+]
+
+[tool.ruff.lint]
+# 基本錯誤偵測：E/W (pycodestyle) + F (pyflakes)
+select = ["E", "F", "W"]
+ignore = [
+    # 設計性：router/Streamlit page 大量使用 lazy import（pickle 載入延遲、CI 無 token 等）
+    "E402",  # module-import-not-at-top-of-file
+    # 風格：legacy code 沿用 PEP 8 較寬鬆寫法
+    "E701",  # multiple-statements-on-one-line-colon
+    "E702",  # multiple-statements-on-one-line-semicolon
+    "E731",  # lambda-assignment（compute 模組常見）
+    "E741",  # ambiguous-variable-name（l/I/O）
+    # 暫不修：F841 未使用變數多為 reformat 殘留，無功能影響；逐步清理而非阻斷 CI
+    "F841",
+    "E501",  # line-too-long（既有大量超寬行；後續加 black/ruff format 再 enforce）
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 測試檔對未使用 import 較寬鬆（fixture 觸發 side-effect）
+"tests/*" = ["F401"]
+# Streamlit 舊 UI：保留設計性 import 順序與重複定義
+"app/pages/*" = ["F401", "F811"]

@@ -193,7 +193,7 @@ with tab2:
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
-                    st.markdown(f'**參數:**')
+                    st.markdown('**參數:**')
                     st.json(strategy['params'])
 
                 with col2:

@@ -82,7 +82,7 @@ class DcardScanner:
         # 檢查 Playwright 是否可用
         self.playwright_available = False
         try:
-            from playwright.sync_api import sync_playwright
+            from playwright.sync_api import sync_playwright  # noqa: F401  # 偵測是否可用
             self.playwright_available = True
         except ImportError:
             pass

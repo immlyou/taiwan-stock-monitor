@@ -625,7 +625,6 @@ def render_data_table(df, *, freeze_cols: int = 1, dense: bool = False,
 
     以 st.dataframe 為底（內建虛擬捲動與 sticky 表頭），全站表格一律走此函式。
     """
-    import pandas as pd  # 局部 import 避免增加模組載入成本
 
     cfg = dict(column_config or {})
     if numeric_cols:

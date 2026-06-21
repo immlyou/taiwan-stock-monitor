@@ -817,7 +817,7 @@ class TestPriceIndicators:
 
     def test_breakout_signal_bool(self, ind_close):
         result = breakout_signal(ind_close, 20)
-        assert result.dtypes.apply(lambda d: d == bool or d == object or np.issubdtype(d, np.bool_)).all()
+        assert result.dtypes.apply(lambda d: d == bool or d == object or np.issubdtype(d, np.bool_)).all()  # noqa: E721
 
 
 class TestVolumeIndicators:
