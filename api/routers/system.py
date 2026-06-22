@@ -1,13 +1,14 @@
-"""系統層端點：/ 、/health 與 /refresh"""
+"""系統層端點：/ 、/health 、/ready 與 /refresh"""
 from __future__ import annotations
 
 import asyncio
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from api.deps import rate_limit, verify_api_key
 
@@ -99,6 +100,66 @@ async def health() -> Dict[str, Any]:
         "data_status": "warming_up",
         "finlab": finlab_info,
         "scheduler": scheduler_info,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+# /ready 最多允許輪詢等待的秒數上限，避免部署腳本傳入過大值把連線卡住。
+_READY_MAX_WAIT_SECONDS = 10.0
+# 輪詢間隔（秒），等待期間每隔此秒數重新檢查一次快取。
+_READY_POLL_INTERVAL = 0.2
+
+
+def _close_ready() -> bool:
+    """核心價格資料（close）是否已就緒。
+
+    與 /health 同規則：只讀 DataCache 記憶體快取，絕不呼叫 loader.get()
+    或觸發任何 FinLab 下載。
+    """
+    from core.data_loader import DataCache
+
+    close = DataCache().get("close")
+    return close is not None and not close.empty
+
+
+@router.get("/ready")
+async def ready(
+    response: Response,
+    wait: float = Query(
+        default=0.0,
+        ge=0.0,
+        description="尚未就緒時最多輪詢等待的秒數（上限 10 秒，預設 0 即非阻塞）。",
+    ),
+) -> Dict[str, Any]:
+    """就緒探針（readiness probe）。
+
+    核心價格資料（DataCache 的 'close' 存在且非空）就緒時回 200
+    ``{"status": "ready"}``；否則回 503 ``{"status": "warming_up"}``。
+
+    與 /health 同規則：只讀記憶體快取，絕不觸發任何 FinLab 下載；用於讓
+    Railway 等部署平台區分「活著」(/health) 與「資料就緒可服務」(/ready)。
+
+    可選 ``?wait=<秒>``：尚未就緒時最多輪詢等待 N 秒（上限 10 秒）再回應，
+    方便部署腳本等待預熱完成；預設 0 即立即回應、非阻塞。
+    """
+    # clamp 等待秒數，避免過大值把連線長時間卡住。
+    wait_seconds = max(0.0, min(wait, _READY_MAX_WAIT_SECONDS))
+
+    ready_flag = _close_ready()
+    deadline = time.monotonic() + wait_seconds
+    while not ready_flag and time.monotonic() < deadline:
+        time.sleep(_READY_POLL_INTERVAL)
+        ready_flag = _close_ready()
+
+    if ready_flag:
+        return {
+            "status": "ready",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    response.status_code = 503
+    return {
+        "status": "warming_up",
         "timestamp": datetime.now().isoformat(),
     }
 

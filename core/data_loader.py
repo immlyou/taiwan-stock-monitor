@@ -90,6 +90,57 @@ def _is_quota_error(e: Exception) -> bool:
 # 設為 0 表示不使用記憶體快取（每次都重新下載）
 FINLAB_CACHE_TTL: int = int(os.getenv("FINLAB_CACHE_TTL", "86400"))
 
+# FinLab data.get() 短暫性錯誤重試設定。
+# 只針對「網路抖動／逾時／5xx」這類可恢復錯誤做少量、短退避的重試，
+# 避免單次抖動就直接失敗。次數刻意少、退避刻意短，以免拖長 API 延遲。
+# 注意：額度超限（quota）絕不重試——快速失敗讓熔斷器接手。
+FINLAB_RETRY_MAX: int = int(os.getenv("FINLAB_RETRY_MAX", "3"))
+FINLAB_RETRY_INITIAL_DELAY: float = float(os.getenv("FINLAB_RETRY_INITIAL_DELAY", "0.5"))
+FINLAB_RETRY_MAX_DELAY: float = float(os.getenv("FINLAB_RETRY_MAX_DELAY", "4.0"))
+FINLAB_RETRY_BASE: float = 2.0
+
+
+def _is_transient_finlab_error(e: Exception) -> bool:
+    """判斷例外是否為 FinLab 下載的「短暫性錯誤」（值得重試）。
+
+    只涵蓋網路層可恢復的狀況：連線錯誤、逾時、以及 5xx 類伺服器錯誤。
+    刻意排除額度超限（由 _is_quota_error 處理、絕不重試）與其他未知錯誤
+    （直接往上拋，不浪費重試）。
+    """
+    # 額度錯誤永不視為短暫性（呼叫端會先判斷，這裡再加一層保險）。
+    if _is_quota_error(e):
+        return False
+
+    # requests 連線／逾時類例外（finlab 底層用 requests）
+    try:
+        import requests
+        if isinstance(e, (requests.exceptions.ConnectionError,
+                          requests.exceptions.Timeout,
+                          requests.exceptions.ChunkedEncodingError)):
+            return True
+        if isinstance(e, requests.exceptions.HTTPError):
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", None)
+            if status is not None and 500 <= status < 600:
+                return True
+            return False
+    except ImportError:
+        pass
+
+    # 內建逾時／連線錯誤
+    if isinstance(e, (TimeoutError, ConnectionError)):
+        return True
+
+    # 字樣比對（finlab 可能包成一般 Exception / RuntimeError）
+    err_str = str(e).lower()
+    transient_patterns = (
+        "timeout", "timed out", "connection", "connection reset",
+        "connection aborted", "temporarily unavailable", "try again",
+        "502", "503", "504", "bad gateway", "service unavailable",
+        "gateway timeout", "remote end closed",
+    )
+    return any(p in err_str for p in transient_patterns)
+
 # 初始化 FinLab API（如果在雲端環境）
 _finlab_initialized = False
 
@@ -221,6 +272,62 @@ class DataLoader:
             self._global_cache = None
             self._cache: Dict[str, pd.DataFrame] = {}
 
+    def _finlab_get_with_retry(self, data, api_name: str):
+        """對 finlab data.get() 做「短暫性錯誤」的指數退避重試。
+
+        只重試網路抖動／逾時／5xx 這類可恢復錯誤（_is_transient_finlab_error），
+        且重試次數少、退避短（FINLAB_RETRY_* 設定），避免拖長 API 延遲。
+
+        重要：額度錯誤（quota）絕不重試——立即設熔斷旗標、發告警、
+        raise FinLabQuotaExceededError，讓熔斷器快速接手。
+        其他未知錯誤也不重試，直接往上拋。
+        """
+        global _finlab_quota_exceeded
+
+        import logging
+        import time as _time
+        _log = logging.getLogger(__name__)
+
+        last_exc = None
+        for attempt in range(FINLAB_RETRY_MAX + 1):
+            try:
+                return data.get(api_name)
+            except Exception as e:
+                # 額度錯誤：絕不重試，快速失敗交給熔斷器（維持既有行為）。
+                if _is_quota_error(e):
+                    _finlab_quota_exceeded = True
+                    _log.error("FinLab 額度超限: %s", e)
+                    try:
+                        from core.finlab_quota_alerter import get_alerter
+                        get_alerter().notify_quota_exceeded(error=str(e))
+                    except Exception as alert_err:
+                        _log.warning("quota exceeded alert failed: %s", alert_err)
+                    raise FinLabQuotaExceededError(str(e)) from e
+
+                # 非短暫性錯誤：不重試，直接往上拋。
+                if not _is_transient_finlab_error(e):
+                    raise
+
+                last_exc = e
+                if attempt < FINLAB_RETRY_MAX:
+                    delay = min(
+                        FINLAB_RETRY_INITIAL_DELAY * (FINLAB_RETRY_BASE ** attempt),
+                        FINLAB_RETRY_MAX_DELAY,
+                    )
+                    _log.warning(
+                        "FinLab 下載短暫性錯誤: %s，%.1f 秒後重試（第 %d/%d 次）",
+                        e, delay, attempt + 1, FINLAB_RETRY_MAX,
+                    )
+                    _time.sleep(delay)
+                else:
+                    _log.error("FinLab 下載失敗，已達最大重試次數（%d）: %s",
+                               FINLAB_RETRY_MAX, e)
+                    raise
+
+        # 理論上不會走到這（迴圈內必 return 或 raise），保險起見。
+        if last_exc is not None:
+            raise last_exc
+
     def _load_from_finlab(self, data_key: str) -> pd.DataFrame:
         """從 FinLab API 載入數據，並累計流量計數器"""
         global _finlab_usage_mb, _finlab_quota_exceeded
@@ -248,8 +355,11 @@ class DataLoader:
 
         _log.info("FinLab API 下載: %s (%s)", data_key, api_name)
         try:
-            df = data.get(api_name)
+            df = self._finlab_get_with_retry(data, api_name)
             _finlab_quota_exceeded = False
+        except FinLabQuotaExceededError:
+            # _finlab_get_with_retry 內已處理（設旗標、發告警），直接往上拋給熔斷器。
+            raise
         except Exception as e:
             if _is_quota_error(e):
                 _finlab_quota_exceeded = True
