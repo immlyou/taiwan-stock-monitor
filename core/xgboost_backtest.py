@@ -20,13 +20,18 @@
 """
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# 回測結果持久化位置（Railway Volume，跨 redeploy 保留；供 /strategy/ai-xgboost/backtest 讀取）
+DEFAULT_RESULT_PATH = Path(__file__).parent.parent / "data" / "xgboost_backtest.json"
 
 
 class _AsOfLoader:
@@ -173,3 +178,72 @@ def walk_forward_backtest(
         "mean_excess_return": round(float(np.mean(excess)), 4) if excess else None,
     }
     return {"summary": summary, "periods": periods}
+
+
+# ── 結果持久化（供端點讀取）────────────────────────────────
+
+def save_result(result: Dict[str, Any], path: Any = DEFAULT_RESULT_PATH) -> Dict[str, Any]:
+    """存回測結果到 JSON（附上台北時間戳），回傳含 computed_at 的結果。"""
+    from core.json_store import save_json_atomic
+    from core.timeutils import now_taipei
+
+    stamped = {**result, "computed_at": now_taipei().isoformat()}
+    save_json_atomic(path, stamped)
+    return stamped
+
+
+def load_result(path: Any = DEFAULT_RESULT_PATH) -> Any:
+    """讀取上次回測結果；無則回 None。"""
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+# ── 前向追蹤：記錄當前選股供日後驗證 ────────────────────────
+
+def record_live_xgboost_picks(loader: Any, top_n: int = 20, verify_days: int = 20) -> int:
+    """把當前 XGBoost top-N 選股記入 prediction_tracker，到期後由驗證流程比對實際報酬。
+
+    與歷史回測互補：這是「即時下注、未來驗證」的真實 track record。
+    回傳實際記錄的筆數。
+    """
+    from core.ai_models import XGBoostStockPicker
+    from core.prediction_tracker import get_tracker
+
+    picks = XGBoostStockPicker().predict(loader)[:top_n]
+    close = loader.get("close")
+    try:
+        from core.intelligence import _latest_name_map
+        name_map = _latest_name_map(loader)
+    except Exception:
+        name_map = {}
+
+    stocks: List[Dict[str, Any]] = []
+    for p in picks:
+        sid = p["stock_id"]
+        try:
+            series = close[sid].dropna() if (close is not None and sid in close.columns) else None
+            price = float(series.iloc[-1]) if series is not None and not series.empty else None
+        except Exception:
+            price = None
+        if price is None:
+            continue
+        stocks.append({
+            "stock_id": sid,
+            "stock_name": name_map.get(sid, ""),
+            "current_price": price,
+            "expected_return": p.get("predicted_return"),
+        })
+
+    if not stocks:
+        return 0
+    get_tracker().add_batch_stock_picks(
+        stocks, verify_days=verify_days, source="xgboost",
+        strategy_params={"top_n": top_n},
+    )
+    return len(stocks)

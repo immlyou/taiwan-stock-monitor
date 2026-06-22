@@ -63,6 +63,9 @@ data/portfolios.json
 data/trading_journal.json
 data/notify_throttle.json
 data/finlab_cache/
+data/xgboost_backtest.json
+data/predictions.json
+data/verification_log.json
 
 # Reports
 reports/

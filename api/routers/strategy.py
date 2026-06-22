@@ -270,6 +270,39 @@ async def strategy_ai_xgboost(
     }
 
 
+@router.get("/strategy/ai-xgboost/backtest")
+async def strategy_ai_xgboost_backtest():
+    """XGBoost 選股的 walk-forward 回測結果（命中率 / IC / 超額報酬）。
+
+    讀取最近一次計算結果（由排程或 scripts/backtest_xgboost.py 產生）；
+    本端點不即時重算（回測很重），只讀快取結果。
+    """
+    from core.xgboost_backtest import load_result
+
+    res = load_result()
+    if res is None:
+        return {
+            "status": "not_computed",
+            "note": "尚未計算回測。可執行 scripts/backtest_xgboost.py，或啟用排程後等待產生。",
+        }
+    return {"status": "ok", **res}
+
+
+@router.get("/strategy/ai-xgboost/live-accuracy")
+async def strategy_ai_xgboost_live_accuracy(
+    days: int = Query(default=180, ge=1, le=730, description="統計最近 N 天記錄的選股"),
+):
+    """XGBoost 選股的「前向追蹤」命中率：由排程定期記錄選股、到期後驗證實際報酬。
+
+    與 /backtest（歷史回測）互補，這是即時下注、未來驗證的真實 track record。
+    剛上線時資料量少，需累積數週後才有統計意義。
+    """
+    from core.prediction_tracker import get_tracker
+
+    stats = get_tracker().get_statistics(days=days, prediction_type="stock_pick")
+    return {"source": "xgboost", "days": days, "stats": stats}
+
+
 # ════════════════════════════════════════════════════════
 # AI 工具端點
 # ════════════════════════════════════════════════════════

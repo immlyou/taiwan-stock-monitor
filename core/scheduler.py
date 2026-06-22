@@ -66,6 +66,34 @@ def _alert_check_job() -> None:
         logger.exception("排程警報檢查失敗")
 
 
+def _verify_predictions_job() -> None:
+    """排程任務：用最新收盤驗證所有到期的預測（含 XGBoost 選股前向追蹤）。"""
+    try:
+        from api.state import loader
+        from core.prediction_tracker import get_tracker
+
+        close = loader.get("close")
+        if close is None or close.empty:
+            return
+        result = get_tracker().verify_predictions(close)
+        verified = result.get("verified") if isinstance(result, dict) else result
+        logger.info("排程預測驗證完成：%s", verified)
+    except Exception:
+        logger.exception("排程預測驗證失敗")
+
+
+def _record_xgboost_picks_job() -> None:
+    """排程任務：記錄當前 XGBoost top-20 選股，供 20 日後驗證實際命中率。"""
+    try:
+        from api.state import loader
+        from core.xgboost_backtest import record_live_xgboost_picks
+
+        n = record_live_xgboost_picks(loader, top_n=20, verify_days=20)
+        logger.info("排程記錄 XGBoost 選股：%d 筆", n)
+    except Exception:
+        logger.exception("排程記錄 XGBoost 選股失敗")
+
+
 def start_scheduler() -> Optional[Any]:
     """啟動背景排程器（若已啟動則直接回傳既有實例）。
 
@@ -104,6 +132,30 @@ def start_scheduler() -> Optional[Any]:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=120,
+        replace_existing=True,
+    )
+
+    # 每日盤後（平日 14:00 台北）驗證到期預測 —— 為 XGBoost 選股累積真實命中率。
+    sched.add_job(
+        _verify_predictions_job,
+        CronTrigger(day_of_week="mon-fri", hour=14, minute=0, timezone=TAIPEI_TZ),
+        id="verify_predictions",
+        name="預測驗證",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
+        replace_existing=True,
+    )
+
+    # 每週一 09:30（台北）記錄當前 XGBoost top-20 選股，20 日後由上面的驗證流程比對。
+    sched.add_job(
+        _record_xgboost_picks_job,
+        CronTrigger(day_of_week="mon", hour=9, minute=30, timezone=TAIPEI_TZ),
+        id="record_xgboost_picks",
+        name="記錄XGBoost選股",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
         replace_existing=True,
     )
 
