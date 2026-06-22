@@ -234,10 +234,21 @@ async def strategy_ai_xgboost(
         for item in all_results[1:]:
             item.pop("__feature_importance__", None)
 
-    # 取前 top_n，補上股票名稱，清理 NaN/inf
+    # 取前 top_n，補上股票名稱與目前股價，清理 NaN/inf
     top_results = all_results[:top_n]
+    try:
+        close = loader.get("close")
+    except Exception:
+        close = None
     for item in top_results:
-        item["name"] = name_map.get(item["stock_id"], "")
+        sid = item["stock_id"]
+        item["name"] = name_map.get(sid, "")
+        # 補上目前股價（最新收盤）；取不到時為 None
+        try:
+            series = close[sid].dropna() if (close is not None and sid in close.columns) else None
+            item["price"] = round(float(series.iloc[-1]), 2) if series is not None and not series.empty else None
+        except Exception:
+            item["price"] = None
         for k, v in list(item.items()):
             if isinstance(v, float) and (pd.isna(v) or np.isinf(v)):
                 item[k] = 0.0

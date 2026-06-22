@@ -23,6 +23,7 @@ import {
 interface XGBoostStock {
   stock_id: string
   name: string
+  price: number | null
   predicted_return: number
   confidence: number
   factors: Record<string, number>
@@ -276,7 +277,7 @@ function XGBoostTab() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--secondary)' }}>
-                {['排名', '代號', '名稱', '預測報酬率', '信心度'].map((h) => (
+                {['排名', '代號', '名稱', '目前股價', '預測報酬率', '信心度'].map((h) => (
                   <th
                     key={h}
                     className="text-left py-2 px-4"
@@ -304,6 +305,12 @@ function XGBoostTab() {
                   </td>
                   <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>
                     {row.name}
+                  </td>
+                  <td
+                    className="py-2 px-4 tabular-nums"
+                    style={{ color: 'var(--foreground)' }}
+                  >
+                    {row.price != null ? formatPrice(row.price) : '—'}
                   </td>
                   <td
                     className="py-2 px-4 tabular-nums font-semibold"
