@@ -113,6 +113,12 @@ class TestMakeKey:
         k = make_key("my_func", {"x": 1})
         assert "my_func" in k
 
+    def test_includes_version_dimension(self):
+        from core.cache import CACHE_VERSION
+        k = make_key("my_func", {"x": 1})
+        # 版本維度在 prefix 之後，仍以 stock-api: 開頭（clear() 的 stock-api:* 涵蓋所有版本）
+        assert k.startswith(f"stock-api:v{CACHE_VERSION}:")
+
 
 class TestGetCacheFactory:
     def test_no_redis_url_uses_inmemory(self, monkeypatch):

@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 _KEY_PREFIX = "stock-api:"
 
+# 快取版本維度：API 回應結構改變（新增/改欄位）時 bump，舊版 key 不再被命中
+# （隨各自 TTL 自然過期），免去部署後手動 SCAN+DEL Redis。
+# 預設用程式常數 _CACHE_VERSION；可用環境變數 CACHE_VERSION 覆寫（無需改碼）。
+# 注意：bump 後該版所有快取會一次性 cold miss 重算（例如 XGBoost ~14s），屬預期。
+_CACHE_VERSION_DEFAULT = "2"  # v2：含 XGBoost 排行 price 欄位後的回應結構
+CACHE_VERSION = os.getenv("CACHE_VERSION", "").strip() or _CACHE_VERSION_DEFAULT
+
 
 def _sanitize(obj: Any) -> Any:
     """遞迴地將 NaN / Infinity / numpy 型別轉為 JSON-safe 原生型別
@@ -195,10 +202,11 @@ def reset_cache_for_testing() -> None:
 
 
 def make_key(func_name: str, kwargs: dict[str, Any]) -> str:
-    """從函式名 + 參數組出快取鍵"""
+    """從函式名 + 參數組出快取鍵（含版本維度）"""
     # 排序確保 kwargs 順序不影響 key
     parts = sorted((str(k), str(v)) for k, v in kwargs.items())
-    return f"{_KEY_PREFIX}{func_name}:{parts}"
+    # 版本放在 prefix 之後：clear() 的 "stock-api:*" 仍涵蓋所有版本的 key。
+    return f"{_KEY_PREFIX}v{CACHE_VERSION}:{func_name}:{parts}"
 
 
 def _mask_url(url: str) -> str:
