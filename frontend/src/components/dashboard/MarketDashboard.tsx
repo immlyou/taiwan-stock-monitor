@@ -3,12 +3,15 @@
 import { useMarketSummary } from '@/lib/hooks/useMarketSummary'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { formatCurrency, formatPercent, formatChange } from '@/lib/utils/format'
 
 export function MarketDashboard() {
   const { summary, isLoading, isError } = useMarketSummary()
 
-  if (isError) {
+  // 只有「出錯且完全沒有可顯示的資料」時才整頁變錯誤畫面；
+  // 若手上有上次的資料（記憶體 / localStorage 快取），繼續顯示舊資料 + StaleBanner。
+  if (isError && !summary) {
     return (
       <EmptyState
         title="無法載入市場資料"
@@ -68,6 +71,7 @@ export function MarketDashboard() {
 
   return (
     <div>
+      {isError && summary && <StaleBanner />}
       {/* KPI 卡片區 */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
         {kpiCards.map((card) => (

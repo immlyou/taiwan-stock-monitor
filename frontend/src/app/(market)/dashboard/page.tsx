@@ -5,6 +5,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { DataTable } from '@/components/shared/DataTable'
 import { Sparkline } from '@/components/shared/Sparkline'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -109,7 +110,7 @@ function useDashboard() {
   const isLoading = listLoading || (!!portfolioId && detailLoading)
   const isError = !!listError || !!detailError
 
-  return { detail, isLoading, isError, hasPortfolio: !!portfolioId }
+  return { detail, listData, isLoading, isError, hasPortfolio: !!portfolioId }
 }
 
 // 各欄位差異化骨架寬度：代號 / 名稱 / 持股 / 成本價 / 現價 / 市值 / 損益(%)
@@ -243,7 +244,7 @@ const positionColumns: ColumnDef<PositionRow, unknown>[] = [
 ]
 
 export default function DashboardPage() {
-  const { detail, isLoading, isError, hasPortfolio } = useDashboard()
+  const { detail, listData, isLoading, isError, hasPortfolio } = useDashboard()
   const { data: dashboardConfig } = useSWR<DashboardConfig>('/dashboard/config', fetchAPI)
   const { data: smartAlerts } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=4', fetchAPI)
   const { data: rotation } = useSWR<IndustryRotation>('/market/industry-rotation?top_n=4', fetchAPI)
@@ -302,7 +303,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {isError && (
+      {isError && !detail && !listData && (
         <EmptyState
           title="無法載入持倉資料"
           description="請確認後端服務是否正常運行，或稍後再試"
@@ -310,8 +311,9 @@ export default function DashboardPage() {
         />
       )}
 
-      {!isError && (
+      {(!isError || detail || listData) && (
         <>
+          {isError && (detail || listData) && <StaleBanner />}
           {/* KPI 卡片 */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             {kpiCards.map((card) => (

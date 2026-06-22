@@ -3,6 +3,7 @@
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   formatCurrency,
@@ -175,7 +176,8 @@ export default function RealtimePage() {
       </div>
 
       {/* 即時報價表格 */}
-      {isError ? (
+      {isError && data && <StaleBanner />}
+      {isError && !data ? (
         <EmptyState
           title="無法載入即時報價"
           description="請確認後端服務是否正常運行，或稍後再試"

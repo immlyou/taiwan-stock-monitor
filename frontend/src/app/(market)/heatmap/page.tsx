@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency, formatPercent, formatPrice } from '@/lib/utils/format'
 
@@ -436,9 +437,10 @@ export default function HeatmapPage() {
       </div>
 
       {/* Content */}
+      {isError && data && <StaleBanner />}
       {isLoading ? (
         <HeatmapSkeleton />
-      ) : isError ? (
+      ) : isError && !data ? (
         <EmptyState title="無法載入熱力圖" description="請確認後端服務是否正常運行" icon="!" />
       ) : selectedIndustry ? (
         <StockGrid industry={selectedIndustry} onBack={handleBack} />

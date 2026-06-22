@@ -4,6 +4,7 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   getChangeColorVar,
@@ -191,7 +192,8 @@ export default function MoneyFlowPage() {
         </div>
       </div>
 
-      {isError ? (
+      {isError && data && <StaleBanner />}
+      {isError && !data ? (
         <EmptyState
           title="無法載入資金流向資料"
           description="請確認後端服務是否正常運行，或稍後再試"

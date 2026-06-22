@@ -6,6 +6,7 @@ import { fetchAPI } from '@/lib/api/client'
 import { useMarketSummary } from '@/lib/hooks/useMarketSummary'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -318,7 +319,8 @@ export default function AfterHoursPage() {
         </div>
       </div>
 
-      {isError ? (
+      {isError && data && <StaleBanner />}
+      {isError && !data ? (
         <EmptyState
           title="無法載入盤後資料"
           description="請確認後端服務是否正常運行，或稍後再試"

@@ -7,6 +7,7 @@ import { fetchAPI } from '@/lib/api/client'
 import { DataTable } from '@/components/shared/DataTable'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { formatPrice, formatPercent, getChangeColorVar } from '@/lib/utils/format'
 
 interface Prediction {
@@ -218,7 +219,8 @@ export default function PredictionsPage() {
       </div>
 
       {/* 統計卡片 */}
-      {statsError ? (
+      {statsError && stats && <StaleBanner />}
+      {statsError && !stats ? (
         <div className="mb-6">
           <EmptyState
             title="無法載入統計資料"
@@ -241,13 +243,14 @@ export default function PredictionsPage() {
       )}
 
       {/* 預測列表 */}
+      {error && predictions && <StaleBanner />}
       {isLoading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="h-16 rounded-lg animate-pulse" style={{ background: 'var(--card)' }} />
           ))}
         </div>
-      ) : error ? (
+      ) : error && !predictions ? (
         <div
           className="rounded-lg"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
