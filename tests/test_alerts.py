@@ -316,6 +316,10 @@ class TestCheckAllAlerts:
     def test_triggered_alert_marked_in_state(self, engine, market_data):
         alert = _make_alert("price_above", "2330", 500.0)
         engine.alerts_data["alerts"] = [alert]
+        # check_all_alerts 觸發時走「鎖內從磁碟 reload→回寫」併發安全路徑，
+        # 須先把警報持久化到磁碟（與生產一致：警報都經 API 落地），
+        # 否則 reload 會讀到空檔並覆蓋記憶體狀態。
+        engine._save_alerts()
         engine.check_all_alerts(market_data)
         assert engine.alerts_data["alerts"][0]["triggered"] is True
         assert "triggered_at" in engine.alerts_data["alerts"][0]
