@@ -5,7 +5,9 @@ import { SWRConfig } from 'swr'
 import type { Cache, State } from 'swr'
 import { useAppStore } from '@/store/useAppStore'
 
-const SWR_CACHE_KEY = 'swr-cache-v1'
+// 版本字串：回應結構改變（例如新增欄位）時 bump，讓所有舊快取自動失效一次，
+// 避免使用者看到缺欄位的舊資料（如 XGBoost 排行缺 price → 顯示「—」）。
+const SWR_CACHE_KEY = 'swr-cache-v2'
 
 /**
  * localStorage 後端的 SWR cache provider —— 讓資料跨「重新整理」保留。
