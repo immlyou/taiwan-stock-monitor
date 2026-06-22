@@ -127,6 +127,15 @@ async def _lifespan(app: FastAPI):
             loaded, skipped, failed,
         )
 
+        # 預熱全市場評分表（memoized）：讓 smart-preview / advisor / radar 第一次
+        # 請求就命中快取，避免冷啟動重算 ~2300 檔評分（原本 ~23s）而超過前端 timeout。
+        try:
+            from core.stock_score import calculate_score_table
+            calculate_score_table(loader)
+            _log.info("評分表預熱完成")
+        except Exception as e:
+            _log.warning("評分表預熱失敗: %s", e)
+
     # 資料預熱改為「背景非阻塞」執行。
     # 雲端（Railway）走 FinLab API 模式時，預熱會逐一下載多個全市場大資料集；
     # 若在此 await，會阻塞 app startup 與 /health healthcheck，導致 Railway 判定

@@ -217,14 +217,16 @@ def evaluate_smart_alerts(
     close = loader.get("close")
     volume = loader.get("volume")
     stocks = [_normalize_stock_id(s) for s in (stock_ids or get_active_stocks()) if _normalize_stock_id(s) in close.columns]
-    if stock_ids is None:
-        scores = calculate_score_table(loader).head(max(top_n * 3, top_n))
-        stocks = [str(s) for s in scores["stock_id"].head(max(top_n * 3, top_n)).tolist()]
+
+    # 評分表只算一次（全市場版會被 memoize；指定個股只算該子集）。
+    # 原本呼叫了兩次 calculate_score_table（全市場 ~2300 檔 × 6 構面），是此端點慢的主因。
+    score_table = calculate_score_table(loader) if stock_ids is None else calculate_score_table(loader, stock_ids=stocks)
+    if stock_ids is None and not score_table.empty:
+        stocks = [str(s) for s in score_table["stock_id"].head(max(top_n * 3, top_n)).tolist()]
 
     name_map = _latest_name_map(loader)
     alerts: List[Dict[str, Any]] = []
 
-    score_table = calculate_score_table(loader)
     score_map = score_table.set_index("stock_id")["total_score"].to_dict() if not score_table.empty else {}
     for sid in stocks:
         prices = close[sid].dropna()

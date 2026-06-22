@@ -166,6 +166,24 @@ def calculate_score_table(
         return pd.DataFrame()
 
     latest_date = date or close.index.max()
+
+    # 全市場評分計算很重（~2300 檔 × 6 構面），且 advisor / radar / intelligence
+    # 共用同一份。全市場 + 預設日期時，按「資料日期」memoize 到 DataCache，
+    # 跨端點、跨請求重用；資料換日後 key 改變自動失效。
+    _use_cache = stock_ids is None and date is None
+    _cache_key = None
+    _dc = None
+    if _use_cache:
+        try:
+            from core.data_loader import DataCache
+            _dc = DataCache()
+            _cache_key = f"_scorecard_{pd.Timestamp(latest_date).strftime('%Y%m%d')}"
+            _cached = _dc.get(_cache_key)
+            if _cached is not None:
+                return _cached
+        except Exception:
+            _cache_key = None
+
     stocks = list(stock_ids) if stock_ids is not None else list(close.columns)
     stocks = [_stock_id(s) for s in stocks if _stock_id(s) in close.columns]
     if not stocks:
@@ -276,7 +294,19 @@ def calculate_score_table(
     table["revenue_yoy"] = revenue_yoy
     table["revenue_mom"] = revenue_mom
 
-    return table.sort_values("total_score", ascending=False, na_position="last")
+    sorted_table = table.sort_values("total_score", ascending=False, na_position="last")
+
+    if _use_cache and _cache_key and _dc is not None:
+        try:
+            # 只保留當日這份，清掉其他日期的舊評分表，避免記憶體無限累積
+            for _old in list(_dc.get_stats().get("cached_keys", [])):
+                if _old.startswith("_scorecard_") and _old != _cache_key:
+                    _dc.clear_key(_old)
+            _dc.set(_cache_key, sorted_table)
+        except Exception:
+            pass
+
+    return sorted_table
 
 
 def score_record_from_row(row: pd.Series) -> Dict[str, Any]:

@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import verify_api_key
-from api.helpers import _safe_json
+from api.helpers import _safe_json, cached_response
 from api.models import AlertCreateRequest, AlertUpdateRequest
 from api.state import loader
 from core.alerts import AlertEngine
@@ -48,11 +48,16 @@ async def alert_types():
 
 
 @router.get("/alerts/smart-preview")
+@cached_response(ttl_seconds=1800)
 async def alerts_smart_preview(
     stock_id: str | None = Query(default=None, description="指定股票代號，不填則掃描量化評分前段股票"),
     top_n: int = Query(default=30, ge=1, le=100),
 ):
-    """智慧警報建議：評分、突破、跌破、爆量等訊號預覽。"""
+    """智慧警報建議：評分、突破、跌破、爆量等訊號預覽。
+
+    結果快取 30 分鐘（走 Redis）；底層全市場評分表亦 memoize，
+    避免每次重算 ~2300 檔評分（原本 ~23s）。
+    """
     try:
         stock_ids = [stock_id] if stock_id else None
         return evaluate_smart_alerts(loader, stock_ids=stock_ids, top_n=top_n)
