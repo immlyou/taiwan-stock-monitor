@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 # 回測結果持久化位置（Railway Volume，跨 redeploy 保留；供 /strategy/ai-xgboost/backtest 讀取）
 DEFAULT_RESULT_PATH = Path(__file__).parent.parent / "data" / "xgboost_backtest.json"
+# 內建 seed（隨程式碼版控）：Volume 尚無有效結果時的 fallback，讓端點一上線就有資料。
+SEED_RESULT_PATH = Path(__file__).parent.parent / "data" / "xgboost_backtest_seed.json"
 
 
 class _AsOfLoader:
@@ -193,15 +195,21 @@ def save_result(result: Dict[str, Any], path: Any = DEFAULT_RESULT_PATH) -> Dict
 
 
 def load_result(path: Any = DEFAULT_RESULT_PATH) -> Any:
-    """讀取上次回測結果；無則回 None。"""
-    p = Path(path)
-    if not p.exists():
-        return None
-    try:
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+    """讀取上次回測結果。
+
+    先讀 Volume 的結果（path），無效/空/不存在時 fallback 到內建 seed；
+    都沒有才回 None。Volume 上一旦有有效結果即優先（覆蓋 seed）。
+    """
+    for candidate in (Path(path), SEED_RESULT_PATH):
+        try:
+            if candidate.exists():
+                with open(candidate, encoding="utf-8") as f:
+                    data = json.load(f)
+                if data:
+                    return data
+        except Exception:
+            continue
+    return None
 
 
 # ── 前向追蹤：記錄當前選股供日後驗證 ────────────────────────

@@ -1,0 +1,259 @@
+{
+  "summary": {
+    "periods_evaluated": 24,
+    "forward_days": 20,
+    "top_n": 20,
+    "date_range": "2024-03-29 ~ 2026-02-24",
+    "mean_ic": 0.0126,
+    "ic_ir": 0.204,
+    "ic_positive_ratio": 0.4583,
+    "mean_top_n_hit_rate": 0.4417,
+    "mean_base_hit_rate": 0.4492,
+    "mean_top_n_return": 0.0167,
+    "mean_excess_return": 0.0117
+  },
+  "periods": [
+    {
+      "date": "2024-03-29",
+      "n_candidates": 1960,
+      "ic": 0.1396,
+      "top_n_hit_rate": 0.55,
+      "base_hit_rate": 0.4878,
+      "top_n_return": 0.0406,
+      "all_avg_return": 0.0215,
+      "excess_return": 0.0191
+    },
+    {
+      "date": "2024-04-30",
+      "n_candidates": 1973,
+      "ic": -0.0227,
+      "top_n_hit_rate": 0.5,
+      "base_hit_rate": 0.6336,
+      "top_n_return": 0.0745,
+      "all_avg_return": 0.0472,
+      "excess_return": 0.0274
+    },
+    {
+      "date": "2024-05-29",
+      "n_candidates": 1978,
+      "ic": -0.0088,
+      "top_n_hit_rate": 0.45,
+      "base_hit_rate": 0.5288,
+      "top_n_return": 0.0123,
+      "all_avg_return": 0.0235,
+      "excess_return": -0.0111
+    },
+    {
+      "date": "2024-06-27",
+      "n_candidates": 1988,
+      "ic": -0.0116,
+      "top_n_hit_rate": 0.55,
+      "base_hit_rate": 0.3194,
+      "top_n_return": 0.0646,
+      "all_avg_return": -0.0232,
+      "excess_return": 0.0878
+    },
+    {
+      "date": "2024-07-29",
+      "n_candidates": 1994,
+      "ic": 0.0701,
+      "top_n_hit_rate": 0.5,
+      "base_hit_rate": 0.4855,
+      "top_n_return": 0.0432,
+      "all_avg_return": 0.0084,
+      "excess_return": 0.0348
+    },
+    {
+      "date": "2024-08-26",
+      "n_candidates": 1994,
+      "ic": -0.0493,
+      "top_n_hit_rate": 0.4,
+      "base_hit_rate": 0.4358,
+      "top_n_return": -0.025,
+      "all_avg_return": 0.0027,
+      "excess_return": -0.0277
+    },
+    {
+      "date": "2024-09-24",
+      "n_candidates": 1999,
+      "ic": -0.0138,
+      "top_n_hit_rate": 0.1,
+      "base_hit_rate": 0.4427,
+      "top_n_return": -0.1109,
+      "all_avg_return": 0.0088,
+      "excess_return": -0.1197
+    },
+    {
+      "date": "2024-10-25",
+      "n_candidates": 2003,
+      "ic": 0.0029,
+      "top_n_hit_rate": 0.3,
+      "base_hit_rate": 0.3669,
+      "top_n_return": -0.0226,
+      "all_avg_return": -0.0137,
+      "excess_return": -0.0089
+    },
+    {
+      "date": "2024-11-25",
+      "n_candidates": 2015,
+      "ic": -0.0606,
+      "top_n_hit_rate": 0.35,
+      "base_hit_rate": 0.2779,
+      "top_n_return": -0.0353,
+      "all_avg_return": -0.027,
+      "excess_return": -0.0083
+    },
+    {
+      "date": "2024-12-23",
+      "n_candidates": 2008,
+      "ic": 0.0388,
+      "top_n_hit_rate": 0.6,
+      "base_hit_rate": 0.3441,
+      "top_n_return": 0.06,
+      "all_avg_return": -0.0153,
+      "excess_return": 0.0753
+    },
+    {
+      "date": "2025-01-21",
+      "n_candidates": 2013,
+      "ic": -0.0769,
+      "top_n_hit_rate": 0.55,
+      "base_hit_rate": 0.8038,
+      "top_n_return": 0.0254,
+      "all_avg_return": 0.0549,
+      "excess_return": -0.0295
+    },
+    {
+      "date": "2025-02-27",
+      "n_candidates": 2021,
+      "ic": -0.0101,
+      "top_n_hit_rate": 0.3,
+      "base_hit_rate": 0.2147,
+      "top_n_return": -0.0359,
+      "all_avg_return": -0.047,
+      "excess_return": 0.0111
+    },
+    {
+      "date": "2025-03-28",
+      "n_candidates": 2025,
+      "ic": -0.0951,
+      "top_n_hit_rate": 0.2,
+      "base_hit_rate": 0.0978,
+      "top_n_return": -0.0264,
+      "all_avg_return": -0.078,
+      "excess_return": 0.0516
+    },
+    {
+      "date": "2025-04-29",
+      "n_candidates": 2022,
+      "ic": -0.0236,
+      "top_n_hit_rate": 0.4,
+      "base_hit_rate": 0.5514,
+      "top_n_return": -0.0063,
+      "all_avg_return": 0.019,
+      "excess_return": -0.0252
+    },
+    {
+      "date": "2025-05-28",
+      "n_candidates": 2007,
+      "ic": -0.013,
+      "top_n_hit_rate": 0.3,
+      "base_hit_rate": 0.4006,
+      "top_n_return": -0.0037,
+      "all_avg_return": -0.0055,
+      "excess_return": 0.0018
+    },
+    {
+      "date": "2025-06-26",
+      "n_candidates": 2010,
+      "ic": 0.019,
+      "top_n_hit_rate": 0.6,
+      "base_hit_rate": 0.4542,
+      "top_n_return": 0.0174,
+      "all_avg_return": 0.0055,
+      "excess_return": 0.0119
+    },
+    {
+      "date": "2025-07-24",
+      "n_candidates": 2023,
+      "ic": -0.0028,
+      "top_n_hit_rate": 0.35,
+      "base_hit_rate": 0.5724,
+      "top_n_return": -0.0232,
+      "all_avg_return": 0.0381,
+      "excess_return": -0.0613
+    },
+    {
+      "date": "2025-08-21",
+      "n_candidates": 2019,
+      "ic": -0.0134,
+      "top_n_hit_rate": 0.65,
+      "base_hit_rate": 0.5433,
+      "top_n_return": 0.0542,
+      "all_avg_return": 0.0254,
+      "excess_return": 0.0288
+    },
+    {
+      "date": "2025-09-18",
+      "n_candidates": 2024,
+      "ic": 0.1436,
+      "top_n_hit_rate": 0.45,
+      "base_hit_rate": 0.4219,
+      "top_n_return": 0.0027,
+      "all_avg_return": 0.0041,
+      "excess_return": -0.0013
+    },
+    {
+      "date": "2025-10-21",
+      "n_candidates": 2026,
+      "ic": 0.0617,
+      "top_n_hit_rate": 0.3,
+      "base_hit_rate": 0.2211,
+      "top_n_return": -0.0397,
+      "all_avg_return": -0.0463,
+      "excess_return": 0.0066
+    },
+    {
+      "date": "2025-11-19",
+      "n_candidates": 2027,
+      "ic": 0.0145,
+      "top_n_hit_rate": 0.6,
+      "base_hit_rate": 0.6936,
+      "top_n_return": 0.0572,
+      "all_avg_return": 0.0463,
+      "excess_return": 0.0109
+    },
+    {
+      "date": "2025-12-17",
+      "n_candidates": 2038,
+      "ic": 0.1123,
+      "top_n_hit_rate": 0.6,
+      "base_hit_rate": 0.6992,
+      "top_n_return": 0.0821,
+      "all_avg_return": 0.0617,
+      "excess_return": 0.0205
+    },
+    {
+      "date": "2026-01-16",
+      "n_candidates": 2058,
+      "ic": 0.0912,
+      "top_n_hit_rate": 0.55,
+      "base_hit_rate": 0.447,
+      "top_n_return": 0.0853,
+      "all_avg_return": 0.0143,
+      "excess_return": 0.071
+    },
+    {
+      "date": "2026-02-24",
+      "n_candidates": 2070,
+      "ic": 0.0097,
+      "top_n_hit_rate": 0.45,
+      "base_hit_rate": 0.3362,
+      "top_n_return": 0.1097,
+      "all_avg_return": -0.0046,
+      "excess_return": 0.1143
+    }
+  ],
+  "computed_at": "2026-06-23 (seeded: local 24-period walk-forward, data<=2026-03-25)",
+  "source": "seed"
+}
