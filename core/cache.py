@@ -30,7 +30,7 @@ _KEY_PREFIX = "stock-api:"
 # （隨各自 TTL 自然過期），免去部署後手動 SCAN+DEL Redis。
 # 預設用程式常數 _CACHE_VERSION；可用環境變數 CACHE_VERSION 覆寫（無需改碼）。
 # 注意：bump 後該版所有快取會一次性 cold miss 重算（例如 XGBoost ~14s），屬預期。
-_CACHE_VERSION_DEFAULT = "2"  # v2：含 XGBoost 排行 price 欄位後的回應結構
+_CACHE_VERSION_DEFAULT = "3"  # v3：清掉 v2 期間被快取的錯誤回應（舊 Claude model 404 殘留）
 CACHE_VERSION = os.getenv("CACHE_VERSION", "").strip() or _CACHE_VERSION_DEFAULT
 
 

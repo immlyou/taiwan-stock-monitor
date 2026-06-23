@@ -117,7 +117,10 @@ def cached_response(ttl_seconds: int = 300):
             if cached is not None:
                 return cached
             result = await func(*args, **kwargs)
-            cache.set(cache_key, result, ttl_seconds)
+            # 不要快取錯誤回應：許多端點把例外包成 {"error": ...} + HTTP 200，
+            # 若快取下去，一次暫時性失敗會被釘住整個 TTL（曾導致舊 model 404 殘留）。
+            if not (isinstance(result, dict) and result.get("error")):
+                cache.set(cache_key, result, ttl_seconds)
             return result
         return wrapper
     return decorator
