@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # 回測結果持久化位置（Railway Volume，跨 redeploy 保留；供 /strategy/ai-xgboost/backtest 讀取）
 DEFAULT_RESULT_PATH = Path(__file__).parent.parent / "data" / "xgboost_backtest.json"
 # 內建 seed（隨程式碼版控）：Volume 尚無有效結果時的 fallback，讓端點一上線就有資料。
-SEED_RESULT_PATH = Path(__file__).parent.parent / "data" / "xgboost_backtest_seed.json"
+# 放在 repo 根目錄而非 data/，因為 Railway 的 Volume 掛在 /app/data 會「遮蔽」image 內的 data/。
+SEED_RESULT_PATH = Path(__file__).parent.parent / "xgboost_backtest_seed.json"
 
 
 class _AsOfLoader:

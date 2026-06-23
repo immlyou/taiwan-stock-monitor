@@ -535,7 +535,13 @@ def _predict_torch(prices: np.ndarray, volumes: np.ndarray, lookback: int = 60) 
     X_list: List[np.ndarray] = []
     y_list: List[np.ndarray] = []
 
-    for i in range(lookback, len(prices) - predict_days):
+    # 只建「最後會用到的」訓練樣本：模型最終只取最近 MAX_SAMPLES 筆訓練，
+    # 但原本迴圈跑遍整段歷史（長個股 4000+ 天）、每次在成長中的切片重算特徵 = O(n²)，
+    # 是 LSTM 端點逾時的主因。直接從尾端起算，結果相同但快得多。
+    MAX_SAMPLES = 200
+    loop_start = max(lookback, len(prices) - predict_days - MAX_SAMPLES)
+
+    for i in range(loop_start, len(prices) - predict_days):
         feat = _lstm_build_features(prices[:i + 1], vol_data[:i + 1], lookback)
         if feat is None:
             continue
@@ -550,11 +556,6 @@ def _predict_torch(prices: np.ndarray, volumes: np.ndarray, lookback: int = 60) 
 
     if len(X_list) < 10:
         raise ValueError("訓練樣本不足")
-
-    # 限制訓練集大小以控制耗時
-    if len(X_list) > 200:
-        X_list = X_list[-200:]
-        y_list = y_list[-200:]
 
     X = torch.tensor(np.array(X_list), dtype=torch.float32)
     y = torch.tensor(np.array(y_list), dtype=torch.float32)
