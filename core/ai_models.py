@@ -36,7 +36,7 @@ class ClaudeStockAnalyzer:
     _client_initialized = False
 
     # 模型名稱
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-sonnet-4-6"
     MAX_TOKENS = 500
 
     # ── 工具函數 ────────────────────────────────────────────
@@ -1443,7 +1443,7 @@ class TradingJournalAnalyzer:
     """分析交易日誌，找出行為偏誤並產出回顧報告。"""
 
     _client = None
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-sonnet-4-6"
     MAX_TOKENS = 1500
 
     def _get_client(self):
@@ -1537,7 +1537,7 @@ class StockChatAssistant:
     """個股對話助手，根據股票數據上下文回答用戶問題。"""
 
     _client = None
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-sonnet-4-6"
     MAX_TOKENS = 800
 
     def _get_client(self):
@@ -1614,7 +1614,7 @@ class PostMarketSummarizer:
     """盤後自動生成市場覆盤報告。"""
 
     _client = None
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-sonnet-4-6"
     MAX_TOKENS = 1500
 
     def _get_client(self):

@@ -259,7 +259,7 @@ def analyze_portfolio(
 
 
 _client = None
-_NARRATIVE_MODEL = "claude-sonnet-4-20250514"
+_NARRATIVE_MODEL = "claude-sonnet-4-6"
 
 
 def advisor_narrative(analysis: Dict[str, Any]) -> Dict[str, Any]:
