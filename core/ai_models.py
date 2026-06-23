@@ -350,7 +350,7 @@ if HAS_TORCH:
                 hidden_size=hidden_size,
                 num_layers=num_layers,
                 batch_first=True,
-                dropout=0.2,
+                dropout=0.2 if num_layers > 1 else 0.0,  # dropout 僅在多層時有效
             )
             self.fc = nn.Linear(hidden_size, output_size)
 
@@ -538,7 +538,7 @@ def _predict_torch(prices: np.ndarray, volumes: np.ndarray, lookback: int = 60) 
     # 只建「最後會用到的」訓練樣本：模型最終只取最近 MAX_SAMPLES 筆訓練，
     # 但原本迴圈跑遍整段歷史（長個股 4000+ 天）、每次在成長中的切片重算特徵 = O(n²)，
     # 是 LSTM 端點逾時的主因。直接從尾端起算，結果相同但快得多。
-    MAX_SAMPLES = 200
+    MAX_SAMPLES = 150
     loop_start = max(lookback, len(prices) - predict_days - MAX_SAMPLES)
 
     for i in range(loop_start, len(prices) - predict_days):
@@ -560,12 +560,13 @@ def _predict_torch(prices: np.ndarray, volumes: np.ndarray, lookback: int = 60) 
     X = torch.tensor(np.array(X_list), dtype=torch.float32)
     y = torch.tensor(np.array(y_list), dtype=torch.float32)
 
-    model = _LSTMNet(input_size=4, hidden_size=32, num_layers=2, output_size=predict_days)
+    # 冷啟動效能優先：單層 + 較小隱藏層 + 較少 epoch（即時訓練的玩具模型，預測本就粗）。
+    model = _LSTMNet(input_size=4, hidden_size=24, num_layers=1, output_size=predict_days)
     model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.015, weight_decay=1e-4)
     criterion = nn.MSELoss()
 
-    for _ in range(30):
+    for _ in range(18):
         optimizer.zero_grad()
         loss = criterion(model(X), y)
         loss.backward()
