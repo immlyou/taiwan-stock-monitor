@@ -100,16 +100,14 @@ async def stock_info(
 
     name_map = _get_stock_name_map()
     industry_map = _get_industry_map()
-    company_profile = None
-    try:
-        company_profile = get_company_profile(loader, stock_id)
-    except Exception:
-        company_profile = None
+    # 不在此端點做 get_company_profile（會外部抓取 Goodinfo/TWSE，冷快取時 ~50s，
+    # 卡住整個頁面標頭）。完整公司資料由前端獨立的 /stock/{id}/profile 端點取得，
+    # 這裡 industry 用本地 industry_map 即可，保持基本資訊端點快速回應。
 
     return {
         "stock_id": stock_id,
         "name": name_map.get(stock_id, ""),
-        "industry": company_profile.get("industry") if company_profile else industry_map.get(stock_id, ""),
+        "industry": industry_map.get(stock_id, ""),
         "latest_price": round(latest_price, 2),
         "change_pct": change_pct,
         "date": price_data.index[-1].strftime("%Y-%m-%d"),
@@ -117,7 +115,6 @@ async def stock_info(
         "pb_ratio": pb,
         "dividend_yield": dy,
         "revenue_yoy": rev_yoy,
-        "company_profile": company_profile,
         "price_history": [
             {
                 "date": d.strftime("%Y-%m-%d"),
@@ -162,11 +159,16 @@ async def stock_scorecard(stock_id: str):
 
 
 @router.get("/stock/{stock_id}/score-history")
+@cached_response(ttl_seconds=1800)
 async def stock_score_history(
     stock_id: str,
     days: int = Query(default=20, ge=2, le=30, description="評分歷史交易日數"),
 ):
-    """個股量化評分歷史，用於觀察升降級與分數趨勢。"""
+    """個股量化評分歷史，用於觀察升降級與分數趨勢。
+
+    底層各日全市場評分表已 memoize 且跨股票共用，首檔計算後其餘股票即快取命中。
+    結果再快取 30 分鐘。
+    """
     try:
         return calculate_score_history(loader, stock_id, days=days)
     except KeyError:

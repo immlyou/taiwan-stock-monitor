@@ -136,6 +136,16 @@ async def _lifespan(app: FastAPI):
         except Exception as e:
             _log.warning("評分表預熱失敗: %s", e)
 
+        # 預熱評分歷史的近 20 日各日全市場評分表（memoized、跨股票共用）。
+        # 用一檔代表股觸發即可填滿日表快取，避免使用者第一次開個股頁時 score-history
+        # 重算 20 份全市場表（~50s，且前端 10s timeout 會 abort 而永遠無法暖快取）。
+        try:
+            from core.intelligence import calculate_score_history
+            calculate_score_history(loader, "2330", days=20)
+            _log.info("評分歷史日表預熱完成")
+        except Exception as e:
+            _log.warning("評分歷史預熱失敗: %s", e)
+
     # 資料預熱改為「背景非阻塞」執行。
     # 雲端（Railway）走 FinLab API 模式時，預熱會逐一下載多個全市場大資料集；
     # 若在此 await，會阻塞 app startup 與 /health healthcheck，導致 Railway 判定
