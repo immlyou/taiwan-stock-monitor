@@ -3,7 +3,10 @@ from api_server import app
 
 
 def test_all_routers_registered():
-    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    # 用 OpenAPI schema 列舉已註冊路由：版本無關。
+    # （較新版 FastAPI 的 include_router 會以 _IncludedRouter 掛載物件呈現，
+    #  沒有 .path 屬性，直接讀 app.routes 會漏掉 included 路由。）
+    paths = set(app.openapi().get("paths", {}).keys())
 
     # (router_name, representative_path_that_must_exist)
     expected = [

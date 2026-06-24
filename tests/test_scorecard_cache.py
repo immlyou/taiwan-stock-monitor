@@ -53,13 +53,25 @@ def test_subset_call_not_cached(mock_loader):
     assert _scorecard_keys() == []
 
 
-def test_only_one_scorecard_kept(mock_loader):
-    # 先塞一個假的舊日期評分表，呼叫後應被清掉只剩當日
-    DataCache().set("_scorecard_19990101", pd.DataFrame({"x": [1]}))
+def test_scorecard_cache_caps_at_30(mock_loader):
+    # 評分表 memo 改為「按日期快取、保留最近 30 份」（供 score-history 近 20 日共用）。
+    # 塞 35 個假的舊日期表，再觸發一次計算（cache miss → set 當日 → 修剪），應 cap ≤ 30。
+    for i in range(35):
+        DataCache().set(f"_scorecard_2000{i:02d}01", pd.DataFrame({"x": [1]}))
+    calculate_score_table(mock_loader)  # 當日 key 不在假表中 → miss → set + 修剪
+    keys = _scorecard_keys()
+    assert len(keys) <= 30, f"應 cap 到 30，實際 {len(keys)}"
+    # 最舊的假表應被刪、最新的（含當日）應保留
+    assert "_scorecard_20000001" not in keys
+
+
+def test_recent_scorecard_not_pruned(mock_loader):
+    # 少量（<30）時不應被刪：塞一個歷史日期表，算當日後兩者都在
+    DataCache().set("_scorecard_20250101", pd.DataFrame({"x": [1]}))
     calculate_score_table(mock_loader)
     keys = _scorecard_keys()
-    assert "_scorecard_19990101" not in keys
-    assert len(keys) == 1
+    assert "_scorecard_20250101" in keys, "未達上限時舊表不應被刪"
+    assert len(keys) == 2
 
 
 def test_evaluate_smart_alerts_still_works(mock_loader):
