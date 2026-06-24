@@ -12,6 +12,27 @@ from core.json_store import file_lock, save_json_atomic
 PORTFOLIO_FILE = Path(__file__).parent.parent.parent / 'data' / 'portfolios.json'
 PORTFOLIO_FILE.parent.mkdir(exist_ok=True)
 
+# 成本價離群保護：單一持倉現價／成本比超過此倍數（或倒數）時，幾乎都是
+# 成本價打錯或單位錯誤（例：把 160 元的股票成本存成 0.9），而非真實損益。
+# 這類持倉的報酬率回 None，讓呼叫端顯示為「未知」而非荒謬的百分比，
+# 也避免毒化整體損益彙總。實務上單筆持倉 ~1900% 報酬已是極端，足以判定異常。
+PLAUSIBLE_PNL_RATIO = 20.0
+
+
+def plausible_pnl_pct(current_price, cost_price) -> Optional[float]:
+    """回傳合理的報酬率(%)；成本價缺失、非正或明顯異常（離群）時回 None。"""
+    try:
+        cp = float(cost_price)
+        pr = float(current_price)
+    except (TypeError, ValueError):
+        return None
+    if cp <= 0 or pr <= 0:
+        return None
+    ratio = pr / cp
+    if ratio > PLAUSIBLE_PNL_RATIO or ratio < 1.0 / PLAUSIBLE_PNL_RATIO:
+        return None
+    return round((ratio - 1) * 100, 2)
+
 
 def load_portfolios() -> Dict:
     """載入所有投資組合"""

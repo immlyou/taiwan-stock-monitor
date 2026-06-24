@@ -71,6 +71,8 @@ async def portfolio_get(portfolio_id: str):
         if portfolio_id not in portfolios:
             raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
 
+        from app.components.portfolio_utils import plausible_pnl_pct
+
         data = portfolios[portfolio_id]
         holdings = data.get("holdings", [])
         close = loader.get("close")
@@ -98,11 +100,17 @@ async def portfolio_get(portfolio_id: str):
                 pass
 
             current_value = shares * current_price
-            pnl = current_value - cost
-            pnl_pct = (pnl / cost * 100) if cost > 0 else 0
-
-            total_cost += cost
-            total_value += current_value
+            # 成本價明顯異常（資料輸入錯誤）時不計損益，回 None 而非荒謬百分比，
+            # 且不納入整體彙總，避免單筆壞資料毒化 total_pnl。
+            safe_pnl_pct = plausible_pnl_pct(current_price, cost_price)
+            if safe_pnl_pct is None:
+                pnl = None
+                pnl_pct = None
+            else:
+                pnl = round(current_value - cost, 2)
+                pnl_pct = safe_pnl_pct
+                total_cost += cost
+                total_value += current_value
 
             enriched_holdings.append({
                 **h,
@@ -110,8 +118,8 @@ async def portfolio_get(portfolio_id: str):
                 "current_price": round(current_price, 2),
                 "current_value": round(current_value, 2),
                 "cost_value": round(cost, 2),
-                "pnl": round(pnl, 2),
-                "pnl_pct": round(pnl_pct, 2),
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
                 "price_history": price_history,
             })
 

@@ -208,7 +208,7 @@ class RadarPro:
         }
 
     def portfolio_health(self, portfolio_id: str = "default") -> Dict[str, Any]:
-        from app.components.portfolio_utils import load_portfolios
+        from app.components.portfolio_utils import load_portfolios, plausible_pnl_pct
 
         portfolios = load_portfolios()
         portfolio = portfolios.get(portfolio_id)
@@ -242,7 +242,8 @@ class RadarPro:
                 continue
             current_price = radar["latest_price"]
             cost_price = float(holding.get("cost_price", 0) or 0)
-            pnl_pct = round((current_price / cost_price - 1) * 100, 2) if cost_price else 0
+            # 成本價缺失或明顯異常（資料輸入錯誤）時回 None，不顯示荒謬報酬率。
+            pnl_pct = plausible_pnl_pct(current_price, cost_price)
             results.append({
                 "stock_id": sid,
                 "name": radar.get("name", ""),
@@ -257,7 +258,7 @@ class RadarPro:
             "portfolio_id": portfolio_id,
             "holdings_count": len(results),
             "risk_count": risk_count,
-            "health_score": round(max(0, 100 - risk_count * 14 - sum(1 for item in results if item["pnl_pct"] < -8) * 8), 2),
+            "health_score": round(max(0, 100 - risk_count * 14 - sum(1 for item in results if (item["pnl_pct"] or 0) < -8) * 8), 2),
             "holdings": sorted(results, key=lambda item: (item["action"] in ("減碼觀察", "高風險勿追"), -item["radar_score"]), reverse=True),
         }
 
@@ -428,10 +429,10 @@ class RadarPro:
             "note": "目前資料源未含券商分點，先以三大法人作為籌碼代理訊號。",
         }
 
-    def _portfolio_suggestion(self, radar: Dict[str, Any], pnl_pct: float) -> str:
+    def _portfolio_suggestion(self, radar: Dict[str, Any], pnl_pct: Optional[float]) -> str:
         if radar["action"] in ("減碼觀察", "高風險勿追"):
             return "優先檢查是否降風險或移出觀察。"
-        if pnl_pct < -8 and radar["radar_score"] < 55:
+        if pnl_pct is not None and pnl_pct < -8 and radar["radar_score"] < 55:
             return "虧損且雷達轉弱，檢查停損條件。"
         if radar["action"] in ("買進觀察", "強勢續抱"):
             return "訊號仍偏正向，可依失效條件續抱。"
