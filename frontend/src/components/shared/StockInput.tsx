@@ -19,6 +19,8 @@ interface StockSearchResponse {
 interface StockInputProps {
   value: string
   onChange: (stockId: string) => void
+  /** 選定股票時回傳完整結果（含中文名），供需要名稱的呼叫端使用。 */
+  onSelectResult?: (result: { stock_id: string; name: string }) => void
   placeholder?: string
   label?: string
   className?: string
@@ -27,6 +29,7 @@ interface StockInputProps {
 export function StockInput({
   value,
   onChange,
+  onSelectResult,
   placeholder = '輸入代號或中文名稱，例：2330 或 台積電',
   label,
   className,
@@ -93,8 +96,9 @@ export function StockInput({
       setIsOpen(false)
       setResults([])
       onChange(result.stock_id)
+      onSelectResult?.({ stock_id: result.stock_id, name: result.name })
     },
-    [onChange]
+    [onChange, onSelectResult]
   )
 
   const handleKeyDown = useCallback(
