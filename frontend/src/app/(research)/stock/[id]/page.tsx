@@ -97,17 +97,16 @@ interface TechnicalResponse {
 }
 
 // GET /stock/:id/chip
-interface InstitutionalLatest {
-  latest?: number
-  [key: string]: unknown
+interface InstitutionChip {
+  total_shares: number
+  daily?: Array<{ date: string; shares: number }>
 }
 
 interface ChipResponse {
   stock_id: string
-  name: string
-  foreign_buy_sell?: InstitutionalLatest
-  trust_buy_sell?: InstitutionalLatest
-  dealer_buy_sell?: InstitutionalLatest
+  外資?: InstitutionChip
+  投信?: InstitutionChip
+  自營商?: InstitutionChip
   foreign_holding_pct?: number
 }
 
@@ -737,20 +736,22 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
                     </thead>
                     <tbody>
                       {([
-                        { label: '外資', latest: chip.foreign_buy_sell?.latest },
-                        { label: '投信', latest: chip.trust_buy_sell?.latest },
-                        { label: '自營商', latest: chip.dealer_buy_sell?.latest },
-                      ] as { label: string; latest?: number }[]).filter(r => r.latest != null).map(({ label, latest }) => (
+                        { label: '外資', total: chip['外資']?.total_shares },
+                        { label: '投信', total: chip['投信']?.total_shares },
+                        { label: '自營商', total: chip['自營商']?.total_shares },
+                      ] as { label: string; total?: number }[]).filter(r => r.total != null).map(({ label, total }) => {
+                        const lots = Math.round(total! / 1000)
+                        return (
                         <tr key={label} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td className="py-2 px-3" style={{ color: 'var(--foreground)' }}>{label}</td>
                           <td
                             className="py-2 px-3 font-semibold tabular-nums"
-                            style={{ color: getChangeColorVar(latest!) }}
+                            style={{ color: getChangeColorVar(lots) }}
                           >
-                            {latest! > 0 ? '+' : ''}{latest!.toLocaleString()}
+                            {lots > 0 ? '+' : ''}{lots.toLocaleString()}
                           </td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                   {chip.foreign_holding_pct != null && (

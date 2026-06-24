@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { SWRConfig } from 'swr'
 import type { Cache, State } from 'swr'
 import { useAppStore } from '@/store/useAppStore'
@@ -86,11 +86,22 @@ function MobileDetector() {
   return null
 }
 
+// 空快取 provider：與伺服器端（無 localStorage）行為一致。
+// 首次 client render 必須用它，避免 SSR（空快取→骨架）與 client（已從
+// localStorage 預載資料→實際內容）渲染結果不同而觸發 hydration mismatch
+// （React #418）。掛載後再切換到 localStorageProvider，享用持久化快取。
+function emptyProvider(): Cache {
+  return new Map<string, State<unknown>>() as unknown as Cache
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   return (
     <SWRConfig
       value={{
-        provider: localStorageProvider,
+        provider: mounted ? localStorageProvider : emptyProvider,
         dedupingInterval: 5000,
         revalidateOnFocus: false,
         errorRetryCount: 2,
