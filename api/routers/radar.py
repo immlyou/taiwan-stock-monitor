@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -10,6 +11,8 @@ from api.helpers import cached_response
 from api.state import loader
 from core.radar_pro import RadarPro
 from core.trading_radar import TradingRadar
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["操盤雷達"], dependencies=[Depends(verify_api_key)])
 
@@ -95,6 +98,7 @@ async def radar_daily_report():
 
 
 @router.get("/radar/notifications/preview")
+@cached_response(ttl_seconds=1800)
 async def radar_notification_preview(
     portfolio_id: str = Query(default="default"),
 ):
@@ -142,3 +146,31 @@ async def radar_news_revenue(stock_id: str):
 async def radar_broker_chip(stock_id: str):
     """券商籌碼代理訊號；若無分點資料，以三大法人代理。"""
     return RadarPro(loader).broker_chip_proxy(stock_id)
+
+
+def warm_radar() -> None:
+    """同步預熱操盤雷達的重端點快取，讓使用者不碰冷啟動。
+
+    backtest 冷啟動 ~15s、notifications 原本未快取 ~3.7s。以前端實際使用的
+    參數（backtest days=180/top_n=20）驅動 @cached_response 寫入快取。
+    """
+    import asyncio as _aio
+
+    async def _run() -> None:
+        try:
+            await radar_backtest(days=180, top_n=20)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("雷達 backtest 預熱失敗: %s", e)
+        try:
+            await radar_notification_preview(portfolio_id="default")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("雷達 notifications 預熱失敗: %s", e)
+
+    try:
+        _aio.run(_run())
+    except RuntimeError:
+        loop = _aio.new_event_loop()
+        try:
+            loop.run_until_complete(_run())
+        finally:
+            loop.close()

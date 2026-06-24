@@ -105,6 +105,17 @@ def _warm_morning_report_job() -> None:
         logger.exception("晨報快取 re-warm 失敗")
 
 
+def _warm_radar_job() -> None:
+    """排程任務：定期 re-warm 操盤雷達重端點快取（backtest ~15s、notifications ~3.7s）。"""
+    try:
+        from api.routers.radar import warm_radar
+
+        warm_radar()
+        logger.debug("操盤雷達快取 re-warm 完成")
+    except Exception:
+        logger.exception("操盤雷達快取 re-warm 失敗")
+
+
 def start_scheduler() -> Optional[Any]:
     """啟動背景排程器（若已啟動則直接回傳既有實例）。
 
@@ -176,6 +187,18 @@ def start_scheduler() -> Optional[Any]:
         CronTrigger(minute="*/15", timezone=TAIPEI_TZ),
         id="warm_morning_report",
         name="晨報快取預熱",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+        replace_existing=True,
+    )
+
+    # 每 20 分鐘 re-warm 操盤雷達重端點（backtest TTL 3600s、notifications 1800s）。
+    sched.add_job(
+        _warm_radar_job,
+        CronTrigger(minute="*/20", timezone=TAIPEI_TZ),
+        id="warm_radar",
+        name="操盤雷達快取預熱",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=300,
