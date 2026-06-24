@@ -101,6 +101,26 @@ def _get_industry_map() -> Dict[str, str]:
     return {}
 
 
+# ─── "default" 別名解析 ────────────────────────────────
+# 前端（自選股、投資組合、雷達健檢）固定打 id="default"，但 default 並非
+# 真實名稱。統一解析規則，讓這些端點不會對新使用者回 404：
+#   - 請求的 id 存在 -> 用它
+#   - id == "default" 且無同名 -> 退回第一個既有項目；完全沒有則回 None（呼叫端回空結構）
+#   - 其他不存在的明確 id -> 回 (None, False)（呼叫端維持 404）
+def resolve_default_id(items: Dict, requested: str):
+    """回傳 (resolved_id, is_empty_default)。
+
+    is_empty_default=True 代表「default 但完全沒有資料」→ 呼叫端應回空結構（200）。
+    resolved_id=None 且 is_empty_default=False 代表「明確 id 不存在」→ 呼叫端回 404。
+    """
+    if requested in items:
+        return requested, False
+    if requested == "default":
+        first = next(iter(items), None)
+        return first, first is None
+    return None, False
+
+
 # ─── API 回應快取裝飾器 ────────────────────────────────
 def cached_response(ttl_seconds: int = 300):
     """快取 API 回應的裝飾器，預設 5 分鐘 TTL。

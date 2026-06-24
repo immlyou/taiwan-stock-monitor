@@ -42,6 +42,43 @@ async def predictions_list(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/predictions/stats")
+async def predictions_stats():
+    """預測準確率統計：總數、正確 / 錯誤 / 進行中筆數與命中率。
+
+    以儲存的預測記錄為準。未經驗證（無 status 或 status=pending）者計為進行中；
+    accuracy = 正確 /（正確 + 錯誤），尚無已驗證結果時為 0。
+    """
+    try:
+        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        if isinstance(data, list):
+            data = {"predictions": data}
+        preds = data.get("predictions", [])
+
+        correct = wrong = pending = 0
+        for p in preds:
+            status = str(p.get("status", "") or "").lower()
+            if status == "correct":
+                correct += 1
+            elif status == "wrong":
+                wrong += 1
+            else:
+                # pending / expired / 無 status 一律歸為「進行中」，不計入命中率分母
+                pending += 1
+
+        resolved = correct + wrong
+        accuracy = round(correct / resolved * 100, 1) if resolved else 0.0
+        return {
+            "total": len(preds),
+            "correct": correct,
+            "wrong": wrong,
+            "pending": pending,
+            "accuracy": accuracy,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/predictions")
 async def prediction_create(req: PredictionRequest):
     """建立個股價格預測（簡單技術面推估）。

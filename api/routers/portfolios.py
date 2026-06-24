@@ -66,12 +66,21 @@ async def portfolio_create(req: PortfolioCreateRequest):
 async def portfolio_get(portfolio_id: str):
     """取得指定投資組合詳情，含各持股當前報酬率計算。"""
     try:
-        from app.components.portfolio_utils import load_portfolios
+        from app.components.portfolio_utils import load_portfolios, plausible_pnl_pct
+        from api.helpers import resolve_default_id
         portfolios = load_portfolios()
-        if portfolio_id not in portfolios:
+        resolved, empty_default = resolve_default_id(portfolios, portfolio_id)
+        if empty_default:
+            # 完全沒有投資組合時回空結構（200），讓前端顯示空狀態而非吃 404。
+            return {
+                "id": "default", "name": "default", "description": "",
+                "created_at": "", "holdings": [],
+                "summary": {"total_cost": 0.0, "total_value": 0.0,
+                            "total_pnl": 0.0, "total_pnl_pct": 0.0},
+            }
+        if resolved is None:
             raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
-
-        from app.components.portfolio_utils import plausible_pnl_pct
+        portfolio_id = resolved
 
         data = portfolios[portfolio_id]
         holdings = data.get("holdings", [])
@@ -150,10 +159,15 @@ async def portfolio_diagnostics(portfolio_id: str):
     """投資組合診斷：集中度、產業配置、風險與調整建議。"""
     try:
         from app.components.portfolio_utils import load_portfolios
+        from api.helpers import resolve_default_id
         portfolios = load_portfolios()
-        if portfolio_id not in portfolios:
+        resolved, empty_default = resolve_default_id(portfolios, portfolio_id)
+        if empty_default:
+            # 沒有任何投資組合 -> 用空組合走診斷（安全降級，不回 404）。
+            return diagnose_portfolio(loader, "default", {"holdings": []})
+        if resolved is None:
             raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
-        return diagnose_portfolio(loader, portfolio_id, portfolios[portfolio_id])
+        return diagnose_portfolio(loader, resolved, portfolios[resolved])
     except HTTPException:
         raise
     except Exception as e:

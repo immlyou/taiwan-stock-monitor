@@ -64,9 +64,15 @@ async def watchlist_get(watchlist_id: str):
     """取得指定自選股清單，含各股當前報價。"""
     try:
         from app.components.watchlist_utils import get_watchlist_stocks, load_watchlists
+        from api.helpers import resolve_default_id
         watchlists = load_watchlists()
-        if watchlist_id not in watchlists:
+        resolved, empty_default = resolve_default_id(watchlists, watchlist_id)
+        if empty_default:
+            # 完全沒有自選股清單時回空結構（200），讓前端顯示空狀態而非吃 404。
+            return {"id": "default", "name": "default", "stocks_count": 0, "stocks": []}
+        if resolved is None:
             raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
+        watchlist_id = resolved
 
         stocks = get_watchlist_stocks(watchlist_id)
         close = loader.get("close")
@@ -120,9 +126,13 @@ async def watchlist_summary(watchlist_id: str, days: int = 20, abnormal_pct: flo
     """
     try:
         from app.components.watchlist_utils import get_watchlist_stocks, load_watchlists
+        from api.helpers import resolve_default_id
         watchlists = load_watchlists()
-        if watchlist_id not in watchlists:
+        resolved, empty_default = resolve_default_id(watchlists, watchlist_id)
+        if resolved is None and not empty_default:
             raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
+        # empty_default 時 watchlist_id 維持 "default"，下方 stocks 取出為空，匯總自然降級為空。
+        watchlist_id = resolved or "default"
 
         days = max(int(days), 1)
         stocks = get_watchlist_stocks(watchlist_id)

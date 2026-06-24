@@ -14,6 +14,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import verify_api_key
+from api.helpers import cached_response
 from api.models import (
     JournalReviewRequest,
     NewsSentimentRequest,
@@ -50,6 +51,7 @@ async def ai_news_sentiment(req: NewsSentimentRequest):
 
 
 @router.get("/ai/anomalies")
+@cached_response(ttl_seconds=900)
 async def ai_anomalies(
     scope: str = Query(default="watchlist", description="掃描範圍: watchlist / all"),
     explain: bool = Query(default=True, description="是否啟用 AI 解讀"),
