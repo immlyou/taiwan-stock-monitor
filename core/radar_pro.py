@@ -212,6 +212,22 @@ class RadarPro:
 
         portfolios = load_portfolios()
         portfolio = portfolios.get(portfolio_id)
+
+        # "default" 是前端雷達頁固定打的 alias，非真實組合名。若無實名 "default"
+        # 組合則退回第一個既有組合，讓有持倉的使用者仍能看到健檢；完全沒有任何
+        # 組合時回空狀態（200）而非 404，避免新使用者一進雷達頁就吃錯誤。
+        if portfolio is None and portfolio_id == "default":
+            if portfolios:
+                portfolio_id, portfolio = next(iter(portfolios.items()))
+            else:
+                return {
+                    "portfolio_id": "default",
+                    "holdings_count": 0,
+                    "risk_count": 0,
+                    "health_score": None,
+                    "holdings": [],
+                    "empty": True,
+                }
         if portfolio is None:
             raise KeyError(f"找不到投資組合: {portfolio_id}")
         holdings = portfolio.get("holdings", [])
