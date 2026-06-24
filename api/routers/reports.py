@@ -20,7 +20,7 @@ router = APIRouter(tags=["報告"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get("/morning-report")
-@cached_response(ttl_seconds=600)
+@cached_response(ttl_seconds=1800)
 async def morning_report():
     """
     產生每日晨報摘要，包含市場概況、漲跌排行、策略選股結果、新聞摘要。
@@ -150,6 +150,25 @@ async def morning_report():
         ],
         "strategies": strategies_summary,
     }
+
+
+def warm_morning_report() -> None:
+    """同步預熱晨報快取（供啟動預熱與排程 re-warm 呼叫）。
+
+    晨報冷啟動需重算 3 個選股策略 + 可能的新聞掃描（~18s），會超過前端 10s
+    timeout 而被 abort，使用者誤以為沒資料。由啟動預熱與排程定期 re-warm 來
+    保持快取常熱，讓使用者永遠命中熱快取。
+    """
+    import asyncio as _aio
+    try:
+        _aio.run(morning_report())  # 觸發 @cached_response 計算並寫入快取
+    except RuntimeError:
+        # 萬一所在執行緒已有 running loop，改用獨立 loop
+        loop = _aio.new_event_loop()
+        try:
+            loop.run_until_complete(morning_report())
+        finally:
+            loop.close()
 
 
 # /scanner/hidden-gems 已抽出到 api/routers/scanner.py

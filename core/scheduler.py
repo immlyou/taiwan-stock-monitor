@@ -94,6 +94,17 @@ def _record_xgboost_picks_job() -> None:
         logger.exception("排程記錄 XGBoost 選股失敗")
 
 
+def _warm_morning_report_job() -> None:
+    """排程任務：定期 re-warm 每日晨報快取，讓使用者永遠命中熱快取（不碰 ~18s 冷啟動）。"""
+    try:
+        from api.routers.reports import warm_morning_report
+
+        warm_morning_report()
+        logger.debug("晨報快取 re-warm 完成")
+    except Exception:
+        logger.exception("晨報快取 re-warm 失敗")
+
+
 def start_scheduler() -> Optional[Any]:
     """啟動背景排程器（若已啟動則直接回傳既有實例）。
 
@@ -156,6 +167,18 @@ def start_scheduler() -> Optional[Any]:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=1800,
+        replace_existing=True,
+    )
+
+    # 每 15 分鐘 re-warm 每日晨報快取（TTL 1800s），讓使用者永遠命中熱快取。
+    sched.add_job(
+        _warm_morning_report_job,
+        CronTrigger(minute="*/15", timezone=TAIPEI_TZ),
+        id="warm_morning_report",
+        name="晨報快取預熱",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
         replace_existing=True,
     )
 

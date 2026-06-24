@@ -146,6 +146,14 @@ async def _lifespan(app: FastAPI):
         except Exception as e:
             _log.warning("評分歷史預熱失敗: %s", e)
 
+        # 預熱每日晨報（冷啟動 ~18s：3 策略 + 新聞掃描，會超過前端 timeout）。
+        try:
+            from api.routers.reports import warm_morning_report
+            warm_morning_report()
+            _log.info("每日晨報預熱完成")
+        except Exception as e:
+            _log.warning("每日晨報預熱失敗: %s", e)
+
     # 資料預熱改為「背景非阻塞」執行。
     # 雲端（Railway）走 FinLab API 模式時，預熱會逐一下載多個全市場大資料集；
     # 若在此 await，會阻塞 app startup 與 /health healthcheck，導致 Railway 判定
