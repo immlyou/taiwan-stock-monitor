@@ -5,6 +5,7 @@ import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { StockInput } from '@/components/shared/StockInput'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { StaleBanner } from '@/components/shared/StaleBanner'
 import { getChangeColorVar, formatPrice, formatPercent } from '@/lib/utils/format'
 
 interface RadarSignal {
@@ -226,9 +227,13 @@ export default function TradingRadarPage() {
         </div>
       </div>
 
-      {error ? (
+      {/* 只有「主清單失敗且無任何快取資料」才整頁報錯；否則照常渲染——
+          其餘區塊（回測、追蹤、健檢、推播…）各自獨立載入，單一子端點 503
+          不影響整頁，且 fetchAPI 會自動重試暫時性 503/逾時。 */}
+      {error && data && <StaleBanner />}
+      {error && !data ? (
         <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--destructive)' }}>
-          雷達資料載入失敗
+          雷達資料暫時載入失敗，將自動重試；可稍後重整頁面。
         </div>
       ) : isLoading ? (
         <div className="grid md:grid-cols-3 gap-3">

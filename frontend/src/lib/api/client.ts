@@ -45,14 +45,25 @@ function isQuotaExceededText(text: string): boolean {
   return text.includes('Usage exceed') || text.includes('5000 MB')
 }
 
+// 重運算端點（回測、AI 選股、雷達）在雲端冷啟動 / 負載高時容易短暫回 503 或逾時。
+// 對「冪等」請求（GET/HEAD）自動重試，讓使用者不必手動重整；非冪等（POST 等）
+// 與 quota 超限一律不重試，避免重複送出或無謂打 API。
+const RETRYABLE_STATUS = new Set([502, 503, 504])
+const MAX_RETRIES = 2 // 共 3 次嘗試
+const RETRY_BACKOFF_MS = [400, 1000]
+
+function isIdempotent(method?: string): boolean {
+  const m = (method ?? 'GET').toUpperCase()
+  return m === 'GET' || m === 'HEAD'
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 export async function fetchAPI<T>(
   path: string,
   options?: RequestInit,
   timeoutMs = 10000
 ): Promise<T> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
   const url = `${API_URL}${path}`
 
   // SSR / Server Components 直連 Railway，需自帶金鑰；
@@ -63,50 +74,78 @@ export async function fetchAPI<T>(
       ? { Authorization: `Bearer ${process.env.STOCK_API_KEY}` }
       : {}
 
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...serverAuthHeaders,
-        ...options?.headers,
-      },
-      signal: options?.signal ?? controller.signal,
-    })
-
-    const text = await response.text()
-
-    if (isQuotaExceededText(text)) {
-      throw new QuotaExceededError()
-    }
-
-    if (!response.ok) {
-      throw new ApiError(response.status, text || `HTTP ${response.status}`)
-    }
-
-    // 解析 JSON 並檢查 degraded status（如 /health 端點）
-    let data: T
+  // 單次嘗試：自帶 timeout 的 AbortController（每次重試都重新計時）。
+  async function attempt(): Promise<T> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      data = JSON.parse(text) as T
-    } catch {
-      return text as unknown as T
-    }
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...serverAuthHeaders,
+          ...options?.headers,
+        },
+        signal: options?.signal ?? controller.signal,
+      })
 
-    // 檢查回傳 200 但包含 quota 錯誤的情況（例如 health degraded）
-    const anyData = data as Record<string, unknown>
-    if (
-      anyData &&
-      typeof anyData === 'object' &&
-      typeof anyData.error === 'string' &&
-      isQuotaExceededText(anyData.error)
-    ) {
-      throw new QuotaExceededError()
-    }
+      const text = await response.text()
 
-    return data
-  } finally {
-    clearTimeout(timeoutId)
+      if (isQuotaExceededText(text)) {
+        throw new QuotaExceededError()
+      }
+
+      if (!response.ok) {
+        throw new ApiError(response.status, text || `HTTP ${response.status}`)
+      }
+
+      // 解析 JSON 並檢查 degraded status（如 /health 端點）
+      let data: T
+      try {
+        data = JSON.parse(text) as T
+      } catch {
+        return text as unknown as T
+      }
+
+      // 檢查回傳 200 但包含 quota 錯誤的情況（例如 health degraded）
+      const anyData = data as Record<string, unknown>
+      if (
+        anyData &&
+        typeof anyData === 'object' &&
+        typeof anyData.error === 'string' &&
+        isQuotaExceededText(anyData.error)
+      ) {
+        throw new QuotaExceededError()
+      }
+
+      return data
+    } finally {
+      clearTimeout(timeoutId)
+    }
   }
+
+  let lastErr: unknown
+  for (let i = 0; i <= MAX_RETRIES; i++) {
+    try {
+      return await attempt()
+    } catch (err) {
+      lastErr = err
+      // quota 超限是硬性限制，重試無益
+      if (err instanceof QuotaExceededError) throw err
+      // 呼叫端主動取消（傳入自己的 signal）不重試
+      if (options?.signal?.aborted) throw err
+      // 只對冪等請求重試；非冪等（POST 等）直接拋出避免重複送出
+      if (!isIdempotent(options?.method)) throw err
+      // 可重試的情況：閘道/服務暫時不可用（502/503/504）、逾時(AbortError)、網路層錯誤(TypeError)
+      const retryable =
+        (err instanceof ApiError && RETRYABLE_STATUS.has(err.status)) ||
+        (err instanceof DOMException && err.name === 'AbortError') ||
+        err instanceof TypeError
+      if (!retryable || i === MAX_RETRIES) throw err
+      await sleep(RETRY_BACKOFF_MS[i] ?? 1000)
+    }
+  }
+  throw lastErr
 }
 
 // 系統相關 API
