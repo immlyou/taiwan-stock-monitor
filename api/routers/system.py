@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["系統"])
 
+# 應用程式版本（單一來源，供 / 、/health 、/system/info 與 FastAPI app 共用）。
+APP_VERSION = "4.0.0"
+
+# 進程啟動時間，供 /system/info 計算 uptime（純記憶體，不觸發任何下載）。
+_START_TIME = datetime.now()
+
 # 同一時間只允許一個手動更新進行，避免重複下載浪費 FinLab 額度。
 _refresh_lock = threading.Lock()
 
@@ -29,8 +35,78 @@ async def root() -> Dict[str, Any]:
     """API 根目錄"""
     return {
         "name": "台股戰情中心 API",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "docs": "/docs",
+    }
+
+
+def _format_uptime(seconds: float) -> str:
+    s = int(seconds)
+    days, s = divmod(s, 86400)
+    hours, s = divmod(s, 3600)
+    minutes, _ = divmod(s, 60)
+    if days:
+        return f"{days} 天 {hours} 小時"
+    if hours:
+        return f"{hours} 小時 {minutes} 分"
+    return f"{minutes} 分"
+
+
+def _format_size(num_bytes: int) -> str:
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
+def _disk_cache_size() -> int:
+    """FinLab 磁碟快取目錄總大小（bytes）；取不到回 0，絕不拋例外。"""
+    from pathlib import Path
+
+    total = 0
+    for base in (Path("/app/data/finlab_cache"), Path("data/finlab_cache")):
+        try:
+            if base.is_dir():
+                for f in base.rglob("*"):
+                    if f.is_file():
+                        total += f.stat().st_size
+                if total:
+                    break
+        except Exception:  # noqa: BLE001 — 系統資訊不可因 I/O 失敗而中斷
+            continue
+    return total
+
+
+@router.get("/system/info", dependencies=[Depends(verify_api_key)])
+async def system_info() -> Dict[str, Any]:
+    """系統資訊面板：版本、運行時間、最新資料日期、股票數與快取大小。
+
+    與 /health 同規則：只讀記憶體快取與磁碟，絕不觸發 FinLab 下載。
+    """
+    from core.data_loader import DataCache
+
+    cache = DataCache()
+    data_last_updated = "—"
+    stock_count = 0
+    try:
+        close = cache.get("close")
+        if close is not None and not close.empty:
+            data_last_updated = close.index.max().strftime("%Y-%m-%d")
+            stock_count = len(close.columns)
+    except Exception:  # noqa: BLE001
+        pass
+
+    uptime_seconds = (datetime.now() - _START_TIME).total_seconds()
+
+    return {
+        "version": APP_VERSION,
+        "apiVersion": APP_VERSION,
+        "uptime": _format_uptime(uptime_seconds),
+        "dataLastUpdated": data_last_updated,
+        "stockCount": stock_count,
+        "dbSize": _format_size(_disk_cache_size()),
     }
 
 
@@ -85,7 +161,7 @@ async def health() -> Dict[str, Any]:
     if close is not None and not close.empty:
         return {
             "status": "ok",
-            "version": "2.0.0",
+            "version": APP_VERSION,
             "latest_data_date": close.index.max().strftime("%Y-%m-%d"),
             "total_stocks": len(close.columns),
             "finlab": finlab_info,

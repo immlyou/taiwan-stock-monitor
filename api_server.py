@@ -197,7 +197,7 @@ async def _lifespan(app: FastAPI):
 app = FastAPI(
     title="台股戰情中心 API",
     description="提供台股數據查詢、選股策略、警報等功能，供 Next.js 前端及外部系統串接",
-    version="2.0.0",
+    version=system_router.APP_VERSION,
     default_response_class=SafeJSONResponse,
     lifespan=_lifespan,
 )
