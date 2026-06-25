@@ -73,10 +73,26 @@ async def market_summary():
     top_gainers = changes.nlargest(10)
     top_losers = changes.nsmallest(10)
 
+    # 大盤指數：用資料集自帶的報酬指數序列（與上面漲跌家數同一份 close 資料、
+    # 同一時間軸），不再混用即時 TWSE 價格指數——否則 ticker 會拿不同日期的指數
+    # 與漲跌，造成「+0.00% 綠燈」對上「-2.23% 紅盤」的矛盾。
+    taiex_index = taiex_change = taiex_change_pct = None
+    try:
+        benchmark = loader.get_benchmark()
+        if benchmark is not None and len(benchmark) >= 2:
+            cur = float(benchmark.iloc[-1])
+            prev = float(benchmark.iloc[-2])
+            taiex_index = round(cur, 2)
+            taiex_change = round(cur - prev, 2)
+            taiex_change_pct = round((cur - prev) / prev * 100, 2) if prev else None
+    except Exception:
+        logger.warning("market_summary 取得報酬指數失敗", exc_info=True)
+
     return {
         "date": summary.get("latest_date"),
-        "taiex_index": _safe_json(summary.get("taiex_index")),
-        "taiex_change": _safe_json(summary.get("taiex_change")),
+        "taiex_index": _safe_json(taiex_index),
+        "taiex_change": _safe_json(taiex_change),
+        "taiex_change_pct": _safe_json(taiex_change_pct),
         "total_stocks": summary.get("total_stocks"),
         "up_count": up_count,
         "down_count": down_count,

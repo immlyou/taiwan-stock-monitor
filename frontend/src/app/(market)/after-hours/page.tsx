@@ -188,7 +188,7 @@ interface AiSummaryResult {
 
 export default function AfterHoursPage() {
   const { data, isLoading, isError } = useAfterHours()
-  const { summary, isLoading: summaryLoading } = useMarketSummary()
+  const { isLoading: summaryLoading } = useMarketSummary()
 
   const [aiSummary, setAiSummary] = useState<AiSummaryResult | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
@@ -234,8 +234,9 @@ export default function AfterHoursPage() {
   const inst = data?.institutional
   const aiPicks = data?.ai_picks
 
-  // 加權指數收盤從 /market/summary 取，報酬指數 taiex.close 僅供參考
-  const taiexIndex = summary?.taiex_index
+  // 大盤指數一律用資料集自帶的報酬指數序列（/market/after-hours 的 taiex），
+  // level / change / pct 同源，避免與即時 TWSE 價格指數混用造成數字打架。
+  const taiexIndex = taiex?.close
   const taiexChange = taiex?.change
   const taiexChangePct = taiex?.change_pct
 
@@ -249,7 +250,7 @@ export default function AfterHoursPage() {
 
   const marketKpis = [
     {
-      title: '收盤指數',
+      title: '報酬指數收盤',
       value: combinedLoading ? '-' : taiexIndex != null ? taiexIndex.toFixed(2) : '-',
       change: taiexChange,
       changeLabel: taiexChangePct != null ? `${taiexChangePct > 0 ? '+' : ''}${taiexChangePct.toFixed(2)}%` : undefined,
@@ -280,25 +281,25 @@ export default function AfterHoursPage() {
     {
       title: '外資買賣超',
       value: isLoading ? '-' : formatShares(foreignNet),
-      change: foreignNet || undefined,
+      change: undefined,
       accentColor: getChangeColorVar(foreignNet),
     },
     {
       title: '投信買賣超',
       value: isLoading ? '-' : formatShares(trustNet),
-      change: trustNet || undefined,
+      change: undefined,
       accentColor: getChangeColorVar(trustNet),
     },
     {
       title: '自營商買賣超',
       value: isLoading ? '-' : formatShares(dealerNet),
-      change: dealerNet || undefined,
+      change: undefined,
       accentColor: getChangeColorVar(dealerNet),
     },
     {
       title: '三大法人合計',
       value: isLoading ? '-' : formatShares(instTotal),
-      change: instTotal || undefined,
+      change: undefined,
       accentColor: getChangeColorVar(instTotal),
     },
   ]

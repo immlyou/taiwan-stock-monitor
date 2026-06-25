@@ -73,7 +73,7 @@ export function MarketTicker() {
     >
       {/* 加權指數 */}
       <div className="flex items-center gap-1.5 shrink-0">
-        <span style={{ color: 'var(--muted-foreground)' }}>加權</span>
+        <span style={{ color: 'var(--muted-foreground)' }} title="發行量加權股價報酬指數">報酬指數</span>
         <span className="num font-semibold" style={{ color: 'var(--foreground)' }}>
           {isLoading ? '—' : formatCurrency(index, { decimals: 0 })}
         </span>
