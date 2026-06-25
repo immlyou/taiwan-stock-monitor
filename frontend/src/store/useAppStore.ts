@@ -1,7 +1,53 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+export type ThemeName = 'terminal' | 'editorial' | 'slate'
+export type ModeName = 'dark' | 'light'
+
+// 每套主題的代表模式：切換主題時連帶套上其招牌深淺。
+export const THEME_DEFAULT_MODE: Record<ThemeName, ModeName> = {
+  terminal: 'dark',
+  editorial: 'light',
+  slate: 'dark',
+}
+
+function readInitialTheme(): ThemeName {
+  if (typeof document !== 'undefined') {
+    const t = document.documentElement.dataset.theme
+    if (t === 'terminal' || t === 'editorial' || t === 'slate') return t
+  }
+  return 'terminal'
+}
+
+function readInitialMode(theme: ThemeName): ModeName {
+  if (typeof document !== 'undefined') {
+    const m = document.documentElement.dataset.mode
+    if (m === 'dark' || m === 'light') return m
+  }
+  return THEME_DEFAULT_MODE[theme]
+}
+
+// 套用主題到 <html> 並寫入 localStorage（與 layout 的 no-flash script 同一組 key）。
+function applyTheme(theme: ThemeName, mode: ModeName): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.dataset.mode = mode
+  }
+  try {
+    localStorage.setItem('tw_theme', theme)
+    localStorage.setItem('tw_mode', mode)
+  } catch {
+    /* localStorage 不可用時靜默略過 */
+  }
+}
+
 interface AppState {
+  // 佈景主題與深淺模式
+  theme: ThemeName
+  mode: ModeName
+  setTheme: (theme: ThemeName) => void
+  setMode: (mode: ModeName) => void
+
   // 側邊欄摺疊（桌面版）
   sidebarCollapsed: boolean
   toggleSidebar: () => void
@@ -32,7 +78,20 @@ interface AppState {
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
+      // 佈景主題（初始值讀自 <html> dataset，由 no-flash script 在 paint 前設好）
+      theme: readInitialTheme(),
+      mode: readInitialMode(readInitialTheme()),
+      setTheme: (theme) => {
+        const mode = THEME_DEFAULT_MODE[theme]
+        applyTheme(theme, mode)
+        set({ theme, mode })
+      },
+      setMode: (mode) => {
+        applyTheme(get().theme, mode)
+        set({ mode })
+      },
+
       // 側邊欄（桌面版摺疊）
       sidebarCollapsed: false,
       toggleSidebar: () =>

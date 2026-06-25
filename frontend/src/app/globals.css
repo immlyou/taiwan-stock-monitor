@@ -1,61 +1,121 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* 深淺模式以 <html data-mode="dark|light"> 控制；保留 dark: 工具類相容性 */
+@custom-variant dark (&:where([data-mode="dark"] *, [data-mode="dark"]));
 
+/* ── 共用 token（不隨主題改變）────────────────────────── */
 :root {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
-  --card: #1e293b;
-  --card-foreground: #e2e8f0;
-  --popover: #1e293b;
-  --popover-foreground: #e2e8f0;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
-  --secondary: #334155;
-  --secondary-foreground: #e2e8f0;
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
-  --accent: #3b82f6;
-  --accent-foreground: #ffffff;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #334155;
-  --input: #334155;
-  --ring: #3b82f6;
   --radius: 0.5rem;
   --sidebar-width: 260px;
   --sidebar-width-collapsed: 60px;
   --header-height: 56px;
 
-  /* 台股漲跌顏色 */
-  --stock-up: #ef4444;
-  --stock-down: #22c55e;
-  --stock-flat: #94a3b8;
-  --stock-up-strong: #dc2626;   /* 漲停強調 */
-  --stock-down-strong: #16a34a; /* 跌停強調 */
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  /* 台股漲停/跌停強調與淡色底（弱依賴主題，沿用既有名） */
+  --stock-up-strong: #dc2626;
+  --stock-down-strong: #16a34a;
   --stock-up-weak: rgba(239, 68, 68, 0.15);
   --stock-down-weak: rgba(34, 197, 94, 0.15);
 
-  /* 三大法人 / 資金分類色（非價格，取代各頁硬編色） */
-  --flow-foreign: #3b82f6; /* 外資（藍） */
-  --flow-trust: #f59e0b;   /* 投信（橘） */
-  --flow-dealer: #8b5cf6;  /* 自營商（紫） */
+  /* 三大法人 / 資金分類色（非價格） */
+  --flow-foreign: #3b82f6;
+  --flow-trust: #f59e0b;
+  --flow-dealer: #8b5cf6;
 
-  /* 評級色（A→F，取代各頁 getRatingColor 硬編） */
-  --rating-a: #22c55e;
-  --rating-b: #84cc16;
-  --rating-c: #f59e0b;
-  --rating-d: #f97316;
-  --rating-f: #ef4444;
+  /* 評級色（A→F，固定不隨主題變） */
+  --rating-a: #1FA463;
+  --rating-b: #7FB535;
+  --rating-c: #D99A2B;
+  --rating-d: #E0742E;
+  --rating-f: #E0483C;
 
-  /* 圖表序列色（指標/多序列，取代各頁硬編線色） */
+  /* 圖表序列色 */
   --chart-1: #3b82f6;
   --chart-2: #f59e0b;
   --chart-3: #8b5cf6;
   --chart-4: #10b981;
   --chart-5: #ec4899;
   --chart-6: #06b6d4;
+
+  /* 預設字體（被各主題覆蓋）；popover 對齊 card */
+  --font-sans: 'IBM Plex Sans', 'Noto Sans TC', sans-serif;
+  --font-serif: 'Spectral', 'Noto Serif TC', serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+/* ══ 終端金 Terminal ══════════════════════════════════════ */
+:root[data-theme="terminal"] {
+  --font-sans: 'IBM Plex Sans', 'Noto Sans TC', sans-serif;
+  --font-serif: 'Spectral', 'Noto Serif TC', serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --radius: 4px;
+}
+:root[data-theme="terminal"][data-mode="dark"] {
+  --background: #0A0A0C; --card: #15151B; --popover: #15151B; --secondary: #1F1F28; --muted: #1F1F28;
+  --foreground: #E8E6DE; --card-foreground: #E8E6DE; --secondary-foreground: #E8E6DE; --popover-foreground: #E8E6DE; --muted-foreground: #8E8B83;
+  --border: #26262F; --input: #26262F; --border-strong: #33333D;
+  --primary: #E8A33D; --accent: #E8A33D; --ring: #E8A33D; --primary-foreground: #1A1206; --accent-foreground: #1A1206;
+  --accent-soft: rgba(232, 163, 61, .13);
+  --stock-up: #FF4D4D; --stock-down: #1FBF75; --stock-flat: #605D56;
+}
+:root[data-theme="terminal"][data-mode="light"] {
+  --background: #F4F1E8; --card: #FFFFFF; --popover: #FFFFFF; --secondary: #F1EDE2; --muted: #F1EDE2;
+  --foreground: #1A1813; --card-foreground: #1A1813; --secondary-foreground: #1A1813; --popover-foreground: #1A1813; --muted-foreground: #6C685B;
+  --border: #E2DCCB; --input: #E2DCCB; --border-strong: #D2CAB4;
+  --primary: #A8761A; --accent: #A8761A; --ring: #A8761A; --primary-foreground: #FFFFFF; --accent-foreground: #FFFFFF;
+  --accent-soft: rgba(168, 118, 26, .12);
+  --stock-up: #D33A2C; --stock-down: #19854B; --stock-flat: #9C9582;
+}
+
+/* ══ 編輯帳冊 Editorial ══（預設淺色）═════════════════════ */
+:root[data-theme="editorial"] {
+  --font-sans: 'Noto Sans TC', 'IBM Plex Sans', sans-serif;
+  --font-serif: 'Newsreader', 'Noto Serif TC', serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --radius: 5px;
+}
+:root[data-theme="editorial"][data-mode="light"] {
+  --background: #F5F0E6; --card: #FFFFFF; --popover: #FFFFFF; --secondary: #FBF8F1; --muted: #FBF8F1;
+  --foreground: #1C1815; --card-foreground: #1C1815; --secondary-foreground: #1C1815; --popover-foreground: #1C1815; --muted-foreground: #6F6557;
+  --border: #E9E0CE; --input: #E9E0CE; --border-strong: #D9CDB4;
+  --primary: #9A6A1F; --accent: #9A6A1F; --ring: #9A6A1F; --primary-foreground: #FFF8EC; --accent-foreground: #FFF8EC;
+  --accent-soft: rgba(154, 106, 31, .10);
+  --stock-up: #C8362B; --stock-down: #1E7A4D; --stock-flat: #A0978A;
+}
+:root[data-theme="editorial"][data-mode="dark"] {
+  --background: #1A1712; --card: #231F18; --popover: #231F18; --secondary: #2C2719; --muted: #2C2719;
+  --foreground: #EFE7D6; --card-foreground: #EFE7D6; --secondary-foreground: #EFE7D6; --popover-foreground: #EFE7D6; --muted-foreground: #A99C84;
+  --border: #3A3326; --input: #3A3326; --border-strong: #4A4234;
+  --primary: #D9A441; --accent: #D9A441; --ring: #D9A441; --primary-foreground: #1A1206; --accent-foreground: #1A1206;
+  --accent-soft: rgba(217, 164, 65, .13);
+  --stock-up: #F0563F; --stock-down: #52B57D; --stock-flat: #7B7060;
+}
+
+/* ══ 石墨黃銅 Slate ══（預設深色）═════════════════════════ */
+:root[data-theme="slate"] {
+  --font-sans: 'Manrope', 'Noto Sans TC', sans-serif;
+  --font-serif: 'Source Serif 4', 'Noto Serif TC', serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --radius: 13px;
+}
+:root[data-theme="slate"][data-mode="dark"] {
+  --background: #13151B; --card: #1B1E26; --popover: #1B1E26; --secondary: #232732; --muted: #232732;
+  --foreground: #E8EAEF; --card-foreground: #E8EAEF; --secondary-foreground: #E8EAEF; --popover-foreground: #E8EAEF; --muted-foreground: #8B93A3;
+  --border: #262A33; --input: #262A33; --border-strong: #333845;
+  --primary: #C9A227; --accent: #C9A227; --ring: #C9A227; --primary-foreground: #1A1606; --accent-foreground: #1A1606;
+  --accent-soft: rgba(201, 162, 39, .13);
+  --stock-up: #FF5252; --stock-down: #2BD27C; --stock-flat: #5C6473;
+}
+:root[data-theme="slate"][data-mode="light"] {
+  --background: #EFEEE8; --card: #FFFFFF; --popover: #FFFFFF; --secondary: #F6F4EE; --muted: #F6F4EE;
+  --foreground: #1B1E26; --card-foreground: #1B1E26; --secondary-foreground: #1B1E26; --popover-foreground: #1B1E26; --muted-foreground: #6A7180;
+  --border: #E2DFD5; --input: #E2DFD5; --border-strong: #D0CCBE;
+  --primary: #A9851A; --accent: #A9851A; --ring: #A9851A; --primary-foreground: #FFFFFF; --accent-foreground: #FFFFFF;
+  --accent-soft: rgba(169, 133, 26, .12);
+  --stock-up: #E03A3A; --stock-down: #15A35F; --stock-flat: #99A1AF;
 }
 
 @theme inline {
@@ -73,9 +133,11 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-stock-up: var(--stock-up);
@@ -97,8 +159,9 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
   --color-chart-6: var(--chart-6);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -115,6 +178,16 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 襯線標題（編輯權威感）：頁面 H1/H2 改用主題 serif 字體 */
+h1, h2 {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+/* 主題切換時平滑過渡背景/邊框/文字色（避免生硬閃跳） */
+body, .theme-transition {
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
 }
 
 /* 手機版響應式 */

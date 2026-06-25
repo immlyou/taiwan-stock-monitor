@@ -1,9 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { SWRConfig } from 'swr'
 import type { Cache, State } from 'swr'
 import { useAppStore } from '@/store/useAppStore'
+
+// 僅在 client 為 true 的旗標（hydration-safe，不用 setState-in-effect）。
+const emptySubscribe = () => () => {}
+function useMounted(): boolean {
+  return useSyncExternalStore(emptySubscribe, () => true, () => false)
+}
 
 // 版本字串：回應結構改變（例如新增欄位）時 bump，讓所有舊快取自動失效一次，
 // 避免使用者看到缺欄位的舊資料（如 XGBoost 排行缺 price → 顯示「—」）。
@@ -95,8 +101,7 @@ function emptyProvider(): Cache {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useMounted()
 
   return (
     <SWRConfig

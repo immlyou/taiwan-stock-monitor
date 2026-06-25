@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Switch } from '@/components/ui/switch'
+import { ThemeSelector } from '@/components/settings/ThemeSelector'
 
 interface Settings {
   telegram: {
@@ -142,6 +143,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-4">
+        {/* 佈景主題 */}
+        <ThemeSelector />
+
         {/* Telegram */}
         <div
           className="rounded-lg p-4"
