@@ -30,6 +30,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["市場"], dependencies=[Depends(verify_api_key)])
 
 
+def _taiex_quote():
+    """大盤加權「價格」指數的 (index, change, change_pct)。
+
+    優先用價格指數（發行量加權股價指數，一般看的大盤指數）；資料集若取不到，
+    降級用含息報酬指數，確保不開天窗。兩者都從資料集自帶序列算，與漲跌家數同
+    一時間軸，避免混用即時 TWSE 造成數字打架。
+    """
+    for getter in (loader.get_price_index, loader.get_benchmark):
+        try:
+            s = getter()
+            if s is not None and len(s) >= 2:
+                cur = float(s.iloc[-1])
+                prev = float(s.iloc[-2])
+                return (
+                    round(cur, 2),
+                    round(cur - prev, 2),
+                    round((cur - prev) / prev * 100, 2) if prev else None,
+                )
+        except Exception:
+            logger.warning("_taiex_quote 取得 %s 失敗", getattr(getter, "__name__", getter), exc_info=True)
+    return None, None, None
+
+
 @router.get("/market/summary")
 @cached_response(ttl_seconds=60)
 async def market_summary():
@@ -73,20 +96,7 @@ async def market_summary():
     top_gainers = changes.nlargest(10)
     top_losers = changes.nsmallest(10)
 
-    # 大盤指數：用資料集自帶的報酬指數序列（與上面漲跌家數同一份 close 資料、
-    # 同一時間軸），不再混用即時 TWSE 價格指數——否則 ticker 會拿不同日期的指數
-    # 與漲跌，造成「+0.00% 綠燈」對上「-2.23% 紅盤」的矛盾。
-    taiex_index = taiex_change = taiex_change_pct = None
-    try:
-        benchmark = loader.get_benchmark()
-        if benchmark is not None and len(benchmark) >= 2:
-            cur = float(benchmark.iloc[-1])
-            prev = float(benchmark.iloc[-2])
-            taiex_index = round(cur, 2)
-            taiex_change = round(cur - prev, 2)
-            taiex_change_pct = round((cur - prev) / prev * 100, 2) if prev else None
-    except Exception:
-        logger.warning("market_summary 取得報酬指數失敗", exc_info=True)
+    taiex_index, taiex_change, taiex_change_pct = _taiex_quote()
 
     return {
         "date": summary.get("latest_date"),
@@ -303,22 +313,12 @@ async def market_after_hours():
             except Exception:
                 strategies_summary[stype] = {"total": 0, "top5": []}
 
-        # 大盤指數
-        taiex_data = {}
-        try:
-            benchmark = loader.get_benchmark()
-            if benchmark is not None and len(benchmark) >= 2:
-                taiex_close = float(benchmark.iloc[-1])
-                taiex_prev = float(benchmark.iloc[-2])
-                taiex_change = taiex_close - taiex_prev
-                taiex_change_pct = (taiex_change / taiex_prev * 100) if taiex_prev != 0 else 0
-                taiex_data = {
-                    "close": round(taiex_close, 2),
-                    "change": round(taiex_change, 2),
-                    "change_pct": round(taiex_change_pct, 2),
-                }
-        except Exception:
-            pass
+        # 大盤指數（價格指數優先，與 /market/summary 同源同值）
+        _idx, _chg, _chg_pct = _taiex_quote()
+        taiex_data = (
+            {"close": _idx, "change": _chg, "change_pct": _chg_pct}
+            if _idx is not None else {}
+        )
 
         # 三大法人
         institutional_data = {}

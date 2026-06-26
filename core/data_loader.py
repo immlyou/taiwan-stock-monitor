@@ -627,11 +627,28 @@ class DataLoader:
         return close.index.max()
 
     def get_benchmark(self) -> pd.Series:
-        """取得大盤指數"""
+        """取得大盤指數（含息報酬指數）"""
         df = self.get('benchmark')
         if '發行量加權股價報酬指數' in df.columns:
             return df['發行量加權股價報酬指數']
         return df.iloc[:, 0]
+
+    def get_price_index(self) -> pd.Series:
+        """取得發行量加權股價「價格」指數（一般看的大盤加權指數，非含息報酬指數）。
+
+        FinLab 資料集 stock_index_price:收盤指數 是各指數的收盤值表，取其中
+        「上市發行量加權股價指數」欄。取不到時回傳空 Series，由呼叫端決定降級。
+        """
+        try:
+            df = self.get('taiex_price')
+        except Exception:
+            return pd.Series(dtype=float)
+        if df is None or len(df) == 0:
+            return pd.Series(dtype=float)
+        for col in ('上市發行量加權股價指數', '發行量加權股價指數', '收盤指數'):
+            if col in df.columns:
+                return df[col].dropna()
+        return df.iloc[:, 0].dropna()
 
     def clear_cache(self):
         """清除快取"""

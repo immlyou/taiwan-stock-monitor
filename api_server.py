@@ -107,6 +107,7 @@ async def _lifespan(app: FastAPI):
         'pe_ratio', 'pb_ratio', 'dividend_yield',
         'revenue_yoy', 'market_value', 'categories',
         'foreign_investors', 'investment_trust', 'dealer',
+        'taiex_price',  # 大盤加權「價格」指數，供 ticker / 盤後頁顯示
     ]
 
     def _load():

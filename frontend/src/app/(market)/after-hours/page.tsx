@@ -250,7 +250,7 @@ export default function AfterHoursPage() {
 
   const marketKpis = [
     {
-      title: '報酬指數收盤',
+      title: '收盤指數',
       value: combinedLoading ? '-' : taiexIndex != null ? taiexIndex.toFixed(2) : '-',
       change: taiexChange,
       changeLabel: taiexChangePct != null ? `${taiexChangePct > 0 ? '+' : ''}${taiexChangePct.toFixed(2)}%` : undefined,

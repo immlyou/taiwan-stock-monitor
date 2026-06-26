@@ -35,6 +35,7 @@ DATA_REGISTRY = {
 
     # 其他
     'benchmark':      {'file': 'benchmark_return#發行量加權股價報酬指數.pickle',                                    'finlab_key': 'benchmark_return:發行量加權股價報酬指數'},
+    'taiex_price':    {'file': 'stock_index_price#收盤指數.pickle',                                                  'finlab_key': 'stock_index_price:收盤指數'},
     'categories':     {'file': 'security_categories.pickle',                                                         'finlab_key': 'security_categories'},
 
     # 三大法人買賣超
