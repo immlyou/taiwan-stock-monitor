@@ -27,6 +27,9 @@ def cloud_loader(tmp_path, monkeypatch):
     loader._use_finlab_api = True
     loader._use_global_cache = False
     loader._cache = {}
+    # __new__ 繞過 __init__，補上 get() 用到的 per-key 下載鎖欄位
+    loader._download_locks = {}
+    loader._download_locks_meta = dl.Lock()
     # 每測重置模組級熔斷狀態
     dl._finlab_quota_exceeded = False
     dl._finlab_usage_mb = 0.0

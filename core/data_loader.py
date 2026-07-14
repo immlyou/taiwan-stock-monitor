@@ -272,6 +272,12 @@ class DataLoader:
             self._global_cache = None
             self._cache: Dict[str, pd.DataFrame] = {}
 
+        # 每個 data_key 一把下載鎖：避免多執行緒（cache_warmer 背景緒 vs 請求緒，或
+        # market 端點 run_in_executor 卸載後的多請求緒）同時 cache-miss → 重複打 FinLab
+        # 下載，浪費稀缺額度並可能誤觸額度熔斷。_download_locks_meta 保護鎖字典本身。
+        self._download_locks: Dict[str, Lock] = {}
+        self._download_locks_meta = Lock()
+
     def _finlab_get_with_retry(self, data, api_name: str):
         """對 finlab data.get() 做「短暫性錯誤」的指數退避重試。
 
@@ -514,12 +520,45 @@ class DataLoader:
         """
         # 優先檢查快取（雲端模式使用 FINLAB_CACHE_TTL，本地模式不過期）
         cache_max_age = FINLAB_CACHE_TTL if self._use_finlab_api else 0
-        if use_cache:
-            if self._use_global_cache and self._global_cache.has(data_key, max_age=cache_max_age):
-                return self._global_cache.get(data_key)
-            elif not self._use_global_cache and data_key in self._cache:
-                return self._cache[data_key]
 
+        # 快路徑：命中快取直接回，不取鎖（常見情況、零競爭成本）
+        if use_cache:
+            hit = self._cache_lookup(data_key, cache_max_age)
+            if hit is not None:
+                return hit
+            # cache-miss：取該 key 專屬下載鎖後 double-check 再下載，避免多執行緒重複下載。
+            with self._download_lock_for(data_key):
+                hit = self._cache_lookup(data_key, cache_max_age)
+                if hit is not None:
+                    return hit
+                return self._load_body(data_key, use_cache=True)
+
+        # use_cache=False：呼叫端明示要繞過快取，不取下載鎖、不寫快取。
+        return self._load_body(data_key, use_cache=False)
+
+    def _cache_lookup(self, data_key: str, cache_max_age) -> Optional[pd.DataFrame]:
+        """查記憶體快取；命中回 DataFrame，否則回 None（不觸發下載）。"""
+        if self._use_global_cache:
+            if self._global_cache.has(data_key, max_age=cache_max_age):
+                return self._global_cache.get(data_key)
+        elif self._cache is not None and data_key in self._cache:
+            return self._cache[data_key]
+        return None
+
+    def _download_lock_for(self, data_key: str) -> Lock:
+        """取得某 data_key 專屬的下載鎖（首次使用時建立）。"""
+        with self._download_locks_meta:
+            lk = self._download_locks.get(data_key)
+            if lk is None:
+                lk = Lock()
+                self._download_locks[data_key] = lk
+            return lk
+
+    def _load_body(self, data_key: str, use_cache: bool) -> pd.DataFrame:
+        """實際載入 data_key（FinLab / 本地 pickle）並依 use_cache 寫入快取。
+
+        呼叫端保證：use_cache=True 時已持有該 key 的下載鎖、且已 double-check 過快取。
+        """
         # 根據環境選擇載入方式
         if self._use_finlab_api:
             # 雲端模式：使用 FinLab API
