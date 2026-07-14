@@ -126,7 +126,10 @@ def cached_response(ttl_seconds: int = 300):
     """快取 API 回應的裝飾器，預設 5 分鐘 TTL。
 
     Backend 在程序啟動時決定（Redis / in-memory，由 REDIS_URL 控制），
-    失敗自動降級。僅適合無路徑參數的 GET 端點。
+    失敗自動降級。快取 key 由 ``make_key(func.__name__, kwargs)`` 產生，已把端點
+    函式收到的所有 kwargs（含路徑參數，FastAPI 以 kwargs 傳入）納入，因此路徑參數
+    端點也可安全使用（如 ``/stock/{stock_id}/score-history``）；僅需避免用在回應
+    依賴 header/cookie 等未進入函式 kwargs 之輸入的端點。
     """
     def decorator(func):
         @wraps(func)
