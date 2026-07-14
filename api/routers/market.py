@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Dict
@@ -57,6 +58,10 @@ def _taiex_quote():
 @cached_response(ttl_seconds=60)
 async def market_summary():
     """市場總覽 - 取得大盤指數、上漲/下跌家數等摘要資訊。"""
+    return await asyncio.get_event_loop().run_in_executor(None, _market_summary_impl)
+
+
+def _market_summary_impl():
     from core.data_loader import _finlab_quota_exceeded
 
     # Fallback: FinLab 額度超限時改用 TWSE 大盤指數
@@ -124,6 +129,10 @@ async def market_summary():
 @cached_response(ttl_seconds=300)
 async def market_heatmap():
     """市場熱力圖資料 - 依產業分組，顯示各股漲跌幅。"""
+    return await asyncio.get_event_loop().run_in_executor(None, _market_heatmap_impl)
+
+
+def _market_heatmap_impl():
     try:
         close = loader.get("close")
         active = get_active_stocks()
@@ -165,6 +174,10 @@ async def market_heatmap():
 @cached_response(ttl_seconds=300)
 async def market_money_flow():
     """市場資金流向 - 三大法人買賣超統計。"""
+    return await asyncio.get_event_loop().run_in_executor(None, _market_money_flow_impl)
+
+
+def _market_money_flow_impl():
     try:
         result = {
             "date": None,
@@ -209,6 +222,12 @@ async def market_benchmark(
     days: int = Query(default=252, ge=20, le=1260, description="取得最近 N 個交易日"),
 ):
     """大盤指數時序資料 — 回傳加權股價報酬指數歷史數據。"""
+    return await asyncio.get_event_loop().run_in_executor(
+        None, _market_benchmark_impl, days
+    )
+
+
+def _market_benchmark_impl(days: int):
     try:
         benchmark = loader.get_benchmark()
         series = benchmark.dropna().tail(days)
@@ -232,6 +251,10 @@ async def market_benchmark(
 @cached_response(ttl_seconds=300)
 async def market_industries():
     """產業列表與各產業統計。"""
+    return await asyncio.get_event_loop().run_in_executor(None, _market_industries_impl)
+
+
+def _market_industries_impl():
     try:
         active = get_active_stocks()
         close = loader.get("close")
@@ -277,6 +300,12 @@ async def market_industry_rotation(
     top_n: int = Query(default=30, ge=1, le=100, description="回傳產業數量"),
 ):
     """產業輪動雷達：短中期動能、廣度與領先/改善/轉弱/落後象限。"""
+    return await asyncio.get_event_loop().run_in_executor(
+        None, _market_industry_rotation_impl, top_n
+    )
+
+
+def _market_industry_rotation_impl(top_n: int):
     try:
         return calculate_industry_rotation(loader, top_n=top_n)
     except Exception as e:
@@ -290,17 +319,12 @@ async def market_after_hours():
     整合當日收盤數據與 value / growth / momentum 策略各取前 5 名。
     """
     try:
-        close = loader.get("close")
-        active = get_active_stocks()
+        loop = asyncio.get_event_loop()
+        # 阻塞的資料載入（收盤/漲跌/大盤）丟執行緒池，別卡單 worker 事件迴圈。
+        base = await loop.run_in_executor(None, _after_hours_base)
+        name_map = base["name_map"]
 
-        latest = close[active].iloc[-1]
-        prev = close[active].iloc[-2]
-        changes = ((latest - prev) / prev * 100).dropna()
-        name_map = _get_stock_name_map()
-
-        top_gainers = changes.nlargest(5)
-        top_losers = changes.nsmallest(5)
-
+        # 策略選股本身是 async（run_strategy 留在事件迴圈上），逐一 await。
         strategies_summary = {}
         for stype in ("value", "growth", "momentum"):
             try:
@@ -315,44 +339,76 @@ async def market_after_hours():
             except Exception:
                 strategies_summary[stype] = {"total": 0, "top5": []}
 
-        # 大盤指數（價格指數優先，與 /market/summary 同源同值）
-        _idx, _chg, _chg_pct = _taiex_quote()
-        taiex_data = (
-            {"close": _idx, "change": _chg, "change_pct": _chg_pct}
-            if _idx is not None else {}
-        )
-
-        # 三大法人
-        institutional_data = {}
-        for key, label in [("foreign_investors", "foreign"), ("investment_trust", "trust"), ("dealer", "dealer")]:
-            try:
-                df = loader.get(key)
-                net = float(df.iloc[-1].dropna().sum())
-                institutional_data[label] = {"total_net": _safe_json(net)}
-            except Exception:
-                institutional_data[label] = {"total_net": 0}
+        # 三大法人（阻塞的 loader.get）同樣丟執行緒池。
+        institutional_data = await loop.run_in_executor(None, _after_hours_institutional)
 
         return {
-            "date": close.index[-1].strftime("%Y-%m-%d"),
-            "taiex": taiex_data,
+            "date": base["date"],
+            "taiex": base["taiex"],
             "institutional": institutional_data,
-            "market": {
-                "up": int((changes > 0).sum()),
-                "down": int((changes < 0).sum()),
-                "flat": int((changes == 0).sum()),
-            },
-            "top_gainers": [
-                {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
-                for sid, pct in top_gainers.items()
-            ],
-            "top_losers": [
-                {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
-                for sid, pct in top_losers.items()
-            ],
+            "market": base["market"],
+            "top_gainers": base["top_gainers"],
+            "top_losers": base["top_losers"],
             "ai_picks": strategies_summary,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _after_hours_base() -> dict:
+    """盤後總覽的同步資料段：收盤、漲跌家數、漲跌幅榜、大盤指數。
+
+    回傳含 name_map（供策略段組名用）；呼叫端組最終回應時不會把 name_map 放進輸出。
+    """
+    close = loader.get("close")
+    active = get_active_stocks()
+
+    latest = close[active].iloc[-1]
+    prev = close[active].iloc[-2]
+    changes = ((latest - prev) / prev * 100).dropna()
+    name_map = _get_stock_name_map()
+
+    top_gainers = changes.nlargest(5)
+    top_losers = changes.nsmallest(5)
+
+    # 大盤指數（價格指數優先，與 /market/summary 同源同值）
+    _idx, _chg, _chg_pct = _taiex_quote()
+    taiex_data = (
+        {"close": _idx, "change": _chg, "change_pct": _chg_pct}
+        if _idx is not None else {}
+    )
+
+    return {
+        "date": close.index[-1].strftime("%Y-%m-%d"),
+        "taiex": taiex_data,
+        "market": {
+            "up": int((changes > 0).sum()),
+            "down": int((changes < 0).sum()),
+            "flat": int((changes == 0).sum()),
+        },
+        "top_gainers": [
+            {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
+            for sid, pct in top_gainers.items()
+        ],
+        "top_losers": [
+            {"stock_id": sid, "name": name_map.get(sid, ""), "change_pct": round(float(pct), 2)}
+            for sid, pct in top_losers.items()
+        ],
+        "name_map": name_map,
+    }
+
+
+def _after_hours_institutional() -> dict:
+    """盤後總覽的三大法人買賣超（同步 loader.get）。"""
+    institutional_data = {}
+    for key, label in [("foreign_investors", "foreign"), ("investment_trust", "trust"), ("dealer", "dealer")]:
+        try:
+            df = loader.get(key)
+            net = float(df.iloc[-1].dropna().sum())
+            institutional_data[label] = {"total_net": _safe_json(net)}
+        except Exception:
+            institutional_data[label] = {"total_net": 0}
+    return institutional_data
 
 
 # /market/benchmark 與 /market/industries 已抽出到 api/routers/market.py
