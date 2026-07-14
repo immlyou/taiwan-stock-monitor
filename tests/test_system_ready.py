@@ -98,8 +98,10 @@ def test_ready_does_not_trigger_download(ready_client, monkeypatch):
 def test_ready_wait_is_clamped(ready_client, monkeypatch):
     """傳入超大 wait 值時，輪詢上限被 clamp，且不會真的睡很久。
 
-    用 monkeypatch 掉 time.sleep 計次，確認輪詢次數受 _READY_MAX_WAIT_SECONDS
+    用 monkeypatch 掉 asyncio.sleep 計次，確認輪詢次數受 _READY_MAX_WAIT_SECONDS
     與 _READY_POLL_INTERVAL 共同 clamp，而非依使用者傳入的超大值。
+    （ready 輪詢用 await asyncio.sleep，不是 time.sleep——後者會凍結單 worker 的
+    事件迴圈，見 api/routers/system.py 內註解。）
     """
     client, cache = ready_client
     cache.clear_key("close")
@@ -114,12 +116,12 @@ def test_ready_wait_is_clamped(ready_client, monkeypatch):
     def _fake_monotonic():
         return clock["t"]
 
-    def _fake_sleep(seconds):  # noqa: ANN001
+    async def _fake_async_sleep(seconds):  # noqa: ANN001
         sleep_calls["count"] += 1
         clock["t"] += seconds
 
     monkeypatch.setattr(system_mod.time, "monotonic", _fake_monotonic)
-    monkeypatch.setattr(system_mod.time, "sleep", _fake_sleep)
+    monkeypatch.setattr(system_mod.asyncio, "sleep", _fake_async_sleep)
 
     # 傳入遠大於上限的 wait；clamp 後最多 ceil(MAX/INTERVAL) 次輪詢。
     resp = client.get("/ready", params={"wait": 999999})

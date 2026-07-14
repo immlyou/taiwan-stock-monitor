@@ -224,7 +224,10 @@ async def ready(
     ready_flag = _close_ready()
     deadline = time.monotonic() + wait_seconds
     while not ready_flag and time.monotonic() < deadline:
-        time.sleep(_READY_POLL_INTERVAL)
+        # await（非 time.sleep）：ready 是 async def，同步 sleep 會凍結單 worker
+        # 的整個事件迴圈（含 /health），與「/ready 與 /health 分開以免互相阻塞」的
+        # 設計意圖相反。asyncio.sleep 讓事件迴圈在等待期間繼續服務其他請求。
+        await asyncio.sleep(_READY_POLL_INTERVAL)
         ready_flag = _close_ready()
 
     if ready_flag:

@@ -87,7 +87,9 @@ async def market_summary():
 
     latest = close[active].iloc[-1]
     prev = close[active].iloc[-2]
-    changes = (latest - prev) / prev * 100
+    # 比照同檔 market_heatmap/market_industries：清掉 prev=0 造成的 inf 與缺值 NaN，
+    # 否則 inf 會被排進 top_gainers/top_losers 並流入 SafeJSONResponse 導致 500。
+    changes = ((latest - prev) / prev * 100).replace([float('inf'), float('-inf')], 0).fillna(0)
 
     up_count = int((changes > 0).sum())
     down_count = int((changes < 0).sum())
