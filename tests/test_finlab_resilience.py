@@ -43,7 +43,11 @@ def cloud_loader(tmp_path, monkeypatch):
     monkeypatch.setattr(dl, "FINLAB_RETRY_MAX", 3)
     monkeypatch.setattr(dl, "FINLAB_RETRY_INITIAL_DELAY", 0.0)
     monkeypatch.setattr(dl, "FINLAB_RETRY_MAX_DELAY", 0.0)
-    return loader
+    yield loader
+    # teardown：還原模組級熔斷旗標，避免測試 body 設 True 洩漏到後續收集的測試檔
+    # （這些是直接賦值的模組全域，不會像 monkeypatch 自動還原）。
+    dl._finlab_quota_exceeded = False
+    dl._finlab_usage_mb = 0.0
 
 
 # ──────────────────────────────────────────────
