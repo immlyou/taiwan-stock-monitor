@@ -15,6 +15,8 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from api.routers.system import APP_VERSION
+
 
 @pytest.fixture
 def api_client(monkeypatch, tmp_path, sample_close, sample_volume, sample_stock_info):
@@ -83,7 +85,7 @@ class TestSystemEndpoints:
         assert r.status_code == 200
         body = r.json()
         assert body["name"] == "台股戰情中心 API"
-        assert body["version"] == "2.0.0"
+        assert body["version"] == APP_VERSION
         assert body["docs"] == "/docs"
 
     def test_health_returns_status(self, api_client):
@@ -98,7 +100,7 @@ class TestSystemEndpoints:
         r = api_client.get("/openapi.json")
         assert r.status_code == 200
         schema = r.json()
-        assert schema["info"]["version"] == "2.0.0"
+        assert schema["info"]["version"] == APP_VERSION
         assert "/stocks/list" in schema["paths"]
 
 
