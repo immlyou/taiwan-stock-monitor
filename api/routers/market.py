@@ -34,10 +34,28 @@ router = APIRouter(tags=["市場"], dependencies=[Depends(verify_api_key)])
 def _taiex_quote():
     """大盤加權「價格」指數的 (index, change, change_pct)。
 
-    優先用價格指數（發行量加權股價指數，一般看的大盤指數）；資料集若取不到，
-    降級用含息報酬指數，確保不開天窗。兩者都從資料集自帶序列算，與漲跌家數同
-    一時間軸，避免混用即時 TWSE 造成數字打架。
+    優先用 TWSE 官方**結算收盤**（fetch_taiex_latest / FMTQIK）：這是證交所公告的
+    官方加權指數收盤值，與外部看到的數字一致。注意這是「結算收盤」非「盤中即時」，
+    故不會有盤中跳動與漲跌家數打架的問題。
+    取不到時才降級 FinLab 資料集：價格指數（發行量加權股價指數）→ 含息報酬指數，
+    確保不開天窗（但 FinLab 的指數值可能與官方收盤有數點差異，故非首選）。
     """
+    # 首選：TWSE 官方結算收盤
+    try:
+        from core.twse_api import fetch_taiex_latest
+
+        q = fetch_taiex_latest()
+        if q and q.get("index") is not None:
+            pct = q.get("change_pct")
+            return (
+                round(float(q["index"]), 2),
+                round(float(q.get("change") or 0), 2),
+                round(float(pct), 2) if pct is not None else None,
+            )
+    except Exception:
+        logger.warning("_taiex_quote 取 TWSE 官方收盤失敗，降級 FinLab", exc_info=True)
+
+    # 降級：FinLab 價格指數 → 含息報酬指數
     for getter in (loader.get_price_index, loader.get_benchmark):
         try:
             s = getter()

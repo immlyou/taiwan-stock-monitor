@@ -57,6 +57,11 @@ def market_client(monkeypatch):
     monkeypatch.setattr(market_mod.loader, "get", _loader_get)
     monkeypatch.setattr(market_mod.loader, "get_price_index", lambda: price_index)
     monkeypatch.setattr(market_mod.loader, "get_benchmark", lambda: price_index)
+    # _taiex_quote 現在優先打 TWSE fetch_taiex_latest → mock 掉避免測試打真網路
+    monkeypatch.setattr(
+        "core.twse_api.fetch_taiex_latest",
+        lambda: {"index": 18100.0, "change": 100.0, "change_pct": 0.56, "date": "2026-07-15"},
+    )
     monkeypatch.setattr(market_mod, "_get_stock_name_map", lambda: name_map)
     monkeypatch.setattr(market_mod, "_get_industry_map", lambda: industry_map)
     monkeypatch.setattr(
@@ -114,6 +119,40 @@ def test_industry_rotation_offloaded_passes_top_n(market_client):
     r = market_client.get("/market/industry-rotation?top_n=7")
     assert r.status_code == 200, r.text
     assert r.json()["top_n"] == 7  # top_n 有正確透傳進 executor
+
+
+def test_taiex_quote_prefers_official_twse_close(monkeypatch):
+    """_taiex_quote 優先 TWSE 官方結算收盤，而非 FinLab 價格指數。
+
+    背景（2026-07-16）：FinLab 的 taiex_price 對某日回 45631.59，但 TWSE 官方結算
+    收盤是 45624；大盤指數應顯示官方值。
+    """
+    import core.twse_api as twse
+    import api.routers.market as market_mod
+
+    monkeypatch.setattr(
+        twse, "fetch_taiex_latest",
+        lambda: {"index": 45624.0, "change": 886.05, "change_pct": 1.98, "date": "2026-07-16"},
+    )
+    # FinLab 價格指數給不同值，確認官方值優先、沒被 FinLab 蓋掉
+    monkeypatch.setattr(market_mod.loader, "get_price_index", lambda: pd.Series([44737.95, 45631.59]))
+
+    idx, chg, pct = market_mod._taiex_quote()
+    assert idx == 45624.0, f"應用 TWSE 官方 45624，不是 FinLab 45631.59；得到 {idx}"
+    assert chg == 886.05
+    assert pct == 1.98
+
+
+def test_taiex_quote_falls_back_to_finlab_when_twse_unavailable(monkeypatch):
+    """TWSE 取不到時降級 FinLab 價格指數，不開天窗。"""
+    import core.twse_api as twse
+    import api.routers.market as market_mod
+
+    monkeypatch.setattr(twse, "fetch_taiex_latest", lambda: None)
+    monkeypatch.setattr(market_mod.loader, "get_price_index", lambda: pd.Series([44737.95, 45631.59]))
+
+    idx, chg, pct = market_mod._taiex_quote()
+    assert idx == 45631.59, f"TWSE 不可用應降級 FinLab 45631.59；得到 {idx}"
 
 
 def test_after_hours_restructured_output(market_client):
