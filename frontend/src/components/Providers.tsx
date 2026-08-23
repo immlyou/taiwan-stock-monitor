@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { SWRConfig } from 'swr'
 import type { Cache, State } from 'swr'
-import { SessionProvider } from 'next-auth/react'
+import { SessionProvider, useSession } from 'next-auth/react'
 import { useAppStore } from '@/store/useAppStore'
 
 // 僅在 client 為 true 的旗標（hydration-safe，不用 setState-in-effect）。
@@ -14,7 +14,8 @@ function useMounted(): boolean {
 
 // 版本字串：回應結構改變（例如新增欄位）時 bump，讓所有舊快取自動失效一次，
 // 避免使用者看到缺欄位的舊資料（如 XGBoost 排行缺 price → 顯示「—」）。
-const SWR_CACHE_KEY = 'swr-cache-v2'
+const LEGACY_SWR_CACHE_KEY = 'swr-cache-v2'
+const SWR_CACHE_PREFIX = 'swr-cache-v3:'
 
 /**
  * localStorage 後端的 SWR cache provider —— 讓資料跨「重新整理」保留。
@@ -26,7 +27,7 @@ const SWR_CACHE_KEY = 'swr-cache-v2'
  * 只持久化「有 data、無 error」的項目，避免把載入中/錯誤狀態（如暫時 503）
  * 也存進去、下次啟動誤顯示錯誤。寫入以 try/catch 包住，quota 爆掉就略過。
  */
-function localStorageProvider(): Cache {
+function localStorageProvider(storageKey: string): Cache {
   const map = new Map<string, State<unknown>>()
 
   if (typeof window === 'undefined') {
@@ -34,7 +35,9 @@ function localStorageProvider(): Cache {
   }
 
   try {
-    const saved = localStorage.getItem(SWR_CACHE_KEY)
+    // v2 未分帳號，不能安全沿用；首次建立任一帳號 cache 時直接淘汰。
+    localStorage.removeItem(LEGACY_SWR_CACHE_KEY)
+    const saved = localStorage.getItem(storageKey)
     if (saved) {
       for (const [key, value] of JSON.parse(saved) as [string, State<unknown>][]) {
         map.set(key, value)
@@ -53,7 +56,7 @@ function localStorageProvider(): Cache {
           entries.push([key, { data: value.data } as State<unknown>])
         }
       }
-      localStorage.setItem(SWR_CACHE_KEY, JSON.stringify(entries))
+      localStorage.setItem(storageKey, JSON.stringify(entries))
     } catch {
       // localStorage quota 爆掉或序列化失敗：略過持久化，退回純記憶體
     }
@@ -102,22 +105,41 @@ function emptyProvider(): Cache {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const mounted = useMounted()
-
   return (
     <SessionProvider>
-      <SWRConfig
-        value={{
-          provider: mounted ? localStorageProvider : emptyProvider,
-          dedupingInterval: 5000,
-          revalidateOnFocus: false,
-          errorRetryCount: 2,
-          keepPreviousData: true,
-        }}
-      >
-        <MobileDetector />
-        {children}
-      </SWRConfig>
+      <UserScopedSWRProvider>{children}</UserScopedSWRProvider>
     </SessionProvider>
+  )
+}
+
+function UserScopedSWRProvider({ children }: { children: React.ReactNode }) {
+  const mounted = useMounted()
+  const { data: session, status } = useSession()
+  const userId = session?.user?.id
+  const storageKey = mounted && status === 'authenticated' && userId
+    ? `${SWR_CACHE_PREFIX}${userId}`
+    : null
+  const provider = useMemo(
+    () => storageKey
+      ? () => localStorageProvider(storageKey)
+      : emptyProvider,
+    [storageKey]
+  )
+
+  return (
+    <SWRConfig
+      key={storageKey ?? `session-${status}`}
+      value={{
+        provider,
+        dedupingInterval: 5000,
+        revalidateOnFocus: false,
+        // fetchAPI 已針對暫時性 GET 錯誤做一次重試；避免 SWR 再疊加成 retry storm。
+        errorRetryCount: 0,
+        keepPreviousData: true,
+      }}
+    >
+      <MobileDetector />
+      {children}
+    </SWRConfig>
   )
 }

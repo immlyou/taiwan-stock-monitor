@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:blocking": "playwright test e2e/smoke.spec.ts e2e/authenticated.spec.ts",
     "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report"

@@ -116,7 +116,7 @@ jobs:
         run: npm run build
 
   e2e:
-    name: Playwright auth smoke
+    name: Playwright auth and core flows
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -137,14 +137,14 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run local auth smoke E2E
+      - name: Run blocking authenticated E2E
         env:
           NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
           AUTH_SECRET: ci-only-secret-ci-only-secret-1234
           AUTH_GOOGLE_ID: ci-google-client-id
           AUTH_GOOGLE_SECRET: ci-google-client-secret
           AUTH_ALLOWED_EMAIL: imchris.yu@gmail.com
-        run: npx playwright test e2e/smoke.spec.ts --reporter=list,html
+        run: npm run test:e2e:blocking -- --reporter=list,html
 
       - name: Upload Playwright report
         if: always()

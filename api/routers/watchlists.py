@@ -276,11 +276,20 @@ async def watchlist_update(
         from app.components.watchlist_utils import (
             load_watchlists, save_watchlists, watchlist_file,
         )
+        from api.helpers import resolve_default_id
         from core.json_store import file_lock
         with file_lock(watchlist_file(user_id)):
             watchlists = load_watchlists(user_id)
-            if watchlist_id not in watchlists:
+            resolved, empty_default = resolve_default_id(watchlists, watchlist_id)
+            if empty_default:
+                resolved = "default"
+                watchlists[resolved] = {
+                    "stocks": [],
+                    "created_at": datetime.now().isoformat(),
+                }
+            elif resolved is None:
                 raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
+            watchlist_id = resolved
 
             entry = watchlists[watchlist_id]
             if isinstance(entry, list):
