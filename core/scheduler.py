@@ -53,13 +53,30 @@ def _alert_check_job() -> None:
     任務內所有例外都被吞掉並記錄，絕不可讓它逸出而毒死排程執行緒。
     """
     try:
-        from api.state import loader
+        import asyncio
+
+        from api.models import AlertEvaluateRequest
+        from api.routers.alerts import alert_rules_evaluate
+        from api.state import DATA_DIR, loader
         from core.alerts import check_alerts_and_notify
+        from core.user_storage import iter_user_ids
 
         data = {key: loader.get(key) for key in ("close", "volume", "high", "low")}
-        triggered = check_alerts_and_notify(data, send_notification=True)
-        if triggered:
-            logger.info("排程警報檢查：%d 筆觸發", len(triggered))
+        triggered_count = 0
+        for user_id in iter_user_ids(DATA_DIR):
+            triggered = check_alerts_and_notify(
+                data, send_notification=True, user_id=user_id
+            )
+            triggered_count += len(triggered)
+            result = asyncio.run(
+                alert_rules_evaluate(
+                    AlertEvaluateRequest(sendNotifications=True), user_id=user_id
+                )
+            )
+            triggered_count += int(result.get("triggeredCount", 0))
+
+        if triggered_count:
+            logger.info("排程警報檢查：%d 筆觸發", triggered_count)
         else:
             logger.debug("排程警報檢查：無觸發")
     except Exception:

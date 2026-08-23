@@ -68,6 +68,8 @@ taiwan-stock-monitor/
 FINLAB_API_TOKEN=your_finlab_token
 STOCK_API_KEY=optional_api_key
 CORS_ORIGINS=http://localhost:3000,https://taiwan-stock-monitor.vercel.app
+# 若既有 data/*.json 要歸給某個 Google 帳號，設成該 session 的 user.id
+DEFAULT_USER_ID=google_你的_Google_providerAccountId
 
 # 背景排程器（盤中自動警報檢查）
 ENABLE_SCHEDULER=1            # 1/0；未設定時雲端預設開、本地預設關
@@ -83,9 +85,24 @@ ALERT_NOTIFY_COOLDOWN_SEC=3600  # 同一警報通知冷卻秒數，避免重複�
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
+STOCK_API_KEY=與後端相同的_server_only_key
+AUTH_SECRET=至少_32_字元的隨機值
+AUTH_GOOGLE_ID=Google_OAuth_Client_ID
+AUTH_GOOGLE_SECRET=Google_OAuth_Client_Secret
 ```
 
-生產環境在 Vercel 必須設定 `NEXT_PUBLIC_API_URL` 指向 Railway API。
+生產環境在 Vercel 必須設定以上變數，並讓 `NEXT_PUBLIC_API_URL` 指向 Railway
+API。Google OAuth Client 的 redirect URI 設為：
+
+```text
+http://localhost:3000/api/auth/callback/google
+https://你的-Vercel-網域/api/auth/callback/google
+```
+
+既有單人版 `data/*.json` 預設保留在 `owner` namespace。站長第一次 Google
+登入後可開啟 `/api/auth/session` 取得自己的 `user.id`，把 Railway 的
+`DEFAULT_USER_ID` 設成該值並重新部署，即可讓原資料歸到站長帳號；其他帳號仍存放在
+`data/users/<user.id>/`。
 
 ## 本機開發
 
@@ -119,7 +136,9 @@ npm run dev
 
 前端網址：`http://localhost:3000`
 
-瀏覽器端會透過 Next.js rewrite 將 `/api/*` 代理到 `NEXT_PUBLIC_API_URL`。
+瀏覽器端會透過需要 Google session 的 Next.js Route Handler 將 `/api/*`
+代理到 `NEXT_PUBLIC_API_URL`；後端資料以 Google 帳號隔離，API key 與使用者
+識別都只由 server 注入。
 
 ### 4. 啟動 Streamlit 舊版介面
 

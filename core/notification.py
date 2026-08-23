@@ -11,12 +11,29 @@ from config import NOTIFICATION_CONFIG
 from core.exceptions import NotificationSendError, NotificationConfigError
 from core.json_store import file_lock, save_json_atomic
 from core.logging_config import get_logger
+from core.user_storage import DEFAULT_USER_ID, user_data_path
 
 logger = get_logger('notification')
 
 # 通知節流狀態檔（記錄每個 dedup key 最近一次送出的 epoch 秒數）。
 # 放在 Railway Volume 掛載的 data/ 下，跨 redeploy 不遺失，避免重啟後重新轟炸。
 _THROTTLE_FILE = Path(__file__).parent.parent / 'data' / 'notify_throttle.json'
+NOTIFICATION_DATA_DIR = Path(__file__).parent.parent / 'data'
+
+
+def _load_user_settings(user_id: str) -> Dict:
+    """Load raw notification settings for one user without exposing secrets."""
+    import json
+
+    path = user_data_path(user_id, 'settings.json', NOTIFICATION_DATA_DIR)
+    if not path.exists():
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 class NotificationChannel(ABC):
@@ -129,7 +146,8 @@ class TelegramChannel(NotificationChannel):
 
     API_URL = 'https://api.telegram.org/bot{token}/sendMessage'
 
-    def __init__(self, token: Optional[str] = None, chat_id: Optional[str] = None):
+    def __init__(self, token: Optional[str] = None, chat_id: Optional[str] = None,
+                 user_id: str = DEFAULT_USER_ID):
         """
         Parameters:
         -----------
@@ -139,17 +157,16 @@ class TelegramChannel(NotificationChannel):
             目標 Chat ID，若未提供則從設定檔讀取
         """
         telegram_config = NOTIFICATION_CONFIG.get('telegram', {})
+        self.enabled = bool(telegram_config.get('enabled', False))
 
         # 優先讀取 UI 設定（data/settings.json），若有啟用則覆蓋環境變數設定
         try:
-            import json
-            settings_file = Path(__file__).parent.parent / 'data' / 'settings.json'
-            if settings_file.exists():
-                with open(settings_file, 'r', encoding='utf-8') as f:
-                    ui_settings = json.load(f)
-                ui_tg = ui_settings.get('telegram', {})
-                if ui_tg.get('enabled') and ui_tg.get('token') and ui_tg.get('chat_id'):
-                    telegram_config = ui_tg
+            ui_tg = _load_user_settings(user_id).get('telegram', {})
+            ui_token = ui_tg.get('botToken') or ui_tg.get('token', '')
+            ui_chat_id = ui_tg.get('chatId') or ui_tg.get('chat_id', '')
+            if ui_tg.get('enabled') and ui_token and ui_chat_id:
+                telegram_config = {'token': ui_token, 'chat_id': ui_chat_id}
+                self.enabled = True
         except Exception:
             pass  # 讀取失敗時 fallback 到環境變數設定
 
@@ -284,7 +301,8 @@ class EmailChannel(NotificationChannel):
                  smtp_port: Optional[int] = None,
                  sender: Optional[str] = None,
                  password: Optional[str] = None,
-                 recipients: Optional[List[str]] = None):
+                 recipients: Optional[List[str]] = None,
+                 user_id: str = DEFAULT_USER_ID):
         """
         Parameters:
         -----------
@@ -300,6 +318,28 @@ class EmailChannel(NotificationChannel):
             收件人列表
         """
         email_config = NOTIFICATION_CONFIG.get('email', {})
+        self.enabled = bool(email_config.get('enabled', False))
+
+        try:
+            ui_email = _load_user_settings(user_id).get('email', {})
+            if ui_email.get('enabled'):
+                recipient = ui_email.get('recipient', '')
+                ui_recipients = [recipient] if recipient else []
+                if (
+                    ui_email.get('username')
+                    and ui_email.get('password')
+                    and ui_recipients
+                ):
+                    email_config = {
+                        'smtp_server': ui_email.get('smtpHost', 'smtp.gmail.com'),
+                        'smtp_port': ui_email.get('smtpPort', 587),
+                        'sender': ui_email['username'],
+                        'password': ui_email['password'],
+                        'recipients': ui_recipients,
+                    }
+                    self.enabled = True
+        except Exception:
+            pass
 
         self.smtp_server = smtp_server or email_config.get('smtp_server', 'smtp.gmail.com')
         self.smtp_port = smtp_port or email_config.get('smtp_port', 587)
@@ -430,7 +470,8 @@ class NotificationManager:
     通知管理器 - 統一管理所有通知頻道
     """
 
-    def __init__(self):
+    def __init__(self, user_id: str = DEFAULT_USER_ID):
+        self.user_id = user_id
         self.channels: Dict[str, NotificationChannel] = {}
         self._init_default_channels()
 
@@ -441,12 +482,14 @@ class NotificationManager:
             self.register_channel('line', LineNotifyChannel())
 
         # Telegram
-        if NOTIFICATION_CONFIG.get('telegram', {}).get('enabled', False):
-            self.register_channel('telegram', TelegramChannel())
+        telegram = TelegramChannel(user_id=self.user_id)
+        if telegram.enabled:
+            self.register_channel('telegram', telegram)
 
         # Email
-        if NOTIFICATION_CONFIG.get('email', {}).get('enabled', False):
-            self.register_channel('email', EmailChannel())
+        email = EmailChannel(user_id=self.user_id)
+        if email.enabled:
+            self.register_channel('email', email)
 
     def register_channel(self, name: str, channel: NotificationChannel):
         """註冊通知頻道"""
@@ -516,16 +559,19 @@ class NotificationManager:
 _notification_manager: Optional[NotificationManager] = None
 
 
-def get_notification_manager() -> NotificationManager:
+def get_notification_manager(user_id: str = DEFAULT_USER_ID) -> NotificationManager:
     """取得通知管理器單例"""
     global _notification_manager
+    if user_id != DEFAULT_USER_ID:
+        return NotificationManager(user_id)
     if _notification_manager is None:
         _notification_manager = NotificationManager()
     return _notification_manager
 
 
 def send_notification(title: str, message: str, channels: Optional[List[str]] = None,
-                      dedup_key: Optional[str] = None, cooldown_sec: float = 0) -> Dict[str, bool]:
+                      dedup_key: Optional[str] = None, cooldown_sec: float = 0,
+                      user_id: str = DEFAULT_USER_ID) -> Dict[str, bool]:
     """
     快速發送通知的便利函數
 
@@ -547,5 +593,5 @@ def send_notification(title: str, message: str, channels: Optional[List[str]] = 
     dict
         各頻道發送結果
     """
-    manager = get_notification_manager()
+    manager = get_notification_manager(user_id)
     return manager.send(title, message, channels, dedup_key=dedup_key, cooldown_sec=cooldown_sec)

@@ -3,6 +3,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { SWRConfig } from 'swr'
 import type { Cache, State } from 'swr'
+import { SessionProvider } from 'next-auth/react'
 import { useAppStore } from '@/store/useAppStore'
 
 // 僅在 client 為 true 的旗標（hydration-safe，不用 setState-in-effect）。
@@ -104,17 +105,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const mounted = useMounted()
 
   return (
-    <SWRConfig
-      value={{
-        provider: mounted ? localStorageProvider : emptyProvider,
-        dedupingInterval: 5000,
-        revalidateOnFocus: false,
-        errorRetryCount: 2,
-        keepPreviousData: true,
-      }}
-    >
-      <MobileDetector />
-      {children}
-    </SWRConfig>
+    <SessionProvider>
+      <SWRConfig
+        value={{
+          provider: mounted ? localStorageProvider : emptyProvider,
+          dedupingInterval: 5000,
+          revalidateOnFocus: false,
+          errorRetryCount: 2,
+          keepPreviousData: true,
+        }}
+      >
+        <MobileDetector />
+        {children}
+      </SWRConfig>
+    </SessionProvider>
   )
 }

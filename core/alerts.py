@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from core.indicators import calculate_rsi, calculate_sma
 from core.json_store import file_lock
 from core.timeutils import now_taipei
+from core.user_storage import DEFAULT_USER_ID, user_data_path
 
 
 @dataclass
@@ -43,23 +44,34 @@ class AlertEngine:
 
     ALERTS_FILE = Path(__file__).parent.parent / 'data' / 'alerts.json'
 
-    def __init__(self):
+    @classmethod
+    def alerts_file(cls, user_id: str = DEFAULT_USER_ID) -> Path:
+        return user_data_path(user_id, cls.ALERTS_FILE.name, cls.ALERTS_FILE.parent)
+
+    def __init__(self, user_id: str = DEFAULT_USER_ID):
+        self.user_id = user_id
+        self.storage_file = self.alerts_file(user_id)
         self.alerts_data = self._load_alerts()
+
+    @property
+    def _storage_path(self) -> Path:
+        """Storage path, including compatibility for lightweight test engines."""
+        return getattr(self, "storage_file", self.ALERTS_FILE)
 
     def _load_alerts(self) -> Dict:
         """載入警報設定"""
-        if self.ALERTS_FILE.exists():
-            with open(self.ALERTS_FILE, 'r', encoding='utf-8') as f:
+        if self._storage_path.exists():
+            with open(self._storage_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {'alerts': []}
 
     def _save_alerts(self) -> None:
         """儲存警報設定（使用 atomic write 避免並發寫入損毀）"""
-        self.ALERTS_FILE.parent.mkdir(exist_ok=True)
-        tmp_path = self.ALERTS_FILE.with_suffix('.tmp')
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self._storage_path.with_suffix('.tmp')
         with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(self.alerts_data, f, ensure_ascii=False, indent=2, default=str)
-        tmp_path.replace(self.ALERTS_FILE)  # atomic rename
+        tmp_path.replace(self._storage_path)  # atomic rename
 
     def check_alert(self, alert: Dict, data: Dict[str, pd.DataFrame]) -> AlertResult:
         """
@@ -241,7 +253,7 @@ class AlertEngine:
         # 儲存更新後的警報狀態。在鎖內重新載入並只回寫 triggered 標記，
         # 避免用本實例的舊快照整檔覆蓋掉其他請求併發做的修改。
         if triggered_results:
-            with file_lock(self.ALERTS_FILE):
+            with file_lock(self._storage_path):
                 fresh = self._load_alerts()
                 now_iso = now_taipei().isoformat()
                 for alert in fresh.get('alerts', []):
@@ -298,7 +310,8 @@ class AlertEngine:
 
 def check_alerts_and_notify(data: Dict[str, pd.DataFrame],
                             send_notification: bool = True,
-                            cooldown_sec: int | None = None) -> List[AlertResult]:
+                            cooldown_sec: int | None = None,
+                            user_id: str = DEFAULT_USER_ID) -> List[AlertResult]:
     """
     檢查警報並發送通知
 
@@ -318,13 +331,13 @@ def check_alerts_and_notify(data: Dict[str, pd.DataFrame],
     list of AlertResult
         觸發的警報
     """
-    engine = AlertEngine()
+    engine = AlertEngine(user_id)
     triggered = engine.check_all_alerts(data)
 
     if triggered and send_notification:
         try:
             import os
-            from core.notification import send_notification as notify, get_throttle
+            from core.notification import NotificationManager, get_throttle
 
             if cooldown_sec is None:
                 cooldown_sec = int(os.getenv('ALERT_NOTIFY_COOLDOWN_SEC', '3600'))
@@ -333,13 +346,13 @@ def check_alerts_and_notify(data: Dict[str, pd.DataFrame],
             # 逐條套用節流：冷卻期內已通知過的警報不再列入本次訊息。
             messages = []
             for result in triggered:
-                if throttle.allow(f'alert:{result.alert_id}', cooldown_sec):
+                if throttle.allow(f'{user_id}:alert:{result.alert_id}', cooldown_sec):
                     messages.append(f"🔔 {result.stock_id}: {result.message}")
 
             if messages:
-                notify(
+                NotificationManager(user_id).send(
                     title='台股警報通知',
-                    message='\n'.join(messages)
+                    message='\n'.join(messages),
                 )
         except Exception as e:
             print(f'發送通知失敗: {e}')

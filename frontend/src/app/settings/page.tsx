@@ -5,29 +5,11 @@ import useSWR, { mutate } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Switch } from '@/components/ui/switch'
 import { ThemeSelector } from '@/components/settings/ThemeSelector'
-
-interface Settings {
-  telegram: {
-    enabled: boolean
-    botToken: string
-    chatId: string
-  }
-  email: {
-    enabled: boolean
-    smtpHost: string
-    smtpPort: number
-    username: string
-    password: string
-    recipient: string
-  }
-  system: {
-    dataUpdateInterval: number
-    timezone: string
-    autoBacktest: boolean
-    marketOpenTime: string
-    marketCloseTime: string
-  }
-}
+import {
+  parseSettingsResponse,
+  type SettingsForm,
+  type SettingsResponse,
+} from '@/lib/contracts/settings'
 
 interface SystemInfo {
   version: string
@@ -42,34 +24,39 @@ const SWR_KEY = '/settings'
 const INFO_KEY = '/system/info'
 
 export default function SettingsPage() {
-  const { data: settings, isLoading } = useSWR<Settings>(SWR_KEY, fetchAPI)
+  const { data: settings, isLoading } = useSWR<SettingsResponse>(
+    SWR_KEY,
+    async (path: string) => parseSettingsResponse(await fetchAPI(path)),
+  )
   const { data: sysInfo } = useSWR<SystemInfo>(INFO_KEY, fetchAPI)
 
-  const [form, setForm] = useState<Partial<Settings>>({})
+  const [form, setForm] = useState<Partial<SettingsForm>>({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [testTgStatus, setTestTgStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
 
-  const currentSettings = { ...settings, ...form }
+  const currentSettings = settings
+    ? ({ ...settings, ...form } as SettingsForm)
+    : undefined
 
   const updateTelegram = (key: string, value: string | boolean) => {
     setForm(prev => ({
       ...prev,
-      telegram: { ...currentSettings?.telegram, ...prev.telegram, [key]: value } as Settings['telegram'],
+      telegram: { ...currentSettings?.telegram, ...prev.telegram, [key]: value } as SettingsForm['telegram'],
     }))
   }
 
   const updateEmail = (key: string, value: string | number | boolean) => {
     setForm(prev => ({
       ...prev,
-      email: { ...currentSettings?.email, ...prev.email, [key]: value } as Settings['email'],
+      email: { ...currentSettings?.email, ...prev.email, [key]: value } as SettingsForm['email'],
     }))
   }
 
   const updateSystem = (key: string, value: string | number | boolean) => {
     setForm(prev => ({
       ...prev,
-      system: { ...currentSettings?.system, ...prev.system, [key]: value } as Settings['system'],
+      system: { ...currentSettings?.system, ...prev.system, [key]: value } as SettingsForm['system'],
     }))
   }
 
@@ -177,7 +164,7 @@ export default function SettingsPage() {
                   type="password"
                   value={tg?.botToken ?? ''}
                   onChange={(e) => updateTelegram('botToken', e.target.value)}
-                  placeholder="1234567890:ABC..."
+                  placeholder={tg?.botTokenConfigured ? '••••••••（已設定，留空不變）' : '1234567890:ABC...'}
                   className="h-9 w-full rounded-md border px-3 text-sm"
                   style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
                 />
@@ -232,7 +219,12 @@ export default function SettingsPage() {
                 { key: 'smtpHost', label: 'SMTP 主機', placeholder: 'smtp.gmail.com', type: 'text' },
                 { key: 'smtpPort', label: 'SMTP 埠', placeholder: '587', type: 'number' },
                 { key: 'username', label: '帳號', placeholder: 'your@email.com', type: 'text' },
-                { key: 'password', label: '密碼', placeholder: '••••••••', type: 'password' },
+                {
+                  key: 'password',
+                  label: '密碼',
+                  placeholder: em?.passwordConfigured ? '••••••••（已設定，留空不變）' : '••••••••',
+                  type: 'password',
+                },
                 { key: 'recipient', label: '收件人 Email', placeholder: 'alert@email.com', type: 'text' },
               ].map(({ key, label, placeholder, type }) => (
                 <div key={key}>

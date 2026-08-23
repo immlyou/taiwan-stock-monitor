@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from core.json_store import file_lock, save_json_atomic
+from core.user_storage import DEFAULT_USER_ID, user_data_path
 
 # 投資組合檔案路徑
 PORTFOLIO_FILE = Path(__file__).parent.parent.parent / 'data' / 'portfolios.json'
@@ -34,17 +35,23 @@ def plausible_pnl_pct(current_price, cost_price) -> Optional[float]:
     return round((ratio - 1) * 100, 2)
 
 
-def load_portfolios() -> Dict:
+def portfolio_file(user_id: str = DEFAULT_USER_ID) -> Path:
+    """Return the portfolio store for one user."""
+    return user_data_path(user_id, PORTFOLIO_FILE.name, PORTFOLIO_FILE.parent)
+
+
+def load_portfolios(user_id: str = DEFAULT_USER_ID) -> Dict:
     """載入所有投資組合"""
-    if PORTFOLIO_FILE.exists():
-        with open(PORTFOLIO_FILE, 'r', encoding='utf-8') as f:
+    path = portfolio_file(user_id)
+    if path.exists():
+        with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
 
-def save_portfolios(portfolios: Dict) -> None:
+def save_portfolios(portfolios: Dict, user_id: str = DEFAULT_USER_ID) -> None:
     """儲存所有投資組合（atomic write，避免進程中斷毀檔）"""
-    save_json_atomic(PORTFOLIO_FILE, portfolios)
+    save_json_atomic(portfolio_file(user_id), portfolios)
 
 
 def get_portfolio_names() -> List[str]:

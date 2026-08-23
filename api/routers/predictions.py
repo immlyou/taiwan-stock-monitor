@@ -9,7 +9,7 @@ from typing import Optional
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import _load_json_file, _save_json_file
 from api.models import PredictionRequest
 from api.state import loader
@@ -26,10 +26,11 @@ router = APIRouter(tags=["預測"], dependencies=[Depends(verify_api_key)])
 async def predictions_list(
     stock_id: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
+    user_id: str = Depends(get_user_id),
 ):
     """取得已儲存的預測記錄。"""
     try:
-        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []}, user_id=user_id)
         # 容錯：舊資料檔可能存成 list 格式（非 {"predictions": [...]}）
         if isinstance(data, list):
             data = {"predictions": data}
@@ -43,14 +44,14 @@ async def predictions_list(
 
 
 @router.get("/predictions/stats")
-async def predictions_stats():
+async def predictions_stats(user_id: str = Depends(get_user_id)):
     """預測準確率統計：總數、正確 / 錯誤 / 進行中筆數與命中率。
 
     以儲存的預測記錄為準。未經驗證（無 status 或 status=pending）者計為進行中；
     accuracy = 正確 /（正確 + 錯誤），尚無已驗證結果時為 0。
     """
     try:
-        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []}, user_id=user_id)
         if isinstance(data, list):
             data = {"predictions": data}
         preds = data.get("predictions", [])
@@ -80,7 +81,9 @@ async def predictions_stats():
 
 
 @router.post("/predictions")
-async def prediction_create(req: PredictionRequest):
+async def prediction_create(
+    req: PredictionRequest, user_id: str = Depends(get_user_id)
+):
     """建立個股價格預測（簡單技術面推估）。
 
     支援 trend（趨勢延伸）與 mean_reversion（均值回歸）兩種方法。
@@ -137,12 +140,12 @@ async def prediction_create(req: PredictionRequest):
             "disclaimer": "此為基礎統計推估，不構成任何投資建議。",
         }
 
-        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []})
+        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []}, user_id=user_id)
         if isinstance(data, list):
             data = {"predictions": data}
         data["predictions"].append(prediction)
         data["predictions"] = data["predictions"][-500:]  # 只保留最近 500 筆
-        _save_json_file(PREDICTIONS_FILE, data)
+        _save_json_file(PREDICTIONS_FILE, data, user_id=user_id)
 
         return prediction
     except HTTPException:

@@ -1,6 +1,7 @@
 'use client'
 
-import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { signOut, useSession } from 'next-auth/react'
 import { useAppStore } from '@/store/useAppStore'
 import { StockSearch } from '@/components/shared/StockSearch'
 import { QuotaBanner } from '@/components/shared/QuotaBanner'
@@ -8,6 +9,7 @@ import { RefreshDataButton } from '@/components/shared/RefreshDataButton'
 import { MarketTicker } from '@/components/layout/MarketTicker'
 
 export function Header() {
+  const { data: session } = useSession()
   const {
     sidebarCollapsed,
     toggleSidebar,
@@ -90,6 +92,23 @@ export function Header() {
                 即時
               </span>
             )}
+          </div>
+
+          <div className="flex items-center gap-2 border-l pl-2" style={{ borderColor: 'var(--border)' }}>
+            {!isMobile && session?.user?.email && (
+              <span className="max-w-40 truncate text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                {session.user.email}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => signOut({ redirectTo: '/login' })}
+              className="p-1.5 rounded-md transition-colors hover:bg-secondary/50"
+              aria-label="登出"
+              title="登出"
+            >
+              <LogOut className="h-4 w-4" style={{ color: 'var(--muted-foreground)' }} />
+            </button>
           </div>
         </div>
       </div>

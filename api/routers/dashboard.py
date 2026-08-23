@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import _load_json_file, _save_json_file
 
 router = APIRouter(tags=["Dashboard"], dependencies=[Depends(verify_api_key)])
@@ -42,20 +42,22 @@ def _default_config() -> dict:
 
 
 @router.get("/dashboard/config")
-async def dashboard_config_get():
+async def dashboard_config_get(user_id: str = Depends(get_user_id)):
     """取得自訂 Dashboard widget 設定。"""
-    config = _load_json_file(CONFIG_FILE, default=_default_config())
+    config = _load_json_file(CONFIG_FILE, default=_default_config(), user_id=user_id)
     if not config.get("widgets"):
         config = _default_config()
     return config
 
 
 @router.put("/dashboard/config")
-async def dashboard_config_update(req: DashboardConfigRequest):
+async def dashboard_config_update(
+    req: DashboardConfigRequest, user_id: str = Depends(get_user_id)
+):
     """儲存自訂 Dashboard widget 設定。"""
     config = {
         "updated_at": datetime.now().isoformat(),
         "widgets": [widget.dict() for widget in sorted(req.widgets, key=lambda item: item.order)],
     }
-    _save_json_file(CONFIG_FILE, config)
+    _save_json_file(CONFIG_FILE, config, user_id=user_id)
     return config

@@ -37,6 +37,10 @@ npm run dev
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
+STOCK_API_KEY=與後端相同的_server_only_key
+AUTH_SECRET=至少_32_字元的隨機值
+AUTH_GOOGLE_ID=Google_OAuth_Client_ID
+AUTH_GOOGLE_SECRET=Google_OAuth_Client_Secret
 ```
 
 生產環境部署到 Vercel 時，`NEXT_PUBLIC_API_URL` 必須設定為 Railway API：
@@ -45,23 +49,42 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_API_URL=https://taiwan-stock-api-production.up.railway.app
 ```
 
-## API Proxy
+Google OAuth redirect URI：
 
-[next.config.ts](./next.config.ts) 會將瀏覽器端 `/api/:path*` rewrite 到 `NEXT_PUBLIC_API_URL`：
+```text
+http://localhost:3000/api/auth/callback/google
+https://taiwan-stock-monitor.vercel.app/api/auth/callback/google
+```
+
+`AUTH_SECRET` 可用 `npx auth secret` 產生。`STOCK_API_KEY`、
+`AUTH_GOOGLE_SECRET` 與 `AUTH_SECRET` 都不可加 `NEXT_PUBLIC_` 前綴。
+既有 `data/*.json` 的站長資料要接到 Google 帳號時，登入後從
+`/api/auth/session` 複製 `user.id`，並在 Railway 設定同值的
+`DEFAULT_USER_ID`。
+
+## Google OAuth 與 API Proxy
+
+[src/proxy.ts](./src/proxy.ts) 保護頁面；
+[src/app/api/[...path]/route.ts](./src/app/api/[...path]/route.ts) 只接受已驗證的
+Google session，再將 `/api/:path*` 代理到 `NEXT_PUBLIC_API_URL`：
 
 ```text
 /api/market/summary -> https://.../market/summary
 ```
 
-前端 API helper 位於 [src/lib/api/client.ts](./src/lib/api/client.ts)。Client Components 使用 `/api` proxy；Server Components / SSR 直接使用 `NEXT_PUBLIC_API_URL`。
+Route Handler 會覆寫 `X-User-ID`，並由 server 注入 `STOCK_API_KEY`；瀏覽器無法
+指定別人的資料 namespace。前端 API helper 位於
+[src/lib/api/client.ts](./src/lib/api/client.ts)。
 
 ## 常用指令
 
 ```bash
 npm run dev
 npm run lint
+npm run test:unit
 npm run build
 npm run start
+npm run test:e2e:smoke
 ```
 
 ## 部署

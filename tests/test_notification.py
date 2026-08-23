@@ -69,6 +69,32 @@ class TestLineNotifyChannel:
 # ──────────────────────────────────────────────
 
 class TestTelegramChannel:
+    def test_reads_canonical_per_user_ui_contract(self, tmp_path, monkeypatch):
+        import core.notification as notification
+        from core.json_store import save_json_atomic
+        from core.user_storage import user_data_path
+
+        monkeypatch.setattr(notification, "NOTIFICATION_DATA_DIR", tmp_path)
+        settings_path = user_data_path(
+            "google_alice123", "settings.json", tmp_path
+        )
+        save_json_atomic(
+            settings_path,
+            {
+                "telegram": {
+                    "enabled": True,
+                    "botToken": "alice-token",
+                    "chatId": "alice-chat",
+                }
+            },
+        )
+
+        channel = TelegramChannel(user_id="google_alice123")
+
+        assert channel.token == "alice-token"
+        assert channel.chat_id == "alice-chat"
+        assert channel.enabled is True
+
 
     def test_not_configured_missing_token(self):
         ch = TelegramChannel(token="", chat_id="12345")

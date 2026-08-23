@@ -3,11 +3,10 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * Playwright E2E 設定
  *
- * 預設打到 Vercel 線上正式環境；可用 PLAYWRIGHT_BASE_URL 覆寫，例如：
- *   PLAYWRIGHT_BASE_URL=http://localhost:3000 npx playwright test
+ * 預設啟動本機 Next.js；需要驗證外部部署時可用 PLAYWRIGHT_BASE_URL 覆寫。
  */
-const BASE_URL =
-  process.env.PLAYWRIGHT_BASE_URL ?? 'https://taiwan-stock-monitor.vercel.app'
+const EXTERNAL_BASE_URL = process.env.PLAYWRIGHT_BASE_URL
+const BASE_URL = EXTERNAL_BASE_URL ?? 'http://localhost:3000'
 
 export default defineConfig({
   testDir: './e2e',
@@ -18,6 +17,14 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 60_000,
   expect: { timeout: 15_000 },
+  webServer: EXTERNAL_BASE_URL
+    ? undefined
+    : {
+        command: 'npm run dev',
+        url: BASE_URL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
   use: {
     baseURL: BASE_URL,
     trace: 'retain-on-failure',

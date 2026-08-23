@@ -207,10 +207,12 @@ class RadarPro:
             "watchlist": latest["stocks"][:10],
         }
 
-    def portfolio_health(self, portfolio_id: str = "default") -> Dict[str, Any]:
+    def portfolio_health(
+        self, portfolio_id: str = "default", user_id: str = "owner"
+    ) -> Dict[str, Any]:
         from app.components.portfolio_utils import load_portfolios, plausible_pnl_pct
 
-        portfolios = load_portfolios()
+        portfolios = load_portfolios(user_id)
         portfolio = portfolios.get(portfolio_id)
 
         # "default" 是前端雷達頁固定打的 alias，非真實組合名。若無實名 "default"
@@ -322,10 +324,12 @@ class RadarPro:
             },
         }
 
-    def notification_preview(self, portfolio_id: str = "default") -> Dict[str, Any]:
+    def notification_preview(
+        self, portfolio_id: str = "default", user_id: str = "owner"
+    ) -> Dict[str, Any]:
         messages = []
         try:
-            health = self.portfolio_health(portfolio_id)
+            health = self.portfolio_health(portfolio_id, user_id)
             for item in health["holdings"]:
                 if item["risk_flags"]:
                     messages.append({

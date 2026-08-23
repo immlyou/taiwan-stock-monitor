@@ -103,6 +103,40 @@ def test_scheduler_enabled_default_local(monkeypatch):
     assert scheduler.scheduler_enabled() is False
 
 
+def test_alert_job_checks_legacy_and_v2_rules_for_every_user(monkeypatch):
+    checked_users = []
+    evaluated_users = []
+
+    monkeypatch.setattr("api.state.loader.get", lambda key: f"mock-{key}")
+    monkeypatch.setattr(
+        "core.user_storage.iter_user_ids",
+        lambda _base_dir: ["owner", "google_alice123"],
+    )
+
+    def fake_legacy_check(data, send_notification, user_id):
+        checked_users.append((user_id, send_notification, sorted(data)))
+        return [object()] if user_id == "owner" else []
+
+    async def fake_v2_evaluate(request, user_id):
+        evaluated_users.append((user_id, request.sendNotifications))
+        return {"triggeredCount": 1}
+
+    monkeypatch.setattr(
+        "core.alerts.check_alerts_and_notify", fake_legacy_check
+    )
+    monkeypatch.setattr(
+        "api.routers.alerts.alert_rules_evaluate", fake_v2_evaluate
+    )
+
+    scheduler._alert_check_job()
+
+    assert [item[0] for item in checked_users] == ["owner", "google_alice123"]
+    assert evaluated_users == [
+        ("owner", True),
+        ("google_alice123", True),
+    ]
+
+
 # ──────────────────────────────────────────────
 # start_scheduler / status
 # ──────────────────────────────────────────────

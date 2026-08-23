@@ -40,6 +40,60 @@ interface SmartAlertsResponse {
   alerts: SmartAlert[]
 }
 
+type RuleMetric = 'price' | 'change_pct' | 'rsi' | 'volume_ratio'
+type RuleOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
+
+interface AlertRule {
+  id: string
+  name: string
+  match: 'all' | 'any'
+  target: { stockIds: string[]; watchlistId?: string }
+  conditions: Array<{
+    field: RuleMetric
+    operator: RuleOperator
+    value: number
+  }>
+  frequency: 'once' | 'repeating'
+  cooldownMinutes: number
+  channels: Array<'telegram' | 'email'>
+  enabled: boolean
+  lastTriggeredAt?: string
+}
+
+interface AlertHit {
+  id: string
+  ruleId: string
+  ruleName: string
+  stockId: string
+  triggeredAt: string
+}
+
+interface AlertRulesResponse {
+  total: number
+  rules: AlertRule[]
+}
+
+interface AlertHitsResponse {
+  total: number
+  hits: AlertHit[]
+}
+
+const RULES_KEY = '/alerts/rules'
+const HITS_KEY = '/alerts/hits?limit=20'
+const METRIC_LABELS: Record<RuleMetric, string> = {
+  price: '現價',
+  change_pct: '當日漲跌 %',
+  rsi: 'RSI(14)',
+  volume_ratio: '成交量倍數',
+}
+const OPERATOR_LABELS: Record<RuleOperator, string> = {
+  gt: '大於',
+  gte: '大於等於',
+  lt: '小於',
+  lte: '小於等於',
+  eq: '等於',
+}
+
 const FALLBACK_ALERT_TYPES: AlertTypeOption[] = [
   { type: 'price_above', label: '價格高於', unit: '元', default_value: 600 },
   { type: 'price_below', label: '價格低於', unit: '元', default_value: 500 },
@@ -54,6 +108,8 @@ export default function AlertsPage() {
   const { data: alertsData, isLoading, error } = useSWR<AlertsResponse>(SWR_KEY, fetchAPI)
   const { data: typesData } = useSWR<AlertTypesResponse>('/alerts/types', fetchAPI)
   const { data: smartData } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=8', fetchAPI)
+  const { data: rulesData } = useSWR<AlertRulesResponse>(RULES_KEY, fetchAPI)
+  const { data: hitsData } = useSWR<AlertHitsResponse>(HITS_KEY, fetchAPI)
   const alerts = alertsData?.alerts
   const alertTypes = typesData?.types ?? FALLBACK_ALERT_TYPES
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -64,6 +120,23 @@ export default function AlertsPage() {
     value: '',
   })
   const [saving, setSaving] = useState(false)
+  const [ruleDialogOpen, setRuleDialogOpen] = useState(false)
+  const [evaluating, setEvaluating] = useState(false)
+  const [ruleForm, setRuleForm] = useState({
+    name: '',
+    code: '',
+    match: 'all' as 'all' | 'any',
+    field1: 'price' as RuleMetric,
+    operator1: 'gt' as RuleOperator,
+    value1: '',
+    field2: 'rsi' as RuleMetric,
+    operator2: 'gt' as RuleOperator,
+    value2: '',
+    frequency: 'repeating' as 'once' | 'repeating',
+    cooldownMinutes: 60,
+    telegram: false,
+    email: false,
+  })
 
   const handleCreate = async () => {
     if (!form.code.trim() || !form.value) return
@@ -99,6 +172,79 @@ export default function AlertsPage() {
     await mutate(SWR_KEY)
   }
 
+  const handleCreateRule = async () => {
+    if (!ruleForm.name.trim() || !ruleForm.code.trim() || ruleForm.value1 === '') return
+    const conditions = [
+      {
+        field: ruleForm.field1,
+        operator: ruleForm.operator1,
+        value: Number(ruleForm.value1),
+      },
+    ]
+    if (ruleForm.value2 !== '') {
+      conditions.push({
+        field: ruleForm.field2,
+        operator: ruleForm.operator2,
+        value: Number(ruleForm.value2),
+      })
+    }
+    setSaving(true)
+    try {
+      await fetchAPI(RULES_KEY, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: ruleForm.name.trim(),
+          match: ruleForm.match,
+          target: { stockIds: [ruleForm.code.trim().toUpperCase()] },
+          conditions,
+          frequency: ruleForm.frequency,
+          cooldownMinutes: ruleForm.cooldownMinutes,
+          channels: [
+            ...(ruleForm.telegram ? ['telegram' as const] : []),
+            ...(ruleForm.email ? ['email' as const] : []),
+          ],
+        }),
+      })
+      await mutate(RULES_KEY)
+      setRuleDialogOpen(false)
+      setRuleForm((previous) => ({
+        ...previous,
+        name: '',
+        code: '',
+        value1: '',
+        value2: '',
+      }))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleEvaluateRules = async () => {
+    setEvaluating(true)
+    try {
+      await fetchAPI('/alerts/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({ sendNotifications: false }),
+      })
+      await Promise.all([mutate(RULES_KEY), mutate(HITS_KEY)])
+    } finally {
+      setEvaluating(false)
+    }
+  }
+
+  const handleToggleRule = async (rule: AlertRule) => {
+    await fetchAPI(`${RULES_KEY}/${rule.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled: !rule.enabled }),
+    })
+    await mutate(RULES_KEY)
+  }
+
+  const handleDeleteRule = async (ruleId: string) => {
+    await fetchAPI(`${RULES_KEY}/${ruleId}`, { method: 'DELETE' })
+    await mutate(RULES_KEY)
+  }
+
   const activeCount = alerts?.filter(a => a.enabled && !a.triggered).length ?? 0
   const triggeredCount = alerts?.filter(a => a.triggered).length ?? 0
 
@@ -106,16 +252,75 @@ export default function AlertsPage() {
     <div>
       <div className="mb-6 flex justify-between items-start">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>警報設定</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>股價條件警報管理</p>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Alerts 2.0</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>多條件規則、冷卻時間與命中歷史</p>
         </div>
-        <button
-          onClick={() => setDialogOpen(true)}
-          className="h-9 px-4 rounded-md text-sm font-medium"
-          style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
-        >
-          新增警報
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleEvaluateRules}
+            disabled={evaluating}
+            className="h-9 px-4 rounded-md text-sm font-medium disabled:opacity-60"
+            style={{ background: 'var(--secondary)', color: 'var(--foreground)' }}
+          >
+            {evaluating ? '評估中…' : '立即評估'}
+          </button>
+          <button
+            onClick={() => setRuleDialogOpen(true)}
+            className="h-9 px-4 rounded-md text-sm font-medium"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            新增規則
+          </button>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[2fr_1fr] gap-4 mb-6">
+        <section className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>規則</h2>
+            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{rulesData?.total ?? 0} 組</span>
+          </div>
+          <div className="space-y-2">
+            {rulesData?.rules.length ? rulesData.rules.map((rule) => (
+              <div key={rule.id} className="rounded-md p-3 flex items-start gap-3" style={{ background: 'var(--secondary)' }}>
+                <Switch checked={rule.enabled} onCheckedChange={() => handleToggleRule(rule)} aria-label={`切換 ${rule.name}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>{rule.name}</p>
+                    <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{rule.match === 'all' ? '全部符合' : '任一符合'}</span>
+                  </div>
+                  <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>
+                    {rule.target.stockIds.join(', ') || rule.target.watchlistId} · {rule.conditions.map((condition) => (
+                      `${METRIC_LABELS[condition.field]}${OPERATOR_LABELS[condition.operator]} ${condition.value}`
+                    )).join(rule.match === 'all' ? ' 且 ' : ' 或 ')}
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>
+                    {rule.frequency === 'once' ? '僅一次' : `冷卻 ${rule.cooldownMinutes} 分鐘`}
+                    {rule.channels.length ? ` · ${rule.channels.join(' / ')}` : ' · 僅記錄'}
+                  </p>
+                </div>
+                <button onClick={() => handleDeleteRule(rule.id)} className="text-xs" style={{ color: 'var(--destructive)' }}>刪除</button>
+              </div>
+            )) : (
+              <p className="py-6 text-center text-sm" style={{ color: 'var(--muted-foreground)' }}>尚無 2.0 規則</p>
+            )}
+          </div>
+        </section>
+        <section className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>最近命中</h2>
+            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{hitsData?.total ?? 0} 筆</span>
+          </div>
+          <div className="space-y-2">
+            {hitsData?.hits.slice(0, 8).map((hit) => (
+              <div key={hit.id} className="border-b pb-2 last:border-0" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{hit.stockId} · {hit.ruleName}</p>
+                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{new Date(hit.triggeredAt).toLocaleString('zh-TW')}</p>
+              </div>
+            ))}
+            {!hitsData?.hits.length && <p className="py-6 text-center text-sm" style={{ color: 'var(--muted-foreground)' }}>尚無命中紀錄</p>}
+          </div>
+        </section>
       </div>
 
       {/* 統計 */}
@@ -263,6 +468,49 @@ export default function AlertsPage() {
       )}
 
       {/* 新增 Dialog */}
+      {ruleDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div className="w-full max-w-2xl rounded-lg p-6" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--foreground)' }}>新增 Alerts 2.0 規則</h2>
+            <div className="grid md:grid-cols-2 gap-3">
+              <input value={ruleForm.name} onChange={(event) => setRuleForm((value) => ({ ...value, name: event.target.value }))} placeholder="規則名稱" className="h-9 rounded-md border px-3 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }} />
+              <input value={ruleForm.code} onChange={(event) => setRuleForm((value) => ({ ...value, code: event.target.value.toUpperCase() }))} placeholder="股票代號，例如 2330" className="h-9 rounded-md border px-3 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }} />
+              {[1, 2].map((index) => {
+                const fieldKey = `field${index}` as 'field1' | 'field2'
+                const operatorKey = `operator${index}` as 'operator1' | 'operator2'
+                const valueKey = `value${index}` as 'value1' | 'value2'
+                return (
+                  <div key={index} className="md:col-span-2 grid grid-cols-[1fr_1fr_1fr] gap-2">
+                    <select value={ruleForm[fieldKey]} onChange={(event) => setRuleForm((value) => ({ ...value, [fieldKey]: event.target.value as RuleMetric }))} className="h-9 rounded-md border px-2 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }}>
+                      {Object.entries(METRIC_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                    <select value={ruleForm[operatorKey]} onChange={(event) => setRuleForm((value) => ({ ...value, [operatorKey]: event.target.value as RuleOperator }))} className="h-9 rounded-md border px-2 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }}>
+                      {Object.entries(OPERATOR_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                    <input type="number" value={ruleForm[valueKey]} onChange={(event) => setRuleForm((value) => ({ ...value, [valueKey]: event.target.value }))} placeholder={index === 1 ? '觸發值' : '第二條件（可留空）'} className="h-9 rounded-md border px-3 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }} />
+                  </div>
+                )
+              })}
+              <select value={ruleForm.match} onChange={(event) => setRuleForm((value) => ({ ...value, match: event.target.value as 'all' | 'any' }))} className="h-9 rounded-md border px-2 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }}>
+                <option value="all">全部條件符合（AND）</option>
+                <option value="any">任一條件符合（OR）</option>
+              </select>
+              <div className="flex items-center gap-2">
+                <input type="number" min={0} value={ruleForm.cooldownMinutes} onChange={(event) => setRuleForm((value) => ({ ...value, cooldownMinutes: Number(event.target.value) }))} className="h-9 w-24 rounded-md border px-3 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }} />
+                <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>分鐘冷卻</span>
+              </div>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ruleForm.telegram} onChange={(event) => setRuleForm((value) => ({ ...value, telegram: event.target.checked }))} /> Telegram</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ruleForm.email} onChange={(event) => setRuleForm((value) => ({ ...value, email: event.target.checked }))} /> Email</label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setRuleDialogOpen(false)} className="h-9 px-4 rounded-md text-sm" style={{ background: 'var(--secondary)' }}>取消</button>
+              <button onClick={handleCreateRule} disabled={saving} className="h-9 px-4 rounded-md text-sm disabled:opacity-60" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>{saving ? '儲存中…' : '建立規則'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 舊版單一條件警報保留相容 */}
       {dialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
           <div

@@ -29,8 +29,8 @@ jobs:
       - name: Install ruff
         run: python -m pip install --upgrade pip ruff
 
-      - name: Ruff check (non-blocking while baseline is established)
-        run: ruff check . || true
+      - name: Ruff check
+        run: ruff check .
 
   test:
     name: pytest (py${{ matrix.python-version }})
@@ -82,10 +82,8 @@ jobs:
           retention-days: 7
 
   frontend:
-    name: Frontend build
+    name: Frontend test and build
     runs-on: ubuntu-latest
-    # Advisory for now: Next.js 16 is bleeding-edge. Flip to false once stable.
-    continue-on-error: true
     defaults:
       run:
         working-directory: frontend
@@ -103,18 +101,22 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint --if-present
+        run: npm run lint
+
+      - name: Unit and contract tests
+        run: npm run test:unit
 
       - name: Build
         env:
-          NEXT_PUBLIC_API_BASE_URL: https://taiwan-stock-api-production.up.railway.app
+          NEXT_PUBLIC_API_URL: https://taiwan-stock-api-production.up.railway.app
+          AUTH_SECRET: ci-only-secret-ci-only-secret-1234
+          AUTH_GOOGLE_ID: ci-google-client-id
+          AUTH_GOOGLE_SECRET: ci-google-client-secret
         run: npm run build
 
   e2e:
-    name: Playwright E2E (Vercel)
+    name: Playwright auth smoke
     runs-on: ubuntu-latest
-    # 線上環境有外部依賴（Railway API、FinLab）會偶發 flake；先以 advisory 為主
-    continue-on-error: true
     defaults:
       run:
         working-directory: frontend
@@ -134,10 +136,12 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run smoke E2E against Vercel
+      - name: Run local auth smoke E2E
         env:
-          PLAYWRIGHT_BASE_URL: https://taiwan-stock-monitor.vercel.app
-        # 只跑 smoke：頁面可達 + 無未捕獲例外。其他 spec 等線上穩定再開啟。
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+          AUTH_SECRET: ci-only-secret-ci-only-secret-1234
+          AUTH_GOOGLE_ID: ci-google-client-id
+          AUTH_GOOGLE_SECRET: ci-google-client-secret
         run: npx playwright test e2e/smoke.spec.ts --reporter=list,html
 
       - name: Upload Playwright report

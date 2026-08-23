@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import _get_stock_name_map
-from api.models import PortfolioCreateRequest, PortfolioUpdateRequest
+from api.models import (
+    PortfolioCreateRequest,
+    PortfolioUpdateRequest,
+    PortfolioWhatIfRequest,
+)
 from api.state import loader
 from core.intelligence import diagnose_portfolio
 
@@ -18,11 +23,11 @@ router = APIRouter(tags=["投資組合"], dependencies=[Depends(verify_api_key)]
 
 
 @router.get("/portfolios")
-async def portfolios_list():
+async def portfolios_list(user_id: str = Depends(get_user_id)):
     """取得所有投資組合列表。"""
     try:
         from app.components.portfolio_utils import load_portfolios
-        portfolios = load_portfolios()
+        portfolios = load_portfolios(user_id)
         result = []
         for name, data in portfolios.items():
             result.append({
@@ -38,15 +43,17 @@ async def portfolios_list():
 
 
 @router.post("/portfolios")
-async def portfolio_create(req: PortfolioCreateRequest):
+async def portfolio_create(
+    req: PortfolioCreateRequest, user_id: str = Depends(get_user_id)
+):
     """建立新投資組合。"""
     try:
         from app.components.portfolio_utils import (
-            PORTFOLIO_FILE, load_portfolios, save_portfolios,
+            load_portfolios, portfolio_file, save_portfolios,
         )
         from core.json_store import file_lock
-        with file_lock(PORTFOLIO_FILE):
-            portfolios = load_portfolios()
+        with file_lock(portfolio_file(user_id)):
+            portfolios = load_portfolios(user_id)
             if req.name in portfolios:
                 raise HTTPException(status_code=409, detail=f"投資組合 '{req.name}' 已存在")
             portfolios[req.name] = {
@@ -54,7 +61,7 @@ async def portfolio_create(req: PortfolioCreateRequest):
                 "created_at": datetime.now().isoformat(),
                 "holdings": [],
             }
-            save_portfolios(portfolios)
+            save_portfolios(portfolios, user_id)
         return {"message": "建立成功", "id": req.name, "name": req.name}
     except HTTPException:
         raise
@@ -63,12 +70,14 @@ async def portfolio_create(req: PortfolioCreateRequest):
 
 
 @router.get("/portfolios/{portfolio_id}")
-async def portfolio_get(portfolio_id: str):
+async def portfolio_get(
+    portfolio_id: str, user_id: str = Depends(get_user_id)
+):
     """取得指定投資組合詳情，含各持股當前報酬率計算。"""
     try:
         from app.components.portfolio_utils import load_portfolios, plausible_pnl_pct
         from api.helpers import resolve_default_id
-        portfolios = load_portfolios()
+        portfolios = load_portfolios(user_id)
         resolved, empty_default = resolve_default_id(portfolios, portfolio_id)
         if empty_default:
             # 完全沒有投資組合時回空結構（200），讓前端顯示空狀態而非吃 404。
@@ -155,12 +164,14 @@ async def portfolio_get(portfolio_id: str):
 
 
 @router.get("/portfolios/{portfolio_id}/diagnostics")
-async def portfolio_diagnostics(portfolio_id: str):
+async def portfolio_diagnostics(
+    portfolio_id: str, user_id: str = Depends(get_user_id)
+):
     """投資組合診斷：集中度、產業配置、風險與調整建議。"""
     try:
         from app.components.portfolio_utils import load_portfolios
         from api.helpers import resolve_default_id
-        portfolios = load_portfolios()
+        portfolios = load_portfolios(user_id)
         resolved, empty_default = resolve_default_id(portfolios, portfolio_id)
         if empty_default:
             # 沒有任何投資組合 -> 用空組合走診斷（安全降級，不回 404）。
@@ -174,16 +185,112 @@ async def portfolio_diagnostics(portfolio_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/portfolios/{portfolio_id}/what-if")
+async def portfolio_what_if(
+    portfolio_id: str,
+    req: PortfolioWhatIfRequest,
+    user_id: str = Depends(get_user_id),
+):
+    """Evaluate a hypothetical portfolio without changing persisted holdings."""
+    from app.components.portfolio_utils import load_portfolios
+    from api.helpers import resolve_default_id
+
+    portfolios = load_portfolios(user_id)
+    resolved, empty_default = resolve_default_id(portfolios, portfolio_id)
+    if empty_default or resolved is None:
+        raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+
+    baseline_portfolio = deepcopy(portfolios[resolved])
+    scenario_holdings = deepcopy(baseline_portfolio.get("holdings", []))
+    if req.holdings is not None:
+        scenario_holdings = [item.model_dump() for item in req.holdings]
+    else:
+        for operation in req.operations or []:
+            stock_id = operation.stock_id.strip().upper()
+            index = next(
+                (
+                    idx for idx, holding in enumerate(scenario_holdings)
+                    if str(holding.get("stock_id", "")).upper() == stock_id
+                ),
+                None,
+            )
+            if operation.action == "add":
+                if index is not None:
+                    raise HTTPException(
+                        status_code=422, detail=f"持股已存在，請改用 update: {stock_id}"
+                    )
+                scenario_holdings.append(
+                    {
+                        "stock_id": stock_id,
+                        "shares": operation.shares,
+                        "cost_price": operation.cost_price,
+                    }
+                )
+            elif operation.action == "update":
+                if index is None:
+                    raise HTTPException(
+                        status_code=422, detail=f"找不到要更新的持股: {stock_id}"
+                    )
+                if operation.shares is not None:
+                    scenario_holdings[index]["shares"] = operation.shares
+                if operation.cost_price is not None:
+                    scenario_holdings[index]["cost_price"] = operation.cost_price
+            else:
+                if index is None:
+                    raise HTTPException(
+                        status_code=422, detail=f"找不到要移除的持股: {stock_id}"
+                    )
+                scenario_holdings.pop(index)
+
+    scenario_portfolio = {
+        **deepcopy(baseline_portfolio),
+        "holdings": scenario_holdings,
+    }
+    baseline = diagnose_portfolio(loader, resolved, baseline_portfolio)
+    scenario = diagnose_portfolio(loader, resolved, scenario_portfolio)
+    delta = {
+        "holdings_count": scenario["holdings_count"] - baseline["holdings_count"],
+        "total_value": round(scenario["total_value"] - baseline["total_value"], 2),
+        "top_holding_weight": round(
+            scenario["concentration"]["top_holding_weight"]
+            - baseline["concentration"]["top_holding_weight"],
+            2,
+        ),
+        "annualized_volatility_pct": round(
+            scenario["risk"]["annualized_volatility_pct"]
+            - baseline["risk"]["annualized_volatility_pct"],
+            2,
+        ),
+        "max_drawdown_pct": round(
+            scenario["risk"]["max_drawdown_pct"]
+            - baseline["risk"]["max_drawdown_pct"],
+            2,
+        ),
+    }
+    return {
+        "portfolioId": resolved,
+        "persisted": False,
+        "baseline": baseline,
+        "scenario": scenario,
+        "delta": delta,
+        "scenarioHoldings": scenario_holdings,
+    }
+
+
 @router.put("/portfolios/{portfolio_id}")
-async def portfolio_update(portfolio_id: str, req: PortfolioUpdateRequest):
+async def portfolio_update(
+    portfolio_id: str,
+    req: PortfolioUpdateRequest,
+    user_id: str = Depends(get_user_id),
+):
     """更新投資組合（描述或持股清單）。"""
     try:
         from app.components.portfolio_utils import (
-            PORTFOLIO_FILE, load_portfolios, save_portfolios,
+            load_portfolios, portfolio_file, save_portfolios,
         )
         from core.json_store import file_lock
-        with file_lock(PORTFOLIO_FILE):
-            portfolios = load_portfolios()
+        with file_lock(portfolio_file(user_id)):
+            portfolios = load_portfolios(user_id)
             if portfolio_id not in portfolios:
                 raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
 
@@ -192,7 +299,7 @@ async def portfolio_update(portfolio_id: str, req: PortfolioUpdateRequest):
             if req.holdings is not None:
                 portfolios[portfolio_id]["holdings"] = [h.model_dump() for h in req.holdings]
 
-            save_portfolios(portfolios)
+            save_portfolios(portfolios, user_id)
         return {"message": "更新成功", "id": portfolio_id}
     except HTTPException:
         raise
@@ -201,19 +308,21 @@ async def portfolio_update(portfolio_id: str, req: PortfolioUpdateRequest):
 
 
 @router.delete("/portfolios/{portfolio_id}")
-async def portfolio_delete(portfolio_id: str):
+async def portfolio_delete(
+    portfolio_id: str, user_id: str = Depends(get_user_id)
+):
     """刪除投資組合。"""
     try:
         from app.components.portfolio_utils import (
-            PORTFOLIO_FILE, load_portfolios, save_portfolios,
+            load_portfolios, portfolio_file, save_portfolios,
         )
         from core.json_store import file_lock
-        with file_lock(PORTFOLIO_FILE):
-            portfolios = load_portfolios()
+        with file_lock(portfolio_file(user_id)):
+            portfolios = load_portfolios(user_id)
             if portfolio_id not in portfolios:
                 raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
             del portfolios[portfolio_id]
-            save_portfolios(portfolios)
+            save_portfolios(portfolios, user_id)
         return {"message": "刪除成功"}
     except HTTPException:
         raise

@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import cached_response
 from api.state import loader
 from core.radar_pro import RadarPro
@@ -65,10 +65,12 @@ async def radar_tracking():
 
 
 @router.get("/radar/portfolio-health/{portfolio_id}")
-async def radar_portfolio_health(portfolio_id: str):
+async def radar_portfolio_health(
+    portfolio_id: str, user_id: str = Depends(get_user_id)
+):
     """持倉自動健檢。"""
     try:
-        return RadarPro(loader).portfolio_health(portfolio_id)
+        return RadarPro(loader).portfolio_health(portfolio_id, user_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
     except Exception as e:
@@ -101,9 +103,12 @@ async def radar_daily_report():
 @cached_response(ttl_seconds=1800)
 async def radar_notification_preview(
     portfolio_id: str = Query(default="default"),
+    user_id: str = Depends(get_user_id),
 ):
     """Telegram / Email 智慧推播預覽。"""
-    return RadarPro(loader).notification_preview(portfolio_id=portfolio_id)
+    return RadarPro(loader).notification_preview(
+        portfolio_id=portfolio_id, user_id=user_id
+    )
 
 
 @router.get("/radar/events/{stock_id}")

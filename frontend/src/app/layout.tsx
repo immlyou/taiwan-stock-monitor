@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { Sidebar } from '@/components/layout/Sidebar'
-import { Header } from '@/components/layout/Header'
-import { MainContent } from '@/components/layout/MainContent'
+import { AppShell } from '@/components/layout/AppShell'
 import { Providers } from '@/components/Providers'
 
 export const metadata: Metadata = {
@@ -45,9 +43,7 @@ export default function RootLayout({
       </head>
       <body className="h-full" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
         <Providers>
-          <Sidebar />
-          <Header />
-          <MainContent>{children}</MainContent>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

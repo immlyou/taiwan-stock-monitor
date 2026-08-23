@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from api.state import DATA_DIR, loader
 from core.cache import get_cache, make_key
+from core.user_storage import DEFAULT_USER_ID, user_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,13 @@ def _get_stock_latest(stock_id: str, days: int = 1):
 
 
 # ─── data/ 目錄 JSON 檔案 I/O ────────────────────────────
-def _load_json_file(filename: str, default=None):
+def _user_json_path(filename: str, *, user_id: str = DEFAULT_USER_ID):
+    return user_data_path(user_id, filename, DATA_DIR)
+
+
+def _load_json_file(filename: str, default=None, *, user_id: str = DEFAULT_USER_ID):
     """安全讀取 data/ 目錄下的 JSON 檔案"""
-    path = DATA_DIR / filename
+    path = _user_json_path(filename, user_id=user_id)
     if default is None:
         default = {}
     if path.exists():
@@ -63,11 +68,11 @@ def _load_json_file(filename: str, default=None):
     return default
 
 
-def _save_json_file(filename: str, data) -> None:
+def _save_json_file(filename: str, data, *, user_id: str = DEFAULT_USER_ID) -> None:
     """安全寫入 data/ 目錄下的 JSON 檔案（atomic write）"""
     from core.json_store import save_json_atomic
 
-    save_json_atomic(DATA_DIR / filename, data)
+    save_json_atomic(_user_json_path(filename, user_id=user_id), data)
 
 
 # ─── 股票對照表 ─────────────────────────────────────────

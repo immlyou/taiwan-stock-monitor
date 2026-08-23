@@ -185,6 +185,95 @@ class TestSettingsEndpoints:
         assert "theme" in body
         assert "language" in body
         assert body["language"] == "zh-TW"
+        assert body["telegram"] == {
+            "enabled": False,
+            "chatId": "",
+            "botTokenConfigured": False,
+        }
+        assert body["email"]["passwordConfigured"] is False
+        assert body["system"]["timezone"] == "Asia/Taipei"
+
+    def test_notification_secrets_are_write_only_and_preserved(
+        self, api_client
+    ):
+        headers = {"X-User-ID": "google_secretowner"}
+        saved = api_client.put(
+            "/settings",
+            headers=headers,
+            json={
+                "telegram": {
+                    "enabled": True,
+                    "botToken": "telegram-super-secret",
+                    "chatId": "123456",
+                },
+                "email": {
+                    "enabled": True,
+                    "smtpHost": "smtp.example.com",
+                    "smtpPort": 587,
+                    "username": "sender@example.com",
+                    "password": "email-super-secret",
+                    "recipient": "alerts@example.com",
+                },
+            },
+        )
+        assert saved.status_code == 200
+        saved_text = saved.text
+        assert "telegram-super-secret" not in saved_text
+        assert "email-super-secret" not in saved_text
+        assert saved.json()["settings"]["telegram"]["botTokenConfigured"] is True
+        assert saved.json()["settings"]["email"]["passwordConfigured"] is True
+
+        fetched = api_client.get("/settings", headers=headers)
+        assert "telegram-super-secret" not in fetched.text
+        assert "email-super-secret" not in fetched.text
+        assert "botToken" not in fetched.json()["telegram"]
+        assert "password" not in fetched.json()["email"]
+
+        preserved = api_client.put(
+            "/settings",
+            headers=headers,
+            json={
+                "telegram": {"botToken": ""},
+                "email": {"password": ""},
+                "extra": {"apiKey": "must-never-leak"},
+            },
+        )
+        assert "must-never-leak" not in preserved.text
+        assert preserved.json()["settings"]["telegram"]["botTokenConfigured"] is True
+        assert preserved.json()["settings"]["email"]["passwordConfigured"] is True
+
+    def test_telegram_test_uses_saved_user_credentials(
+        self, api_client, monkeypatch
+    ):
+        headers = {"X-User-ID": "google_telegramtest"}
+        api_client.put(
+            "/settings",
+            headers=headers,
+            json={
+                "telegram": {
+                    "enabled": True,
+                    "botToken": "saved-token",
+                    "chatId": "saved-chat",
+                }
+            },
+        )
+        sent = {}
+
+        def fake_send(channel, title, message):
+            sent.update(token=channel.token, chat_id=channel.chat_id, title=title)
+            return True
+
+        from core.notification import TelegramChannel
+
+        monkeypatch.setattr(TelegramChannel, "send", fake_send)
+        response = api_client.post("/settings/test-telegram", headers=headers)
+
+        assert response.status_code == 200
+        assert sent == {
+            "token": "saved-token",
+            "chat_id": "saved-chat",
+            "title": "台股戰情中心測試通知",
+        }
 
     def test_settings_put_updates_theme(self, api_client):
         r = api_client.put("/settings", json={"theme": "dark"})
@@ -195,6 +284,21 @@ class TestSettingsEndpoints:
         # 二次 GET 應拿到更新值（驗證持久化到 tmp DATA_DIR）
         r2 = api_client.get("/settings")
         assert r2.json()["theme"] == "dark"
+
+    def test_settings_are_isolated_by_verified_user_id(self, api_client):
+        alice_headers = {"X-User-ID": "google_alice123"}
+        bob_headers = {"X-User-ID": "google_bob456"}
+
+        updated = api_client.put(
+            "/settings", json={"theme": "dark"}, headers=alice_headers
+        )
+        assert updated.status_code == 200
+
+        alice = api_client.get("/settings", headers=alice_headers)
+        bob = api_client.get("/settings", headers=bob_headers)
+
+        assert alice.json()["theme"] == "dark"
+        assert bob.json()["theme"] == "light"
 
     def test_settings_put_partial_update(self, api_client):
         api_client.put("/settings", json={"theme": "dark", "default_days": 90})

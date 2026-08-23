@@ -44,6 +44,8 @@ interface PortfolioDetail {
 }
 
 interface PortfolioDiagnostics {
+  total_value?: number
+  holdings_count?: number
   concentration: {
     top_holding_weight: number
     top_industry_weight: number
@@ -54,6 +56,26 @@ interface PortfolioDiagnostics {
   }
   allocation: Array<{ industry: string; weight: number; market_value: number }>
   suggestions: string[]
+}
+
+interface WhatIfResult {
+  portfolioId: string
+  persisted: false
+  baseline: PortfolioDiagnostics & { total_value: number; holdings_count: number }
+  scenario: PortfolioDiagnostics & { total_value: number; holdings_count: number }
+  delta: {
+    holdings_count: number
+    total_value: number
+    top_holding_weight: number
+    annualized_volatility_pct: number
+    max_drawdown_pct: number
+  }
+  scenarioHoldings: Array<{
+    stock_id: string
+    shares: number
+    cost_price: number
+    buy_date?: string
+  }>
 }
 
 const PORTFOLIO_ID = 'default'
@@ -72,6 +94,15 @@ export default function PortfolioPage() {
     cost_price: '',
   })
   const [saving, setSaving] = useState(false)
+  const [whatIfOpen, setWhatIfOpen] = useState(false)
+  const [whatIfRunning, setWhatIfRunning] = useState(false)
+  const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null)
+  const [whatIfForm, setWhatIfForm] = useState({
+    action: 'add' as 'add' | 'update' | 'remove',
+    stock_id: '',
+    shares: '',
+    cost_price: '',
+  })
 
   const openAdd = () => {
     setEditHolding(null)
@@ -177,6 +208,46 @@ export default function PortfolioPage() {
     await mutate(SWR_KEY)
   }
 
+  const handleRunWhatIf = async () => {
+    if (!whatIfForm.stock_id.trim()) return
+    if (whatIfForm.action === 'add' && (!whatIfForm.shares || !whatIfForm.cost_price)) return
+    setWhatIfRunning(true)
+    try {
+      const operation: Record<string, string | number> = {
+        action: whatIfForm.action,
+        stock_id: whatIfForm.stock_id.trim().toUpperCase(),
+      }
+      if (whatIfForm.action !== 'remove') {
+        if (whatIfForm.shares) operation.shares = Number(whatIfForm.shares)
+        if (whatIfForm.cost_price) operation.cost_price = Number(whatIfForm.cost_price)
+      }
+      const result = await fetchAPI<WhatIfResult>(`${SWR_KEY}/what-if`, {
+        method: 'POST',
+        body: JSON.stringify({ operations: [operation] }),
+      })
+      setWhatIfResult(result)
+    } finally {
+      setWhatIfRunning(false)
+    }
+  }
+
+  const handleApplyWhatIf = async () => {
+    if (!whatIfResult) return
+    setSaving(true)
+    try {
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ holdings: whatIfResult.scenarioHoldings }),
+      })
+      await Promise.all([mutate(SWR_KEY), mutate(`${SWR_KEY}/diagnostics`)])
+      setWhatIfOpen(false)
+      setWhatIfResult(null)
+      setWhatIfForm({ action: 'add', stock_id: '', shares: '', cost_price: '' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const summary = data?.summary
   const holdings = data?.holdings ?? []
 
@@ -188,6 +259,17 @@ export default function PortfolioPage() {
           <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>持股明細與損益追蹤</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setWhatIfResult(null)
+              setWhatIfOpen(true)
+            }}
+            disabled={!holdings.length}
+            className="h-9 px-4 rounded-md text-sm font-medium disabled:opacity-50"
+            style={{ background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
+          >
+            What-if 模擬
+          </button>
           <button
             onClick={() => setImportOpen(true)}
             className="h-9 px-4 rounded-md text-sm font-medium"
@@ -375,6 +457,73 @@ export default function PortfolioPage() {
       )}
 
       {/* 新增/編輯 Dialog */}
+      <Dialog open={whatIfOpen} onOpenChange={setWhatIfOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>投組 What-if</DialogTitle>
+            <DialogDescription>先模擬集中度與風險變化，不會直接修改持股。</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>動作</label>
+              <select
+                value={whatIfForm.action}
+                onChange={(event) => {
+                  setWhatIfResult(null)
+                  setWhatIfForm((value) => ({ ...value, action: event.target.value as 'add' | 'update' | 'remove' }))
+                }}
+                className="mt-1 h-9 w-full rounded-md border px-2 text-sm"
+                style={{ background: 'var(--background)', borderColor: 'var(--border)' }}
+              >
+                <option value="add">新增持股</option>
+                <option value="update">調整持股</option>
+                <option value="remove">移除持股</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
+              <input
+                value={whatIfForm.stock_id}
+                onChange={(event) => setWhatIfForm((value) => ({ ...value, stock_id: event.target.value.toUpperCase() }))}
+                className="mt-1 h-9 w-full rounded-md border px-3 text-sm"
+                style={{ background: 'var(--background)', borderColor: 'var(--border)' }}
+                placeholder="2330"
+              />
+            </div>
+            {whatIfForm.action !== 'remove' && (
+              <>
+                <div>
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>股數{whatIfForm.action === 'update' ? '（留空不變）' : ''}</label>
+                  <input type="number" min={1} value={whatIfForm.shares} onChange={(event) => setWhatIfForm((value) => ({ ...value, shares: event.target.value }))} className="mt-1 h-9 w-full rounded-md border px-3 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }} />
+                </div>
+                <div>
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>成本價{whatIfForm.action === 'update' ? '（留空不變）' : ''}</label>
+                  <input type="number" min={0} value={whatIfForm.cost_price} onChange={(event) => setWhatIfForm((value) => ({ ...value, cost_price: event.target.value }))} className="mt-1 h-9 w-full rounded-md border px-3 text-sm" style={{ background: 'var(--background)', borderColor: 'var(--border)' }} />
+                </div>
+              </>
+            )}
+          </div>
+
+          {whatIfResult && (
+            <div className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+              <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>模擬差異（情境 − 現況）</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <span>持股數</span><span className="text-right tabular-nums">{whatIfResult.delta.holdings_count > 0 ? '+' : ''}{whatIfResult.delta.holdings_count}</span>
+                <span>總市值</span><span className="text-right tabular-nums">{whatIfResult.delta.total_value > 0 ? '+' : ''}{(whatIfResult.delta.total_value / 1e4).toFixed(1)} 萬</span>
+                <span>最大持股權重</span><span className="text-right tabular-nums">{whatIfResult.delta.top_holding_weight > 0 ? '+' : ''}{whatIfResult.delta.top_holding_weight.toFixed(1)}%</span>
+                <span>年化波動率</span><span className="text-right tabular-nums">{whatIfResult.delta.annualized_volatility_pct > 0 ? '+' : ''}{whatIfResult.delta.annualized_volatility_pct.toFixed(1)}%</span>
+                <span>最大回撤</span><span className="text-right tabular-nums">{whatIfResult.delta.max_drawdown_pct > 0 ? '+' : ''}{whatIfResult.delta.max_drawdown_pct.toFixed(1)}%</span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <button onClick={handleRunWhatIf} disabled={whatIfRunning} className="h-9 px-4 rounded-md text-sm disabled:opacity-60" style={{ background: 'var(--secondary)' }}>{whatIfRunning ? '模擬中…' : '執行模擬'}</button>
+            {whatIfResult && <button onClick={handleApplyWhatIf} disabled={saving} className="h-9 px-4 rounded-md text-sm disabled:opacity-60" style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}>{saving ? '套用中…' : '套用此情境'}</button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
           className="max-w-sm"

@@ -77,6 +77,18 @@ def stateful_client(monkeypatch, tmp_path, sample_close, sample_volume, sample_s
 
 # ── 自選股 CRUD ──────────────────────────────────────────
 class TestWatchlistsCRUD:
+    def test_data_is_isolated_per_user(self, stateful_client):
+        alice = {"X-User-ID": "google_alice123"}
+        bob = {"X-User-ID": "google_bob456"}
+        created = stateful_client.post(
+            "/watchlists",
+            json={"name": "alice-only", "stocks": ["2330"]},
+            headers=alice,
+        )
+        assert created.status_code == 200
+        assert stateful_client.get("/watchlists", headers=alice).json()["total"] == 1
+        assert stateful_client.get("/watchlists", headers=bob).json()["total"] == 0
+
     def test_list_empty(self, stateful_client):
         r = stateful_client.get("/watchlists")
         assert r.status_code == 200
@@ -143,6 +155,18 @@ class TestWatchlistsCRUD:
 
 # ── 投資組合 CRUD ────────────────────────────────────────
 class TestPortfoliosCRUD:
+    def test_data_is_isolated_per_user(self, stateful_client):
+        alice = {"X-User-ID": "google_alice123"}
+        bob = {"X-User-ID": "google_bob456"}
+        created = stateful_client.post(
+            "/portfolios",
+            json={"name": "alice-only", "description": "private"},
+            headers=alice,
+        )
+        assert created.status_code == 200
+        assert stateful_client.get("/portfolios", headers=alice).json()["total"] == 1
+        assert stateful_client.get("/portfolios", headers=bob).json()["total"] == 0
+
     def test_list_empty(self, stateful_client):
         r = stateful_client.get("/portfolios")
         assert r.status_code == 200
@@ -212,9 +236,86 @@ class TestPortfoliosCRUD:
         # HoldingItem.shares ge=1 → 422
         assert r.status_code == 422
 
+    def test_what_if_returns_diagnostics_without_persisting(self, stateful_client):
+        headers = {"X-User-ID": "google_whatifowner"}
+        stateful_client.post(
+            "/portfolios",
+            headers=headers,
+            json={"name": "scenario", "description": "baseline"},
+        )
+        stateful_client.put(
+            "/portfolios/scenario",
+            headers=headers,
+            json={
+                "holdings": [
+                    {"stock_id": "2330", "shares": 1000, "cost_price": 100}
+                ]
+            },
+        )
+
+        response = stateful_client.post(
+            "/portfolios/scenario/what-if",
+            headers=headers,
+            json={
+                "operations": [
+                    {
+                        "action": "add",
+                        "stock_id": "2317",
+                        "shares": 500,
+                        "cost_price": 80,
+                    }
+                ]
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["persisted"] is False
+        assert body["baseline"]["holdings_count"] == 1
+        assert body["scenario"]["holdings_count"] == 2
+        assert body["delta"]["holdings_count"] == 1
+        assert {h["stock_id"] for h in body["scenarioHoldings"]} == {"2330", "2317"}
+
+        unchanged = stateful_client.get(
+            "/portfolios/scenario", headers=headers
+        ).json()
+        assert len(unchanged["holdings"]) == 1
+        assert unchanged["holdings"][0]["stock_id"] == "2330"
+
+    def test_what_if_rejects_an_update_for_a_missing_holding(self, stateful_client):
+        stateful_client.post(
+            "/portfolios", json={"name": "scenario", "description": "baseline"}
+        )
+        response = stateful_client.post(
+            "/portfolios/scenario/what-if",
+            json={
+                "operations": [
+                    {
+                        "action": "update",
+                        "stock_id": "9999",
+                        "shares": 10,
+                        "cost_price": 10,
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 422
+
 
 # ── 警報 CRUD ────────────────────────────────────────────
 class TestAlertsCRUD:
+    def test_data_is_isolated_per_user(self, stateful_client):
+        alice = {"X-User-ID": "google_alice123"}
+        bob = {"X-User-ID": "google_bob456"}
+        created = stateful_client.post(
+            "/alerts",
+            json={"stock_id": "2330", "type": "price_above", "value": 700},
+            headers=alice,
+        )
+        assert created.status_code == 200
+        assert stateful_client.get("/alerts", headers=alice).json()["total"] == 1
+        assert stateful_client.get("/alerts", headers=bob).json()["total"] == 0
+
     def test_alert_types(self, stateful_client):
         r = stateful_client.get("/alerts/types")
         assert r.status_code == 200
@@ -268,8 +369,110 @@ class TestAlertsCRUD:
         assert r.status_code == 404
 
 
+class TestAlertsV2Rules:
+    def test_multi_condition_rule_evaluates_and_records_history(
+        self, stateful_client
+    ):
+        headers = {"X-User-ID": "google_ruleowner"}
+        created = stateful_client.post(
+            "/alerts/rules",
+            headers=headers,
+            json={
+                "name": "價格與漲跌幅同時符合",
+                "match": "all",
+                "target": {"stockIds": ["2330"]},
+                "conditions": [
+                    {"field": "price", "operator": "gt", "value": 0},
+                    {"field": "change_pct", "operator": "gt", "value": -100},
+                ],
+                "frequency": "repeating",
+                "cooldownMinutes": 60,
+                "channels": ["telegram"],
+            },
+        )
+        assert created.status_code == 200
+        rule_id = created.json()["rule"]["id"]
+
+        evaluated = stateful_client.post(
+            "/alerts/evaluate", headers=headers, json={"ruleIds": [rule_id]}
+        )
+        assert evaluated.status_code == 200
+        assert evaluated.json()["triggeredCount"] == 1
+        assert evaluated.json()["hits"][0]["stockId"] == "2330"
+
+        # Same stock/rule is inside its cooldown window, so no duplicate hit.
+        repeated = stateful_client.post(
+            "/alerts/evaluate", headers=headers, json={"ruleIds": [rule_id]}
+        )
+        assert repeated.json()["triggeredCount"] == 0
+        assert repeated.json()["suppressedCount"] == 1
+
+        history = stateful_client.get("/alerts/hits", headers=headers)
+        assert history.status_code == 200
+        assert history.json()["total"] == 1
+        assert history.json()["hits"][0]["ruleId"] == rule_id
+
+    def test_any_rule_can_expand_a_watchlist_target(self, stateful_client):
+        headers = {"X-User-ID": "google_watchlistrule"}
+        stateful_client.post(
+            "/watchlists",
+            headers=headers,
+            json={"name": "focus", "stocks": ["2330", "2317"]},
+        )
+        created = stateful_client.post(
+            "/alerts/rules",
+            headers=headers,
+            json={
+                "name": "觀察清單任一條件",
+                "match": "any",
+                "target": {"watchlistId": "focus"},
+                "conditions": [
+                    {"field": "price", "operator": "gt", "value": 0},
+                    {"field": "rsi", "operator": "lt", "value": 0},
+                ],
+            },
+        )
+        assert created.status_code == 200
+
+        result = stateful_client.post(
+            "/alerts/evaluate", headers=headers, json={}
+        ).json()
+        assert result["triggeredCount"] == 2
+        assert {hit["stockId"] for hit in result["hits"]} == {"2330", "2317"}
+
+    def test_rules_and_hits_are_isolated_per_user(self, stateful_client):
+        alice = {"X-User-ID": "google_rulesalice"}
+        bob = {"X-User-ID": "google_rulesbob"}
+        stateful_client.post(
+            "/alerts/rules",
+            headers=alice,
+            json={
+                "name": "alice only",
+                "target": {"stockIds": ["2330"]},
+                "conditions": [
+                    {"field": "price", "operator": "gt", "value": 0}
+                ],
+            },
+        )
+
+        assert stateful_client.get("/alerts/rules", headers=alice).json()["total"] == 1
+        assert stateful_client.get("/alerts/rules", headers=bob).json()["total"] == 0
+
+
 # ── 交易日誌 CRUD ────────────────────────────────────────
 class TestJournalCRUD:
+    def test_data_is_isolated_per_user(self, stateful_client):
+        alice = {"X-User-ID": "google_alice123"}
+        bob = {"X-User-ID": "google_bob456"}
+        created = stateful_client.post(
+            "/journal",
+            json={"stock_id": "2330", "action": "note", "note": "private"},
+            headers=alice,
+        )
+        assert created.status_code == 200
+        assert stateful_client.get("/journal", headers=alice).json()["total"] == 1
+        assert stateful_client.get("/journal", headers=bob).json()["total"] == 0
+
     def test_list_empty(self, stateful_client):
         r = stateful_client.get("/journal")
         assert r.status_code == 200

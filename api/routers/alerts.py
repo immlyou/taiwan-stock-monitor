@@ -3,21 +3,37 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.deps import verify_api_key
-from api.helpers import _safe_json, cached_response
-from api.models import AlertCreateRequest, AlertUpdateRequest
+from api.deps import get_user_id, verify_api_key
+from api.helpers import (
+    _load_json_file,
+    _safe_json,
+    _save_json_file,
+    _user_json_path,
+    cached_response,
+)
+from api.models import (
+    AlertCreateRequest,
+    AlertEvaluateRequest,
+    AlertRuleCreateRequest,
+    AlertRuleUpdateRequest,
+    AlertUpdateRequest,
+)
 from api.state import loader
 from core.alerts import AlertEngine
 from core.intelligence import evaluate_smart_alerts
 from core.json_store import file_lock
+from core.timeutils import now_taipei
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["警報"], dependencies=[Depends(verify_api_key)])
+
+ALERT_RULES_FILE = "alert_rules.json"
+ALERT_HITS_FILE = "alert_hits.json"
 
 ALERT_TYPES = [
     {"type": "price_above", "label": "價格高於", "unit": "元", "default_value": 600},
@@ -31,10 +47,10 @@ ALERT_TYPES = [
 
 
 @router.get("/alerts")
-async def alerts_list():
+async def alerts_list(user_id: str = Depends(get_user_id)):
     """取得所有警報設定。"""
     try:
-        engine = AlertEngine()
+        engine = AlertEngine(user_id)
         alerts = engine.alerts_data.get("alerts", [])
         return {"total": len(alerts), "alerts": alerts}
     except Exception as e:
@@ -65,12 +81,203 @@ async def alerts_smart_preview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _load_rules(user_id: str) -> dict:
+    return _load_json_file(ALERT_RULES_FILE, {"rules": []}, user_id=user_id)
+
+
+def _load_hits(user_id: str) -> dict:
+    return _load_json_file(ALERT_HITS_FILE, {"hits": []}, user_id=user_id)
+
+
+def _target_stock_ids(rule: dict, user_id: str) -> list[str]:
+    target = rule.get("target", {})
+    stock_ids = {str(item) for item in target.get("stockIds", []) if item}
+    watchlist_id = target.get("watchlistId")
+    if watchlist_id:
+        from app.components.watchlist_utils import get_watchlist_stocks
+
+        stock_ids.update(get_watchlist_stocks(watchlist_id, user_id))
+    return sorted(stock_ids)
+
+
+def _is_hit_suppressed(rule: dict, stock_id: str, hits: list[dict], now: datetime) -> bool:
+    previous = [
+        hit for hit in hits
+        if hit.get("ruleId") == rule.get("id") and hit.get("stockId") == stock_id
+    ]
+    if not previous:
+        return False
+    if rule.get("frequency") == "once":
+        return True
+
+    latest_raw = max(hit.get("triggeredAt", "") for hit in previous)
+    try:
+        latest = datetime.fromisoformat(latest_raw)
+    except ValueError:
+        return False
+    return now - latest < timedelta(minutes=int(rule.get("cooldownMinutes", 60)))
+
+
+@router.get("/alerts/rules")
+async def alert_rules_list(user_id: str = Depends(get_user_id)):
+    rules = _load_rules(user_id).get("rules", [])
+    return {"total": len(rules), "rules": rules}
+
+
+@router.post("/alerts/rules")
+async def alert_rule_create(
+    req: AlertRuleCreateRequest, user_id: str = Depends(get_user_id)
+):
+    path = _user_json_path(ALERT_RULES_FILE, user_id=user_id)
+    with file_lock(path):
+        data = _load_rules(user_id)
+        rule = {
+            "id": str(uuid.uuid4()),
+            **req.model_dump(),
+            "createdAt": now_taipei().isoformat(),
+        }
+        data.setdefault("rules", []).append(rule)
+        _save_json_file(ALERT_RULES_FILE, data, user_id=user_id)
+    return {"message": "規則已建立", "rule": rule}
+
+
+@router.patch("/alerts/rules/{rule_id}")
+async def alert_rule_update(
+    rule_id: str,
+    req: AlertRuleUpdateRequest,
+    user_id: str = Depends(get_user_id),
+):
+    path = _user_json_path(ALERT_RULES_FILE, user_id=user_id)
+    with file_lock(path):
+        data = _load_rules(user_id)
+        rule = next(
+            (item for item in data.get("rules", []) if item.get("id") == rule_id),
+            None,
+        )
+        if rule is None:
+            raise HTTPException(status_code=404, detail=f"找不到警報規則: {rule_id}")
+        rule.update(req.model_dump(exclude_none=True))
+        rule["updatedAt"] = now_taipei().isoformat()
+        _save_json_file(ALERT_RULES_FILE, data, user_id=user_id)
+    return {"message": "規則已更新", "rule": rule}
+
+
+@router.delete("/alerts/rules/{rule_id}")
+async def alert_rule_delete(
+    rule_id: str, user_id: str = Depends(get_user_id)
+):
+    path = _user_json_path(ALERT_RULES_FILE, user_id=user_id)
+    with file_lock(path):
+        data = _load_rules(user_id)
+        rules = data.get("rules", [])
+        data["rules"] = [item for item in rules if item.get("id") != rule_id]
+        if len(data["rules"]) == len(rules):
+            raise HTTPException(status_code=404, detail=f"找不到警報規則: {rule_id}")
+        _save_json_file(ALERT_RULES_FILE, data, user_id=user_id)
+    return {"message": "規則已刪除"}
+
+
+@router.get("/alerts/hits")
+async def alert_hits_list(
+    rule_id: str | None = Query(default=None, alias="ruleId"),
+    limit: int = Query(default=100, ge=1, le=500),
+    user_id: str = Depends(get_user_id),
+):
+    hits = _load_hits(user_id).get("hits", [])
+    if rule_id:
+        hits = [hit for hit in hits if hit.get("ruleId") == rule_id]
+    hits = sorted(hits, key=lambda item: item.get("triggeredAt", ""), reverse=True)
+    return {"total": len(hits), "hits": hits[:limit]}
+
+
+@router.post("/alerts/evaluate")
+async def alert_rules_evaluate(
+    req: AlertEvaluateRequest, user_id: str = Depends(get_user_id)
+):
+    from core.alert_rules import evaluate_rule_for_stock
+
+    rules_data = _load_rules(user_id)
+    hits_data = _load_hits(user_id)
+    rule_ids = set(req.ruleIds or [])
+    rules = [
+        rule for rule in rules_data.get("rules", [])
+        if rule.get("enabled", True) and (not rule_ids or rule.get("id") in rule_ids)
+    ]
+    now = now_taipei()
+    market_data = {
+        "close": loader.get("close"),
+        "volume": loader.get("volume"),
+        "high": loader.get("high"),
+        "low": loader.get("low"),
+    }
+    new_hits = []
+    suppressed_count = 0
+
+    for rule in rules:
+        rule["lastEvaluatedAt"] = now.isoformat()
+        for stock_id in _target_stock_ids(rule, user_id):
+            try:
+                triggered, metrics, condition_results = evaluate_rule_for_stock(
+                    rule, stock_id, market_data
+                )
+            except (KeyError, IndexError, ValueError):
+                continue
+            if not triggered:
+                continue
+            if _is_hit_suppressed(
+                rule, stock_id, hits_data.get("hits", []), now
+            ):
+                suppressed_count += 1
+                continue
+
+            hit = {
+                "id": str(uuid.uuid4()),
+                "ruleId": rule["id"],
+                "ruleName": rule["name"],
+                "stockId": stock_id,
+                "triggeredAt": now.isoformat(),
+                "metrics": metrics,
+                "conditions": condition_results,
+                "channels": rule.get("channels", []),
+            }
+            if req.sendNotifications and hit["channels"]:
+                from core.notification import NotificationManager
+
+                hit["notificationResults"] = NotificationManager(user_id).send(
+                    title=f"警報：{rule['name']}",
+                    message=f"{stock_id} 已符合 Alerts 2.0 規則。",
+                    channels=hit["channels"],
+                )
+            new_hits.append(hit)
+            hits_data.setdefault("hits", []).append(hit)
+            rule["lastTriggeredAt"] = now.isoformat()
+
+    rules_path = _user_json_path(ALERT_RULES_FILE, user_id=user_id)
+    hits_path = _user_json_path(ALERT_HITS_FILE, user_id=user_id)
+    with file_lock(rules_path):
+        _save_json_file(ALERT_RULES_FILE, rules_data, user_id=user_id)
+    if new_hits:
+        hits_data["hits"] = hits_data["hits"][-1000:]
+        with file_lock(hits_path):
+            _save_json_file(ALERT_HITS_FILE, hits_data, user_id=user_id)
+
+    return {
+        "evaluatedRules": len(rules),
+        "triggeredCount": len(new_hits),
+        "suppressedCount": suppressed_count,
+        "hits": new_hits,
+        "evaluatedAt": now.isoformat(),
+    }
+
+
 @router.post("/alerts")
-async def alert_create(req: AlertCreateRequest):
+async def alert_create(
+    req: AlertCreateRequest, user_id: str = Depends(get_user_id)
+):
     """新增警報設定。"""
     try:
-        with file_lock(AlertEngine.ALERTS_FILE):
-            engine = AlertEngine()
+        with file_lock(AlertEngine.alerts_file(user_id)):
+            engine = AlertEngine(user_id)
             alert = {
                 "id": str(uuid.uuid4()),
                 "stock_id": req.stock_id,
@@ -88,11 +295,15 @@ async def alert_create(req: AlertCreateRequest):
 
 
 @router.patch("/alerts/{alert_id}")
-async def alert_update(alert_id: str, req: AlertUpdateRequest):
+async def alert_update(
+    alert_id: str,
+    req: AlertUpdateRequest,
+    user_id: str = Depends(get_user_id),
+):
     """更新警報啟用狀態、觸發值或備註。"""
     try:
-        with file_lock(AlertEngine.ALERTS_FILE):
-            engine = AlertEngine()
+        with file_lock(AlertEngine.alerts_file(user_id)):
+            engine = AlertEngine(user_id)
             alerts = engine.alerts_data.get("alerts", [])
             for alert in alerts:
                 if alert.get("id") == alert_id:
@@ -114,11 +325,11 @@ async def alert_update(alert_id: str, req: AlertUpdateRequest):
 
 
 @router.post("/alerts/{alert_id}/reset")
-async def alert_reset(alert_id: str):
+async def alert_reset(alert_id: str, user_id: str = Depends(get_user_id)):
     """重設已觸發警報狀態。"""
     try:
-        with file_lock(AlertEngine.ALERTS_FILE):
-            engine = AlertEngine()
+        with file_lock(AlertEngine.alerts_file(user_id)):
+            engine = AlertEngine(user_id)
             alerts = engine.alerts_data.get("alerts", [])
             for alert in alerts:
                 if alert.get("id") == alert_id:
@@ -134,11 +345,11 @@ async def alert_reset(alert_id: str):
 
 
 @router.delete("/alerts/{alert_id}")
-async def alert_delete(alert_id: str):
+async def alert_delete(alert_id: str, user_id: str = Depends(get_user_id)):
     """刪除警報設定。"""
     try:
-        with file_lock(AlertEngine.ALERTS_FILE):
-            engine = AlertEngine()
+        with file_lock(AlertEngine.alerts_file(user_id)):
+            engine = AlertEngine(user_id)
             alerts = engine.alerts_data.get("alerts", [])
             original_len = len(alerts)
             engine.alerts_data["alerts"] = [a for a in alerts if a.get("id") != alert_id]
@@ -153,10 +364,10 @@ async def alert_delete(alert_id: str):
 
 
 @router.get("/alerts/check")
-async def check_alerts():
+async def check_alerts(user_id: str = Depends(get_user_id)):
     """檢查所有已設定的警報，回傳觸發的項目。"""
     try:
-        engine = AlertEngine()
+        engine = AlertEngine(user_id)
         close = loader.get("close")
         volume = loader.get("volume")
         high = loader.get("high")

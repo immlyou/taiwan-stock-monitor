@@ -13,7 +13,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import cached_response
 from api.models import (
     JournalReviewRequest,
@@ -55,6 +55,7 @@ async def ai_news_sentiment(req: NewsSentimentRequest):
 async def ai_anomalies(
     scope: str = Query(default="watchlist", description="掃描範圍: watchlist / all"),
     explain: bool = Query(default=True, description="是否啟用 AI 解讀"),
+    user_id: str = Depends(get_user_id),
 ):
     """AI 異常偵測 - 偵測爆量、跳空、法人轉向等異常訊號"""
     from core.ai_models import AnomalyDetector
@@ -69,8 +70,8 @@ async def ai_anomalies(
             from app.components.portfolio_utils import load_portfolios
             from app.components.watchlist_utils import get_all_watched_stocks
 
-            ids = set(get_all_watched_stocks())
-            for p in load_portfolios().values():
+            ids = set(get_all_watched_stocks(user_id))
+            for p in load_portfolios(user_id).values():
                 for h in (p.get("holdings", []) if isinstance(p, dict) else []):
                     ids.add(h.get("stock_id", ""))
             stock_ids = list(ids - {""}) if ids else None

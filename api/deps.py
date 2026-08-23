@@ -18,6 +18,8 @@ from typing import Deque, Dict
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from core.user_storage import DEFAULT_USER_ID, normalize_user_id
+
 logger = logging.getLogger(__name__)
 
 API_KEY: str = os.getenv("STOCK_API_KEY", "")
@@ -28,6 +30,20 @@ IS_CLOUD: bool = bool(
     or os.getenv("RAILWAY_PROJECT_ID")
 )
 security = HTTPBearer(auto_error=False)
+
+
+async def get_user_id(request: Request) -> str:
+    """Return the gateway-verified user identity for per-user storage.
+
+    The Next.js gateway overwrites ``X-User-ID`` from the authenticated Google
+    session.  Missing headers retain the historic single-user owner namespace
+    for local tools and backward-compatible direct API usage.
+    """
+    raw_user_id = request.headers.get("X-User-ID", DEFAULT_USER_ID)
+    try:
+        return normalize_user_id(raw_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="無效的使用者識別碼") from exc
 
 
 async def verify_api_key(

@@ -5,6 +5,8 @@
 // 取代原本 next.config.ts 的 rewrite——rewrite 無法附加 request header，
 // 後端 auth 改為 fail-closed 後必須由這層帶上金鑰。
 import type { NextRequest } from 'next/server'
+import { auth } from '@/auth'
+import { identityFromSession } from '@/lib/auth/identity'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const API_KEY = process.env.STOCK_API_KEY
@@ -16,6 +18,14 @@ async function proxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  const identity = identityFromSession(await auth())
+  if (!identity.authenticated) {
+    return Response.json(
+      { error: 'authentication_required' },
+      { status: 401 }
+    )
+  }
+
   const { path } = await params
   const url = `${BACKEND_URL}/${path.join('/')}${request.nextUrl.search}`
 
@@ -23,6 +33,7 @@ async function proxy(
   const contentType = request.headers.get('content-type')
   if (contentType) headers.set('content-type', contentType)
   if (API_KEY) headers.set('authorization', `Bearer ${API_KEY}`)
+  headers.set('x-user-id', identity.userId)
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
   const body = hasBody ? await request.arrayBuffer() : undefined

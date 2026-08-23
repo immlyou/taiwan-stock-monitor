@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import _get_stock_name_map
 from api.state import loader
 from core.advisor import analyze_portfolio, advisor_narrative, extract_holdings_from_image
@@ -75,7 +75,9 @@ async def advisor_extract_holdings(req: ExtractHoldingsRequest) -> Dict[str, Any
 
 
 @router.post("/advisor/analyze")
-async def advisor_analyze(req: AdvisorRequest) -> Dict[str, Any]:
+async def advisor_analyze(
+    req: AdvisorRequest, user_id: str = Depends(get_user_id)
+) -> Dict[str, Any]:
     """資深操盤人投資顧問分析。"""
     # 取得持股
     holdings: List[Dict[str, Any]] = []
@@ -84,7 +86,7 @@ async def advisor_analyze(req: AdvisorRequest) -> Dict[str, Any]:
     elif req.portfolio_id:
         try:
             from app.components.portfolio_utils import load_portfolios
-            ports = load_portfolios()
+            ports = load_portfolios(user_id)
             if req.portfolio_id not in ports:
                 raise HTTPException(status_code=404, detail=f"找不到投資組合: {req.portfolio_id}")
             holdings = ports[req.portfolio_id].get("holdings", [])

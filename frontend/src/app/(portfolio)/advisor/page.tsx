@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import useSWR, { mutate } from 'swr'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -53,7 +53,7 @@ const MD = {
 
 export default function AdvisorPage() {
   const { data: list } = useSWR<PortfoliosListResponse>('/portfolios', (p: string) => fetchAPI<PortfoliosListResponse>(p))
-  const portfolios = list?.portfolios ?? []
+  const portfolios = useMemo(() => list?.portfolios ?? [], [list?.portfolios])
 
   const [step, setStep] = useState(0)
   const [portfolioId, setPortfolioId] = useState('')

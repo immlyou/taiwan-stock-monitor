@@ -6,7 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.deps import verify_api_key
+from api.deps import get_user_id, verify_api_key
 from api.helpers import _get_industry_map, _get_stock_name_map
 from api.models import WatchlistCreateRequest, WatchlistUpdateRequest
 from api.state import loader
@@ -17,14 +17,14 @@ router = APIRouter(tags=["自選股"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get("/watchlists")
-async def watchlists_list():
+async def watchlists_list(user_id: str = Depends(get_user_id)):
     """取得所有自選股清單。"""
     try:
         from app.components.watchlist_utils import get_watchlist_stocks, load_watchlists
-        watchlists = load_watchlists()
+        watchlists = load_watchlists(user_id)
         result = []
         for name in watchlists.keys():
-            stocks = get_watchlist_stocks(name)
+            stocks = get_watchlist_stocks(name, user_id)
             result.append({
                 "id": name,
                 "name": name,
@@ -36,22 +36,24 @@ async def watchlists_list():
 
 
 @router.post("/watchlists")
-async def watchlist_create(req: WatchlistCreateRequest):
+async def watchlist_create(
+    req: WatchlistCreateRequest, user_id: str = Depends(get_user_id)
+):
     """建立新自選股清單。"""
     try:
         from app.components.watchlist_utils import (
-            WATCHLIST_FILE, load_watchlists, save_watchlists,
+            load_watchlists, save_watchlists, watchlist_file,
         )
         from core.json_store import file_lock
-        with file_lock(WATCHLIST_FILE):
-            watchlists = load_watchlists()
+        with file_lock(watchlist_file(user_id)):
+            watchlists = load_watchlists(user_id)
             if req.name in watchlists:
                 raise HTTPException(status_code=409, detail=f"自選股清單 '{req.name}' 已存在")
             watchlists[req.name] = {
                 "stocks": req.stocks or [],
                 "created_at": datetime.now().isoformat(),
             }
-            save_watchlists(watchlists)
+            save_watchlists(watchlists, user_id)
         return {"message": "建立成功", "id": req.name, "name": req.name}
     except HTTPException:
         raise
@@ -60,12 +62,14 @@ async def watchlist_create(req: WatchlistCreateRequest):
 
 
 @router.get("/watchlists/{watchlist_id}")
-async def watchlist_get(watchlist_id: str):
+async def watchlist_get(
+    watchlist_id: str, user_id: str = Depends(get_user_id)
+):
     """取得指定自選股清單，含各股當前報價。"""
     try:
         from app.components.watchlist_utils import get_watchlist_stocks, load_watchlists
         from api.helpers import resolve_default_id
-        watchlists = load_watchlists()
+        watchlists = load_watchlists(user_id)
         resolved, empty_default = resolve_default_id(watchlists, watchlist_id)
         if empty_default:
             # 完全沒有自選股清單時回空結構（200），讓前端顯示空狀態而非吃 404。
@@ -74,7 +78,7 @@ async def watchlist_get(watchlist_id: str):
             raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
         watchlist_id = resolved
 
-        stocks = get_watchlist_stocks(watchlist_id)
+        stocks = get_watchlist_stocks(watchlist_id, user_id)
         close = loader.get("close")
         name_map = _get_stock_name_map()
         industry_map = _get_industry_map()
@@ -111,7 +115,12 @@ async def watchlist_get(watchlist_id: str):
 
 
 @router.get("/watchlists/{watchlist_id}/summary")
-async def watchlist_summary(watchlist_id: str, days: int = 20, abnormal_pct: float = 5.0):
+async def watchlist_summary(
+    watchlist_id: str,
+    days: int = 20,
+    abnormal_pct: float = 5.0,
+    user_id: str = Depends(get_user_id),
+):
     """把整張自選股清單當投資組合看的匯總。
 
     對清單內每檔股票計算：最新價、當日漲跌%、近 N 日報酬；
@@ -127,7 +136,7 @@ async def watchlist_summary(watchlist_id: str, days: int = 20, abnormal_pct: flo
     try:
         from app.components.watchlist_utils import get_watchlist_stocks, load_watchlists
         from api.helpers import resolve_default_id
-        watchlists = load_watchlists()
+        watchlists = load_watchlists(user_id)
         resolved, empty_default = resolve_default_id(watchlists, watchlist_id)
         if resolved is None and not empty_default:
             raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
@@ -135,7 +144,7 @@ async def watchlist_summary(watchlist_id: str, days: int = 20, abnormal_pct: flo
         watchlist_id = resolved or "default"
 
         days = max(int(days), 1)
-        stocks = get_watchlist_stocks(watchlist_id)
+        stocks = get_watchlist_stocks(watchlist_id, user_id)
         close = loader.get("close")
         name_map = _get_stock_name_map()
         industry_map = _get_industry_map()
@@ -257,15 +266,19 @@ async def watchlist_summary(watchlist_id: str, days: int = 20, abnormal_pct: flo
 
 
 @router.put("/watchlists/{watchlist_id}")
-async def watchlist_update(watchlist_id: str, req: WatchlistUpdateRequest):
+async def watchlist_update(
+    watchlist_id: str,
+    req: WatchlistUpdateRequest,
+    user_id: str = Depends(get_user_id),
+):
     """更新自選股清單（可追加或覆蓋股票清單）。"""
     try:
         from app.components.watchlist_utils import (
-            WATCHLIST_FILE, load_watchlists, save_watchlists,
+            load_watchlists, save_watchlists, watchlist_file,
         )
         from core.json_store import file_lock
-        with file_lock(WATCHLIST_FILE):
-            watchlists = load_watchlists()
+        with file_lock(watchlist_file(user_id)):
+            watchlists = load_watchlists(user_id)
             if watchlist_id not in watchlists:
                 raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
 
@@ -284,7 +297,7 @@ async def watchlist_update(watchlist_id: str, req: WatchlistUpdateRequest):
                 watchlists[req.name] = watchlists.pop(watchlist_id)
                 watchlist_id = req.name
 
-            save_watchlists(watchlists)
+            save_watchlists(watchlists, user_id)
         return {"message": "更新成功", "id": watchlist_id}
     except HTTPException:
         raise
@@ -293,19 +306,21 @@ async def watchlist_update(watchlist_id: str, req: WatchlistUpdateRequest):
 
 
 @router.delete("/watchlists/{watchlist_id}")
-async def watchlist_delete(watchlist_id: str):
+async def watchlist_delete(
+    watchlist_id: str, user_id: str = Depends(get_user_id)
+):
     """刪除自選股清單。"""
     try:
         from app.components.watchlist_utils import (
-            WATCHLIST_FILE, load_watchlists, save_watchlists,
+            load_watchlists, save_watchlists, watchlist_file,
         )
         from core.json_store import file_lock
-        with file_lock(WATCHLIST_FILE):
-            watchlists = load_watchlists()
+        with file_lock(watchlist_file(user_id)):
+            watchlists = load_watchlists(user_id)
             if watchlist_id not in watchlists:
                 raise HTTPException(status_code=404, detail=f"找不到自選股清單: {watchlist_id}")
             del watchlists[watchlist_id]
-            save_watchlists(watchlists)
+            save_watchlists(watchlists, user_id)
         return {"message": "刪除成功"}
     except HTTPException:
         raise
