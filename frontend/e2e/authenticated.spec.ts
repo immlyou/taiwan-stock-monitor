@@ -157,6 +157,10 @@ test('new account can add its first portfolio holding', async ({ page }) => {
   })
 
   await page.goto('/portfolio')
+  // Session resolution changes the SWR provider from the hydration cache to
+  // the final account-scoped cache. Wait for that boundary before opening a
+  // stateful dialog so the test exercises the settled authenticated UI.
+  await expect(page.getByText(AUTH_EMAIL)).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '新增持股' }).click()
   await page.getByPlaceholder('例：2330').fill('2330')
   await page.getByPlaceholder('例：10').fill('1')
