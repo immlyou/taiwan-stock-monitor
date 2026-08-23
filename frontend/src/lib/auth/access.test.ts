@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest'
 
-import { canAccessPath } from './access'
+import { canAccessPath, isAllowedGoogleAccount } from './access'
+
+describe('Google account allowlist', () => {
+  it('allows the configured owner account', () => {
+    expect(
+      isAllowedGoogleAccount(
+        'imchris.yu@gmail.com',
+        'imchris.yu@gmail.com'
+      )
+    ).toBe(true)
+  })
+
+  it('normalizes whitespace and letter case', () => {
+    expect(
+      isAllowedGoogleAccount(
+        'ImChris.Yu@Gmail.com',
+        '  imchris.yu@gmail.com  '
+      )
+    ).toBe(true)
+  })
+
+  it.each([
+    ['another@gmail.com', 'imchris.yu@gmail.com'],
+    [null, 'imchris.yu@gmail.com'],
+    ['imchris.yu@gmail.com', undefined],
+  ])('rejects an unlisted or unconfigured account', (email, configuredEmail) => {
+    expect(isAllowedGoogleAccount(email, configuredEmail)).toBe(false)
+  })
+})
 
 describe('page authorization policy', () => {
   it.each(['/login', '/api/auth/signin', '/api/auth/callback/google', '/api/settings']) (

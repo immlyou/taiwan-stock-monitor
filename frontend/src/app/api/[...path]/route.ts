@@ -18,7 +18,10 @@ async function proxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const identity = identityFromSession(await auth())
+  const identity = identityFromSession(
+    await auth(),
+    process.env.AUTH_ALLOWED_EMAIL
+  )
   if (!identity.authenticated) {
     return Response.json(
       { error: 'authentication_required' },

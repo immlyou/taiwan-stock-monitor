@@ -112,6 +112,7 @@ jobs:
           AUTH_SECRET: ci-only-secret-ci-only-secret-1234
           AUTH_GOOGLE_ID: ci-google-client-id
           AUTH_GOOGLE_SECRET: ci-google-client-secret
+          AUTH_ALLOWED_EMAIL: imchris.yu@gmail.com
         run: npm run build
 
   e2e:
@@ -142,6 +143,7 @@ jobs:
           AUTH_SECRET: ci-only-secret-ci-only-secret-1234
           AUTH_GOOGLE_ID: ci-google-client-id
           AUTH_GOOGLE_SECRET: ci-google-client-secret
+          AUTH_ALLOWED_EMAIL: imchris.yu@gmail.com
         run: npx playwright test e2e/smoke.spec.ts --reporter=list,html
 
       - name: Upload Playwright report

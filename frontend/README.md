@@ -41,6 +41,7 @@ STOCK_API_KEY=與後端相同的_server_only_key
 AUTH_SECRET=至少_32_字元的隨機值
 AUTH_GOOGLE_ID=Google_OAuth_Client_ID
 AUTH_GOOGLE_SECRET=Google_OAuth_Client_Secret
+AUTH_ALLOWED_EMAIL=imchris.yu@gmail.com
 ```
 
 生產環境部署到 Vercel 時，`NEXT_PUBLIC_API_URL` 必須設定為 Railway API：
@@ -56,7 +57,8 @@ http://localhost:3000/api/auth/callback/google
 https://taiwan-stock-monitor.vercel.app/api/auth/callback/google
 ```
 
-`AUTH_SECRET` 可用 `npx auth secret` 產生。`STOCK_API_KEY`、
+`AUTH_SECRET` 可用 `npx auth secret` 產生。`AUTH_ALLOWED_EMAIL` 採不分大小寫的
+完整信箱比對，未設定時會 fail closed、拒絕所有帳號。`STOCK_API_KEY`、
 `AUTH_GOOGLE_SECRET` 與 `AUTH_SECRET` 都不可加 `NEXT_PUBLIC_` 前綴。
 既有 `data/*.json` 的站長資料要接到 Google 帳號時，登入後從
 `/api/auth/session` 複製 `user.id`，並在 Railway 設定同值的

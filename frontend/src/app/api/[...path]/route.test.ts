@@ -15,6 +15,8 @@ describe('authenticated backend proxy', () => {
   beforeEach(() => {
     authMock.mockReset()
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    vi.stubEnv('AUTH_ALLOWED_EMAIL', 'imchris.yu@gmail.com')
   })
 
   it('returns 401 without calling the backend when there is no session', async () => {
@@ -34,7 +36,7 @@ describe('authenticated backend proxy', () => {
 
   it('forwards only the server-verified user id for an authenticated session', async () => {
     authMock.mockResolvedValue({
-      user: { id: 'google_109876543210', email: 'investor@example.com' },
+      user: { id: 'google_109876543210', email: 'imchris.yu@gmail.com' },
     })
     const backendFetch = vi.fn().mockResolvedValue(
       Response.json({ ok: true }, { status: 200 })

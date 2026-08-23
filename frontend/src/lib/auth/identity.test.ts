@@ -9,17 +9,34 @@ describe('authenticated proxy identity', () => {
 
   it('returns the stable Google user id for an authenticated session', () => {
     expect(
-      identityFromSession({
-        user: {
-          id: 'google_109876543210',
-          email: 'investor@example.com',
+      identityFromSession(
+        {
+          user: {
+            id: 'google_109876543210',
+            email: 'investor@example.com',
+          },
         },
-      })
+        'investor@example.com'
+      )
     ).toEqual({
       authenticated: true,
       userId: 'google_109876543210',
       email: 'investor@example.com',
     })
+  })
+
+  it('rejects a valid session from an account outside the allowlist', () => {
+    expect(
+      identityFromSession(
+        {
+          user: {
+            id: 'google_109876543210',
+            email: 'other@example.com',
+          },
+        },
+        'imchris.yu@gmail.com'
+      )
+    ).toEqual({ authenticated: false })
   })
 
   it('rejects an unsafe user id instead of forwarding it to the backend', () => {

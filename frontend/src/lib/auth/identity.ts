@@ -1,3 +1,5 @@
+import { isAllowedGoogleAccount } from './access'
+
 export type AuthSessionLike = {
   user?: {
     id?: string | null
@@ -11,9 +13,16 @@ export type ProxyIdentity =
 
 const SAFE_USER_ID = /^[A-Za-z0-9_-]{3,128}$/
 
-export function identityFromSession(session: AuthSessionLike): ProxyIdentity {
+export function identityFromSession(
+  session: AuthSessionLike,
+  configuredEmail?: string
+): ProxyIdentity {
   const userId = session?.user?.id?.trim()
-  if (!userId || !SAFE_USER_ID.test(userId)) {
+  if (
+    !userId ||
+    !SAFE_USER_ID.test(userId) ||
+    !isAllowedGoogleAccount(session?.user?.email, configuredEmail)
+  ) {
     return { authenticated: false }
   }
 

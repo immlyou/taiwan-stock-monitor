@@ -89,10 +89,12 @@ STOCK_API_KEY=與後端相同的_server_only_key
 AUTH_SECRET=至少_32_字元的隨機值
 AUTH_GOOGLE_ID=Google_OAuth_Client_ID
 AUTH_GOOGLE_SECRET=Google_OAuth_Client_Secret
+AUTH_ALLOWED_EMAIL=imchris.yu@gmail.com
 ```
 
 生產環境在 Vercel 必須設定以上變數，並讓 `NEXT_PUBLIC_API_URL` 指向 Railway
-API。Google OAuth Client 的 redirect URI 設為：
+API。`AUTH_ALLOWED_EMAIL` 未設定時會拒絕所有帳號。Google OAuth Client 的
+redirect URI 設為：
 
 ```text
 http://localhost:3000/api/auth/callback/google
