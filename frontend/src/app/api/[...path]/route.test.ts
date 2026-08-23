@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const { authMock } = vi.hoisted(() => ({ authMock: vi.fn() }))
@@ -17,6 +17,10 @@ describe('authenticated backend proxy', () => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     vi.stubEnv('AUTH_ALLOWED_EMAIL', 'imchris.yu@gmail.com')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('returns 401 without calling the backend when there is no session', async () => {
@@ -55,5 +59,64 @@ describe('authenticated backend proxy', () => {
     const headers = new Headers(init.headers)
     expect(headers.get('x-user-id')).toBe('google_109876543210')
     expect(headers.get('x-user-id')).not.toBe('attacker')
+  })
+
+  it('returns a gateway timeout when the backend exceeds its request budget', async () => {
+    vi.useFakeTimers()
+    authMock.mockResolvedValue({
+      user: { id: 'google_109876543210', email: 'imchris.yu@gmail.com' },
+    })
+    const backendFetch = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        if (!init?.signal) {
+          reject(new Error('proxy request did not provide an abort signal'))
+          return
+        }
+        init.signal.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'))
+        })
+      })
+    )
+    vi.stubGlobal('fetch', backendFetch)
+
+    const result = GET(
+      new NextRequest('https://stocks.example/api/settings'),
+      context
+    ).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(25_000)
+
+    const response = await result
+    expect(response).toBeInstanceOf(Response)
+    expect(response.status).toBe(504)
+    expect(await response.json()).toEqual({ error: 'upstream_timeout' })
+  })
+
+  it('preserves the longer request budget used by AI operations', async () => {
+    vi.useFakeTimers()
+    authMock.mockResolvedValue({
+      user: { id: 'google_109876543210', email: 'imchris.yu@gmail.com' },
+    })
+    let aborted = false
+    const backendFetch = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true
+          reject(new DOMException('aborted', 'AbortError'))
+        })
+      })
+    )
+    vi.stubGlobal('fetch', backendFetch)
+
+    const result = GET(
+      new NextRequest('https://stocks.example/api/ai/stock-chat'),
+      { params: Promise.resolve({ path: ['ai', 'stock-chat'] }) }
+    ).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(aborted).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(40_000)
+    const response = await result
+    expect(response).toBeInstanceOf(Response)
+    expect(response.status).toBe(504)
   })
 })

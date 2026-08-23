@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Strategy, StrategyCondition } from '@/lib/types'
 
@@ -44,6 +44,7 @@ const emptyStrategy = (): Partial<Strategy> => ({
 })
 
 export default function StrategiesPage() {
+  const { mutate } = useSWRConfig()
   const { data: strategiesRes, isLoading } = useSWR<SavedStrategiesResponse>(SWR_KEY, fetchAPI)
   const strategies = strategiesRes?.strategies
   const [dialog, setDialog] = useState<DialogState>({ open: false, mode: 'create' })

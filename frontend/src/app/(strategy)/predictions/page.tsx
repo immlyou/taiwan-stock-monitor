@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
 import { DataTable } from '@/components/shared/DataTable'
@@ -42,6 +42,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 }
 
 export default function PredictionsPage() {
+  const { mutate } = useSWRConfig()
   const { data: predictions, isLoading, error } = useSWR<Prediction[]>(SWR_KEY, fetchAPI)
   const { data: stats, error: statsError } = useSWR<PredictionStats>(STATS_KEY, fetchAPI)
 

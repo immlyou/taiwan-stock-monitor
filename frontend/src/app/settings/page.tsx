@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Switch } from '@/components/ui/switch'
 import { ThemeSelector } from '@/components/settings/ThemeSelector'
@@ -24,7 +24,8 @@ const SWR_KEY = '/settings'
 const INFO_KEY = '/system/info'
 
 export default function SettingsPage() {
-  const { data: settings, isLoading } = useSWR<SettingsResponse>(
+  const { mutate } = useSWRConfig()
+  const { data: settings, isLoading, error } = useSWR<SettingsResponse>(
     SWR_KEY,
     async (path: string) => parseSettingsResponse(await fetchAPI(path)),
   )
@@ -33,6 +34,7 @@ export default function SettingsPage() {
   const [form, setForm] = useState<Partial<SettingsForm>>({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [testTgStatus, setTestTgStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
 
   const currentSettings = settings
@@ -62,6 +64,7 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveError('')
     try {
       await fetchAPI(SWR_KEY, {
         method: 'PUT',
@@ -71,6 +74,8 @@ export default function SettingsPage() {
       setForm({})
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+    } catch {
+      setSaveError('設定儲存失敗，請稍後再試')
     } finally {
       setSaving(false)
     }
@@ -103,6 +108,31 @@ export default function SettingsPage() {
     )
   }
 
+  if (error && !settings) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>系統設定</h1>
+        </div>
+        <div
+          className="rounded-lg p-8 text-center"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+        >
+          <p className="font-medium" style={{ color: 'var(--destructive)' }}>設定載入失敗</p>
+          <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>API 暫時無法回應，現有設定沒有被變更。</p>
+          <button
+            type="button"
+            onClick={() => mutate(SWR_KEY)}
+            className="mt-4 h-9 rounded-md px-4 text-sm font-medium"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            重新載入
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const tg = currentSettings?.telegram
   const em = currentSettings?.email
   const sys = currentSettings?.system
@@ -128,6 +158,13 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {saveError && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>{saveError}</p>
+      )}
+      {error && settings && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>無法更新設定，目前顯示上次成功載入的快取。</p>
+      )}
 
       <div className="space-y-4">
         {/* 佈景主題 */}

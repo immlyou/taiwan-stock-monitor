@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { fetchAPI } from '@/lib/api/client'
@@ -72,6 +72,7 @@ const FILTER_CHIPS: { key: string; label: string }[] = [
 ]
 
 export default function JournalPage() {
+  const { mutate } = useSWRConfig()
   const [limit] = useState(50)
   const [actionFilter, setActionFilter] = useState<string>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -87,6 +88,7 @@ export default function JournalPage() {
   const [saving, setSaving] = useState(false)
   const [aiReport, setAiReport] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  const [actionError, setActionError] = useState('')
 
   const swrKey = `${SWR_KEY_BASE}?limit=${limit}`
   const { data, isLoading, error } = useSWR<JournalResponse>(swrKey, fetchAPI)
@@ -98,6 +100,7 @@ export default function JournalPage() {
   const handleCreate = async () => {
     if (!form.stock_id.trim()) return
     setSaving(true)
+    setActionError('')
     try {
       await fetchAPI(SWR_KEY_BASE, {
         method: 'POST',
@@ -113,15 +116,22 @@ export default function JournalPage() {
       await mutate(swrKey)
       setDialogOpen(false)
       setForm({ date: new Date().toISOString().slice(0, 10), stock_id: '', action: 'buy', shares: '', price: '', note: '' })
+    } catch {
+      setActionError('交易記錄新增失敗，請稍後再試')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    await fetchAPI(`${SWR_KEY_BASE}/${id}`, { method: 'DELETE' })
-    await mutate(swrKey)
-    setDeleteId(null)
+    setActionError('')
+    try {
+      await fetchAPI(`${SWR_KEY_BASE}/${id}`, { method: 'DELETE' })
+      await mutate(swrKey)
+      setDeleteId(null)
+    } catch {
+      setActionError('交易記錄刪除失敗，請稍後再試')
+    }
   }
 
   const handleAiReview = async () => {
@@ -161,9 +171,17 @@ export default function JournalPage() {
         </button>
       </div>
 
-      {error ? (
+      {actionError && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>{actionError}</p>
+      )}
+      {error && data && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>交易日誌更新失敗，目前顯示上次成功載入的快取。</p>
+      )}
+
+      {error && !data ? (
         <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
           <p style={{ color: 'var(--destructive)' }}>資料載入失敗</p>
+          <button type="button" onClick={() => mutate(swrKey)} className="mt-3 text-sm font-medium" style={{ color: 'var(--primary)' }}>重新載入</button>
         </div>
       ) : isLoading ? (
         <div className="space-y-2">

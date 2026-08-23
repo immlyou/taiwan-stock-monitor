@@ -49,8 +49,8 @@ function isQuotaExceededText(text: string): boolean {
 // 對「冪等」請求（GET/HEAD）自動重試，讓使用者不必手動重整；非冪等（POST 等）
 // 與 quota 超限一律不重試，避免重複送出或無謂打 API。
 const RETRYABLE_STATUS = new Set([502, 503, 504])
-const MAX_RETRIES = 2 // 共 3 次嘗試
-const RETRY_BACKOFF_MS = [400, 1000]
+const MAX_RETRIES = 1 // 共 2 次嘗試；SWR 不再額外疊加重試
+const RETRY_BACKOFF_MS = [400]
 
 function isIdempotent(method?: string): boolean {
   const m = (method ?? 'GET').toUpperCase()

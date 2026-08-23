@@ -94,6 +94,22 @@ class TestWatchlistsCRUD:
         assert r.status_code == 200
         assert r.json() == {"total": 0, "watchlists": []}
 
+    def test_put_default_creates_the_first_watchlist(self, stateful_client):
+        """The fixed frontend alias must be writable for a brand-new user."""
+        updated = stateful_client.put(
+            "/watchlists/default",
+            json={"stocks": ["2330"]},
+            headers={"X-User-ID": "google_first_watchlist"},
+        )
+
+        assert updated.status_code == 200
+        detail = stateful_client.get(
+            "/watchlists/default",
+            headers={"X-User-ID": "google_first_watchlist"},
+        )
+        assert detail.status_code == 200
+        assert [stock["stock_id"] for stock in detail.json()["stocks"]] == ["2330"]
+
     def test_create_then_list(self, stateful_client):
         r = stateful_client.post(
             "/watchlists",
@@ -171,6 +187,24 @@ class TestPortfoliosCRUD:
         r = stateful_client.get("/portfolios")
         assert r.status_code == 200
         assert r.json() == {"total": 0, "portfolios": []}
+
+    def test_put_default_creates_the_first_portfolio(self, stateful_client):
+        """A new Google user can save the first holding through the default alias."""
+        headers = {"X-User-ID": "google_first_portfolio"}
+        updated = stateful_client.put(
+            "/portfolios/default",
+            json={
+                "holdings": [
+                    {"stock_id": "2330", "shares": 1000, "cost_price": 100}
+                ]
+            },
+            headers=headers,
+        )
+
+        assert updated.status_code == 200
+        detail = stateful_client.get("/portfolios/default", headers=headers)
+        assert detail.status_code == 200
+        assert detail.json()["holdings"][0]["stock_id"] == "2330"
 
     def test_create_then_get(self, stateful_client):
         r = stateful_client.post(

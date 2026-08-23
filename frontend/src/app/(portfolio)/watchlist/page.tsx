@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar, formatPercent } from '@/lib/utils/format'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
@@ -25,22 +25,12 @@ const WATCHLIST_ID = 'default'
 const SWR_KEY = `/watchlists/${WATCHLIST_ID}`
 
 export default function WatchlistPage() {
+  const { mutate } = useSWRConfig()
   const { data, isLoading, error } = useSWR<WatchlistDetail>(SWR_KEY, fetchAPI)
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
   const [importOpen, setImportOpen] = useState(false)
-
-  const ensureWatchlistExists = async () => {
-    try {
-      await fetchAPI(SWR_KEY)
-    } catch {
-      await fetchAPI('/watchlists', {
-        method: 'POST',
-        body: JSON.stringify({ name: WATCHLIST_ID, stocks: [] }),
-      })
-    }
-  }
 
   const handleAdd = async () => {
     const code = addCode.trim().toUpperCase()
@@ -48,7 +38,6 @@ export default function WatchlistPage() {
     setAdding(true)
     setAddError('')
     try {
-      await ensureWatchlistExists()
       const currentStocks = data?.stocks.map(s => s.stock_id) ?? []
       if (currentStocks.includes(code)) {
         setAddError(`${code} 已在自選股清單中`)
@@ -68,26 +57,35 @@ export default function WatchlistPage() {
   }
 
   const handleRemove = async (stock_id: string) => {
-    const currentStocks = data?.stocks.map(s => s.stock_id) ?? []
-    const updated = currentStocks.filter(s => s !== stock_id)
-    await fetchAPI(SWR_KEY, {
-      method: 'PUT',
-      body: JSON.stringify({ stocks: updated }),
-    })
-    await mutate(SWR_KEY)
+    setAddError('')
+    try {
+      const currentStocks = data?.stocks.map(s => s.stock_id) ?? []
+      const updated = currentStocks.filter(s => s !== stock_id)
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ stocks: updated }),
+      })
+      await mutate(SWR_KEY)
+    } catch {
+      setAddError(`移除 ${stock_id} 失敗，請稍後再試`)
+    }
   }
 
   const handleScreenshotImport = async (items: ImportedHolding[]) => {
     const codes = items.map((i) => i.stock_id).filter(Boolean)
     if (!codes.length) return
-    await ensureWatchlistExists()
-    const currentStocks = data?.stocks.map((s) => s.stock_id) ?? []
-    const merged = Array.from(new Set([...currentStocks, ...codes]))
-    await fetchAPI(SWR_KEY, {
-      method: 'PUT',
-      body: JSON.stringify({ stocks: merged }),
-    })
-    await mutate(SWR_KEY)
+    setAddError('')
+    try {
+      const currentStocks = data?.stocks.map((s) => s.stock_id) ?? []
+      const merged = Array.from(new Set([...currentStocks, ...codes]))
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ stocks: merged }),
+      })
+      await mutate(SWR_KEY)
+    } catch {
+      setAddError('截圖自選股匯入失敗，請稍後再試')
+    }
   }
 
   const stocks = data?.stocks ?? []
@@ -98,6 +96,10 @@ export default function WatchlistPage() {
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>自選股</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>追蹤關注的股票報價</p>
       </div>
+
+      {error && data && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>自選股更新失敗，目前顯示上次成功載入的快取。</p>
+      )}
 
       {/* 新增輸入 */}
       <div
@@ -141,10 +143,18 @@ export default function WatchlistPage() {
           className="rounded-lg p-12 text-center"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
         >
-          <p className="text-lg mb-2" style={{ color: 'var(--muted-foreground)' }}>自選股清單為空</p>
+          <p className="font-medium" style={{ color: 'var(--destructive)' }}>自選股載入失敗</p>
           <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-            在上方輸入股票代號，新增到自選股追蹤
+            API 暫時無法回應，請稍後重試。
           </p>
+          <button
+            type="button"
+            onClick={() => mutate(SWR_KEY)}
+            className="mt-4 h-9 rounded-md px-4 text-sm font-medium"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            重新載入
+          </button>
         </div>
       ) : isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

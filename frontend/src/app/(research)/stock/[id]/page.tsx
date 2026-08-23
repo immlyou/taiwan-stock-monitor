@@ -2,7 +2,7 @@
 
 import { use, useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import useSWR from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { StockInput } from '@/components/shared/StockInput'
@@ -159,6 +159,7 @@ function formatScore(score: number | null | undefined): string {
 
 export default function StockDetailPage({ params }: StockDetailPageProps) {
   const { id } = use(params)
+  const { mutate } = useSWRConfig()
   const router = useRouter()
   const [tab, setTab] = useState<TabType>('chart')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -167,42 +168,42 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   const [importOpen, setImportOpen] = useState(false)
   const chatBottomRef = useRef<HTMLDivElement>(null)
 
-  const { data: stock, isLoading: stockLoading } = useSWR<StockDetail>(
+  const { data: stock, isLoading: stockLoading, error: stockError } = useSWR<StockDetail>(
     `/stock/${id}`,
     fetchAPI
   )
 
-  const { data: ohlcv, isLoading: ohlcvLoading } = useSWR<OhlcvResponse>(
+  const { data: ohlcv, isLoading: ohlcvLoading, error: ohlcvError } = useSWR<OhlcvResponse>(
     tab === 'chart' ? `/stock/${id}/ohlcv?days=120` : null,
     fetchAPI
   )
 
-  const { data: technical } = useSWR<TechnicalResponse>(
+  const { data: technical, error: technicalError } = useSWR<TechnicalResponse>(
     tab === 'technical' ? `/stock/${id}/technical` : null,
     fetchAPI
   )
 
-  const { data: chip } = useSWR<ChipResponse>(
+  const { data: chip, error: chipError } = useSWR<ChipResponse>(
     tab === 'chip' ? `/stock/${id}/chip` : null,
     fetchAPI
   )
 
-  const { data: scorecard } = useSWR<ScorecardResponse>(
+  const { data: scorecard, error: scorecardError } = useSWR<ScorecardResponse>(
     `/stock/${id}/scorecard`,
     fetchAPI
   )
 
-  const { data: companyProfile } = useSWR<CompanyProfile>(
+  const { data: companyProfile, error: companyProfileError } = useSWR<CompanyProfile>(
     `/stock/${id}/profile`,
     fetchAPI
   )
 
-  const { data: scoreHistory } = useSWR<ScoreHistoryResponse>(
+  const { data: scoreHistory, error: scoreHistoryError } = useSWR<ScoreHistoryResponse>(
     `/stock/${id}/score-history?days=20`,
     fetchAPI
   )
 
-  const { data: stockSummary } = useSWR<StockSummaryResponse>(
+  const { data: stockSummary, error: stockSummaryError } = useSWR<StockSummaryResponse>(
     `/ai/stock-summary/${id}`,
     fetchAPI
   )
@@ -221,6 +222,15 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages, chatLoading])
+
+  const retryStockRequests = () => Promise.all([
+    mutate(`/stock/${id}`),
+    mutate(`/stock/${id}/ohlcv?days=120`),
+    mutate(`/stock/${id}/scorecard`),
+    mutate(`/stock/${id}/profile`),
+    mutate(`/stock/${id}/score-history?days=20`),
+    mutate(`/ai/stock-summary/${id}`),
+  ])
 
   async function sendChat() {
     const question = chatInput.trim()
@@ -246,6 +256,39 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
       setChatLoading(false)
     }
   }
+
+  if (stockError && !stock) {
+    return (
+      <div>
+        <div className="mb-6 flex items-center gap-4">
+          <h1 className="text-2xl font-bold shrink-0" style={{ color: 'var(--foreground)' }}>個股分析 — {id}</h1>
+          <StockInput
+            value={id}
+            onChange={(newId) => { if (newId !== id) router.push(`/stock/${newId}`) }}
+            placeholder="切換股票：輸入代號或名稱"
+            className="flex-1 max-w-sm"
+          />
+        </div>
+        <div className="rounded-lg p-8 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+          <p className="font-medium" style={{ color: 'var(--destructive)' }}>個股資料載入失敗</p>
+          <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>無法取得 {id} 的最新資料，請稍後重試或切換其他股票。</p>
+          <button
+            type="button"
+            onClick={() => mutate(`/stock/${id}`)}
+            className="mt-4 h-9 rounded-md px-4 text-sm font-medium"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            重新載入
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const hasPartialError = Boolean(
+    ohlcvError || scorecardError || companyProfileError ||
+    scoreHistoryError || stockSummaryError
+  )
 
   return (
     <div>
@@ -276,6 +319,13 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
         </div>
         <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>個股詳細分析</p>
       </div>
+
+      {hasPartialError && (
+        <div className="mb-4 flex items-center justify-between rounded-lg p-3" role="alert" style={{ background: 'var(--card)', border: '1px solid var(--destructive)' }}>
+          <p className="text-sm" style={{ color: 'var(--destructive)' }}>部分分析資料載入失敗，目前顯示可用資料。</p>
+          <button type="button" onClick={retryStockRequests} className="text-sm font-medium" style={{ color: 'var(--primary)' }}>重新載入</button>
+        </div>
+      )}
 
       {/* KPI 列 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -577,7 +627,11 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
               <h3 className="text-sm font-medium mb-4" style={{ color: 'var(--muted-foreground)' }}>
                 近 120 日收盤走勢
               </h3>
-              {ohlcvLoading ? (
+              {ohlcvError ? (
+                <div className="h-64 flex items-center justify-center" style={{ color: 'var(--destructive)' }}>
+                  走勢資料載入失敗，請重試
+                </div>
+              ) : ohlcvLoading ? (
                 <div className="h-64 flex items-center justify-center" style={{ color: 'var(--muted-foreground)' }}>
                   載入走勢資料中...
                 </div>
@@ -628,7 +682,9 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
           {tab === 'technical' && (
             <div className="space-y-4">
               <h3 className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>技術指標</h3>
-              {technical ? (
+              {technicalError ? (
+                <p style={{ color: 'var(--destructive)' }}>技術指標載入失敗，請切換頁籤後重試。</p>
+              ) : technical ? (
                 <>
                   {/* 趨勢判斷 */}
                   {technical.trend && (
@@ -724,7 +780,9 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
           {tab === 'chip' && (
             <div className="space-y-4">
               <h3 className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>三大法人買賣超</h3>
-              {chip ? (
+              {chipError ? (
+                <p style={{ color: 'var(--destructive)' }}>籌碼資料載入失敗，請切換頁籤後重試。</p>
+              ) : chip ? (
                 <>
                   <table className="w-full text-sm">
                     <thead>

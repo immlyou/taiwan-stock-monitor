@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Alert } from '@/lib/types'
 import { Switch } from '@/components/ui/switch'
@@ -105,6 +105,7 @@ const FALLBACK_ALERT_TYPES: AlertTypeOption[] = [
 ]
 
 export default function AlertsPage() {
+  const { mutate } = useSWRConfig()
   const { data: alertsData, isLoading, error } = useSWR<AlertsResponse>(SWR_KEY, fetchAPI)
   const { data: typesData } = useSWR<AlertTypesResponse>('/alerts/types', fetchAPI)
   const { data: smartData } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=8', fetchAPI)
@@ -120,6 +121,7 @@ export default function AlertsPage() {
     value: '',
   })
   const [saving, setSaving] = useState(false)
+  const [actionError, setActionError] = useState('')
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false)
   const [evaluating, setEvaluating] = useState(false)
   const [ruleForm, setRuleForm] = useState({
@@ -141,6 +143,7 @@ export default function AlertsPage() {
   const handleCreate = async () => {
     if (!form.code.trim() || !form.value) return
     setSaving(true)
+    setActionError('')
     try {
       await fetchAPI(SWR_KEY, {
         method: 'POST',
@@ -153,23 +156,35 @@ export default function AlertsPage() {
       await mutate(SWR_KEY)
       setDialogOpen(false)
       setForm({ code: '', type: 'price_above', value: '' })
+    } catch {
+      setActionError('警報建立失敗，請稍後再試')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    await fetchAPI(`${SWR_KEY}/${id}`, { method: 'DELETE' })
-    await mutate(SWR_KEY)
-    setDeleteId(null)
+    setActionError('')
+    try {
+      await fetchAPI(`${SWR_KEY}/${id}`, { method: 'DELETE' })
+      await mutate(SWR_KEY)
+      setDeleteId(null)
+    } catch {
+      setActionError('警報刪除失敗，請稍後再試')
+    }
   }
 
   const handleToggle = async (alert: Alert) => {
-    await fetchAPI(`${SWR_KEY}/${alert.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled: !alert.enabled }),
-    })
-    await mutate(SWR_KEY)
+    setActionError('')
+    try {
+      await fetchAPI(`${SWR_KEY}/${alert.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !alert.enabled }),
+      })
+      await mutate(SWR_KEY)
+    } catch {
+      setActionError('警報狀態更新失敗，請稍後再試')
+    }
   }
 
   const handleCreateRule = async () => {
@@ -189,6 +204,7 @@ export default function AlertsPage() {
       })
     }
     setSaving(true)
+    setActionError('')
     try {
       await fetchAPI(RULES_KEY, {
         method: 'POST',
@@ -214,6 +230,8 @@ export default function AlertsPage() {
         value1: '',
         value2: '',
       }))
+    } catch {
+      setActionError('規則建立失敗，請稍後再試')
     } finally {
       setSaving(false)
     }
@@ -221,28 +239,41 @@ export default function AlertsPage() {
 
   const handleEvaluateRules = async () => {
     setEvaluating(true)
+    setActionError('')
     try {
       await fetchAPI('/alerts/evaluate', {
         method: 'POST',
         body: JSON.stringify({ sendNotifications: false }),
       })
       await Promise.all([mutate(RULES_KEY), mutate(HITS_KEY)])
+    } catch {
+      setActionError('規則評估失敗，請稍後再試')
     } finally {
       setEvaluating(false)
     }
   }
 
   const handleToggleRule = async (rule: AlertRule) => {
-    await fetchAPI(`${RULES_KEY}/${rule.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled: !rule.enabled }),
-    })
-    await mutate(RULES_KEY)
+    setActionError('')
+    try {
+      await fetchAPI(`${RULES_KEY}/${rule.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !rule.enabled }),
+      })
+      await mutate(RULES_KEY)
+    } catch {
+      setActionError('規則狀態更新失敗，請稍後再試')
+    }
   }
 
   const handleDeleteRule = async (ruleId: string) => {
-    await fetchAPI(`${RULES_KEY}/${ruleId}`, { method: 'DELETE' })
-    await mutate(RULES_KEY)
+    setActionError('')
+    try {
+      await fetchAPI(`${RULES_KEY}/${ruleId}`, { method: 'DELETE' })
+      await mutate(RULES_KEY)
+    } catch {
+      setActionError('規則刪除失敗，請稍後再試')
+    }
   }
 
   const activeCount = alerts?.filter(a => a.enabled && !a.triggered).length ?? 0
@@ -273,6 +304,13 @@ export default function AlertsPage() {
           </button>
         </div>
       </div>
+
+      {actionError && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>{actionError}</p>
+      )}
+      {error && alertsData && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>警報更新失敗，目前顯示上次成功載入的快取。</p>
+      )}
 
       <div className="grid lg:grid-cols-[2fr_1fr] gap-4 mb-6">
         <section className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
@@ -377,9 +415,10 @@ export default function AlertsPage() {
       ) : null}
 
       {/* 警報列表 */}
-      {error ? (
+      {error && !alertsData ? (
         <div className="rounded-lg p-6 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
           <p style={{ color: 'var(--destructive)' }}>資料載入失敗</p>
+          <button type="button" onClick={() => mutate(SWR_KEY)} className="mt-3 text-sm font-medium" style={{ color: 'var(--primary)' }}>重新載入</button>
         </div>
       ) : isLoading ? (
         <div className="space-y-2">

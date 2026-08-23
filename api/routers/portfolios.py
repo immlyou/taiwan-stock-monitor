@@ -288,11 +288,21 @@ async def portfolio_update(
         from app.components.portfolio_utils import (
             load_portfolios, portfolio_file, save_portfolios,
         )
+        from api.helpers import resolve_default_id
         from core.json_store import file_lock
         with file_lock(portfolio_file(user_id)):
             portfolios = load_portfolios(user_id)
-            if portfolio_id not in portfolios:
+            resolved, empty_default = resolve_default_id(portfolios, portfolio_id)
+            if empty_default:
+                resolved = "default"
+                portfolios[resolved] = {
+                    "description": "預設組合",
+                    "created_at": datetime.now().isoformat(),
+                    "holdings": [],
+                }
+            elif resolved is None:
                 raise HTTPException(status_code=404, detail=f"找不到投資組合: {portfolio_id}")
+            portfolio_id = resolved
 
             if req.description is not None:
                 portfolios[portfolio_id]["description"] = req.description

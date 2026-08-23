@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
@@ -82,6 +82,7 @@ const PORTFOLIO_ID = 'default'
 const SWR_KEY = `/portfolios/${PORTFOLIO_ID}`
 
 export default function PortfolioPage() {
+  const { mutate } = useSWRConfig()
   const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI)
   const { data: diagnostics } = useSWR<PortfolioDiagnostics>(`${SWR_KEY}/diagnostics`, fetchAPI)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -94,6 +95,7 @@ export default function PortfolioPage() {
     cost_price: '',
   })
   const [saving, setSaving] = useState(false)
+  const [actionError, setActionError] = useState('')
   const [whatIfOpen, setWhatIfOpen] = useState(false)
   const [whatIfRunning, setWhatIfRunning] = useState(false)
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null)
@@ -138,22 +140,11 @@ export default function PortfolioPage() {
     return clean
   }
 
-  const ensurePortfolioExists = async () => {
-    try {
-      await fetchAPI(SWR_KEY)
-    } catch {
-      await fetchAPI('/portfolios', {
-        method: 'POST',
-        body: JSON.stringify({ name: PORTFOLIO_ID, description: '預設組合' }),
-      })
-    }
-  }
-
   const handleSave = async () => {
     if (!form.stock_id.trim() || !form.shares || !form.cost_price) return
     setSaving(true)
+    setActionError('')
     try {
-      await ensurePortfolioExists()
       const current = data?.holdings ?? []
       const payload = {
         stock_id: form.stock_id.toUpperCase(),
@@ -167,51 +158,63 @@ export default function PortfolioPage() {
       })
       await mutate(SWR_KEY)
       setDialogOpen(false)
+    } catch {
+      setActionError('持股儲存失敗，請稍後再試')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDelete = async (stock_id: string) => {
-    const current = data?.holdings ?? []
-    const updated = buildUpdatedHoldings(current, 'delete', stock_id)
-    await fetchAPI(SWR_KEY, {
-      method: 'PUT',
-      body: JSON.stringify({ holdings: updated }),
-    })
-    await mutate(SWR_KEY)
-    setDeleteStockId(null)
+    setActionError('')
+    try {
+      const current = data?.holdings ?? []
+      const updated = buildUpdatedHoldings(current, 'delete', stock_id)
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ holdings: updated }),
+      })
+      await mutate(SWR_KEY)
+      setDeleteStockId(null)
+    } catch {
+      setActionError('持股刪除失敗，請稍後再試')
+    }
   }
 
   const handleImport = async (items: ImportedHolding[]) => {
     if (!items.length) return
-    await ensurePortfolioExists()
-    const merged = (data?.holdings ?? []).map(h => ({
-      stock_id: h.stock_id,
-      shares: h.shares,
-      cost_price: h.cost_price,
-    }))
-    for (const item of items) {
-      const sid = item.stock_id.toUpperCase()
-      const idx = merged.findIndex(h => h.stock_id === sid)
-      if (idx >= 0) {
-        // 同 stock_id 累加股數、保留既有成本
-        merged[idx] = { ...merged[idx], shares: merged[idx].shares + item.shares }
-      } else {
-        merged.push({ stock_id: sid, shares: item.shares, cost_price: item.cost_price })
+    setActionError('')
+    try {
+      const merged = (data?.holdings ?? []).map(h => ({
+        stock_id: h.stock_id,
+        shares: h.shares,
+        cost_price: h.cost_price,
+      }))
+      for (const item of items) {
+        const sid = item.stock_id.toUpperCase()
+        const idx = merged.findIndex(h => h.stock_id === sid)
+        if (idx >= 0) {
+          // 同 stock_id 累加股數、保留既有成本
+          merged[idx] = { ...merged[idx], shares: merged[idx].shares + item.shares }
+        } else {
+          merged.push({ stock_id: sid, shares: item.shares, cost_price: item.cost_price })
+        }
       }
+      await fetchAPI(SWR_KEY, {
+        method: 'PUT',
+        body: JSON.stringify({ holdings: merged }),
+      })
+      await mutate(SWR_KEY)
+    } catch {
+      setActionError('截圖持股匯入失敗，請稍後再試')
     }
-    await fetchAPI(SWR_KEY, {
-      method: 'PUT',
-      body: JSON.stringify({ holdings: merged }),
-    })
-    await mutate(SWR_KEY)
   }
 
   const handleRunWhatIf = async () => {
     if (!whatIfForm.stock_id.trim()) return
     if (whatIfForm.action === 'add' && (!whatIfForm.shares || !whatIfForm.cost_price)) return
     setWhatIfRunning(true)
+    setActionError('')
     try {
       const operation: Record<string, string | number> = {
         action: whatIfForm.action,
@@ -226,6 +229,8 @@ export default function PortfolioPage() {
         body: JSON.stringify({ operations: [operation] }),
       })
       setWhatIfResult(result)
+    } catch {
+      setActionError('What-if 模擬失敗，請稍後再試')
     } finally {
       setWhatIfRunning(false)
     }
@@ -234,6 +239,7 @@ export default function PortfolioPage() {
   const handleApplyWhatIf = async () => {
     if (!whatIfResult) return
     setSaving(true)
+    setActionError('')
     try {
       await fetchAPI(SWR_KEY, {
         method: 'PUT',
@@ -243,6 +249,8 @@ export default function PortfolioPage() {
       setWhatIfOpen(false)
       setWhatIfResult(null)
       setWhatIfForm({ action: 'add', stock_id: '', shares: '', cost_price: '' })
+    } catch {
+      setActionError('What-if 套用失敗，原投資組合未變更')
     } finally {
       setSaving(false)
     }
@@ -287,12 +295,28 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      {actionError && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>{actionError}</p>
+      )}
+      {error && data && (
+        <p className="mb-4 text-sm" role="alert" style={{ color: 'var(--destructive)' }}>投資組合更新失敗，目前顯示上次成功載入的快取。</p>
+      )}
+
       {error && !data ? (
         <div
           className="rounded-lg p-8 text-center"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
         >
-          <p style={{ color: 'var(--muted-foreground)' }}>尚無投資組合，點擊新增持股建立預設組合</p>
+          <p className="font-medium" style={{ color: 'var(--destructive)' }}>投資組合載入失敗</p>
+          <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>API 暫時無法回應，請稍後重試。</p>
+          <button
+            type="button"
+            onClick={() => mutate(SWR_KEY)}
+            className="mt-4 h-9 rounded-md px-4 text-sm font-medium"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            重新載入
+          </button>
         </div>
       ) : isLoading ? (
         <div className="space-y-3">
