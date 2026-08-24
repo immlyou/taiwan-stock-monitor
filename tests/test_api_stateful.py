@@ -54,6 +54,37 @@ def stateful_client(monkeypatch, tmp_path, sample_close, sample_volume, sample_s
         DataLoader, "get", lambda self, key: sample_data.get(key)
     )
 
+    # Stateful CRUD tests must not call external Fugle/TWSE providers.
+    class DailyQuoteService:
+        def get_quotes(self, stock_ids):
+            quotes = []
+            for stock_id in stock_ids:
+                if stock_id not in sample_close.columns:
+                    continue
+                series = sample_close[stock_id].dropna()
+                price = float(series.iloc[-1])
+                prev = float(series.iloc[-2])
+                quotes.append({
+                    "stock_id": stock_id,
+                    "price": price,
+                    "prev_close": prev,
+                    "change": price - prev,
+                    "change_pct": (price - prev) / prev * 100,
+                    "source": "finlab",
+                    "is_realtime": False,
+                    "freshness": "close",
+                    "market_state": "closed",
+                    "timestamp": None,
+                    "date": series.index[-1].strftime("%Y-%m-%d"),
+                })
+            return quotes
+
+    from api.routers import portfolios as portfolio_router
+    from api.routers import watchlists as watchlist_router
+    daily_quote_service = DailyQuoteService()
+    monkeypatch.setattr(portfolio_router, "quote_service", daily_quote_service, raising=False)
+    monkeypatch.setattr(watchlist_router, "quote_service", daily_quote_service, raising=False)
+
     # ── 2. 持久化檔案重定向 ───────────────────────────
     # journal: api.helpers / api.state 的 DATA_DIR
     monkeypatch.setattr(api_state, "DATA_DIR", tmp_path)
@@ -144,6 +175,29 @@ class TestWatchlistsCRUD:
         for s in body["stocks"]:
             assert s["stock_id"] in sample_stocks
             assert s["price"] is not None
+
+    def test_get_prefers_live_quote_and_exposes_freshness(self, stateful_client, monkeypatch):
+        from api.routers import watchlists as watchlist_router
+
+        class LiveQuotes:
+            def get_quotes(self, stock_ids):
+                return [{
+                    "stock_id": sid, "price": 321.0, "change_pct": 4.2,
+                    "source": "fugle", "is_realtime": True,
+                    "freshness": "realtime", "market_state": "trading",
+                    "timestamp": "2026-08-24T10:00:00+08:00", "date": "2026-08-24",
+                } for sid in stock_ids]
+
+        monkeypatch.setattr(watchlist_router, "quote_service", LiveQuotes(), raising=False)
+        stateful_client.post("/watchlists", json={"name": "live", "stocks": ["2330"]})
+
+        stock = stateful_client.get("/watchlists/live").json()["stocks"][0]
+
+        assert stock["price"] == 321.0
+        assert stock["source"] == "fugle"
+        assert stock["is_realtime"] is True
+        assert stock["freshness"] == "realtime"
+        assert stock["timestamp"] == "2026-08-24T10:00:00+08:00"
 
     def test_update_replaces_stocks(self, stateful_client):
         stateful_client.post("/watchlists", json={"name": "wl2", "stocks": ["2330"]})
@@ -254,6 +308,34 @@ class TestPortfoliosCRUD:
             assert field in h
         # summary 不應為 None
         assert body["summary"]["total_cost"] > 0
+
+    def test_get_uses_live_prices_for_holding_and_summary(self, stateful_client, monkeypatch):
+        from api.routers import portfolios as portfolio_router
+
+        class LiveQuotes:
+            def get_quotes(self, stock_ids):
+                return [{
+                    "stock_id": sid, "price": 250.0, "change_pct": 2.0,
+                    "source": "twse", "is_realtime": True,
+                    "freshness": "realtime", "market_state": "trading",
+                    "timestamp": "2026-08-24T11:00:00+08:00", "date": "2026-08-24",
+                } for sid in stock_ids]
+
+        monkeypatch.setattr(portfolio_router, "quote_service", LiveQuotes(), raising=False)
+        stateful_client.post("/portfolios", json={"name": "live", "description": ""})
+        stateful_client.put(
+            "/portfolios/live",
+            json={"holdings": [{"stock_id": "2330", "shares": 1000, "cost_price": 200}]},
+        )
+
+        body = stateful_client.get("/portfolios/live").json()
+        holding = body["holdings"][0]
+
+        assert holding["current_price"] == 250.0
+        assert holding["current_value"] == 250000.0
+        assert holding["source"] == "twse"
+        assert holding["is_realtime"] is True
+        assert body["summary"]["total_value"] == 250000.0
 
     def test_delete(self, stateful_client):
         stateful_client.post("/portfolios", json={"name": "p2", "description": ""})

@@ -15,40 +15,40 @@ import {
   getChangeColorVar,
 } from '@/lib/utils/format'
 import type { MarketSummary } from '@/lib/types'
-
-interface RealtimeQuote {
-  stock_id: string
-  name: string
-  price: number
-  change_pct: number
-  volume?: number
-  amount?: number
-}
+import {
+  getBatchQuoteRefreshInterval,
+  quoteStatusColor,
+  quoteStatusLabel,
+  quoteTimeLabel,
+  type RealtimeQuote,
+} from '@/lib/quotes/realtime'
 
 interface BatchQuoteResponse {
   quotes: RealtimeQuote[]
   total: number
-  date: string
+  date?: string
+  has_realtime: boolean
+  market_state: string
+  sources: string[]
 }
 
-const POLL_INTERVAL = 5000
 const DEFAULT_STOCKS = ['2330', '2317', '2454', '2881', '0050', '2303', '2882', '1301', '2308', '3711']
 
-interface WatchlistResponse {
-  total: number
-  watchlists: { id: string; name: string; stock_ids: string[] }[]
+interface WatchlistDetail {
+  stocks: Array<{ stock_id: string }>
 }
 
 function useRealtimeQuotes() {
-  // 先取自選股清單
-  const { data: wlData } = useSWR<WatchlistResponse>(
-    '/watchlists',
-    (path: string) => fetchAPI<WatchlistResponse>(path),
+  // 直接取 default 明細；列表端點只有數量，不含股票代號。
+  const { data: wlData } = useSWR<WatchlistDetail>(
+    '/watchlists/default',
+    (path: string) => fetchAPI<WatchlistDetail>(path),
   )
 
   // 決定要查詢的股票：自選股或預設清單
-  const stockIds = wlData?.watchlists?.[0]?.stock_ids?.length
-    ? wlData.watchlists[0].stock_ids
+  const watchlistIds = wlData?.stocks?.map((stock) => stock.stock_id) ?? []
+  const stockIds = watchlistIds.length
+    ? watchlistIds
     : DEFAULT_STOCKS
 
   const { data, error, isLoading } = useSWR<BatchQuoteResponse>(
@@ -63,9 +63,9 @@ function useRealtimeQuotes() {
         body: JSON.stringify({ stock_ids: ids.split(',') }),
       }),
     {
-      refreshInterval: POLL_INTERVAL,
+      refreshInterval: () => getBatchQuoteRefreshInterval(stockIds.length),
       revalidateOnFocus: true,
-      dedupingInterval: 2000,
+      dedupingInterval: 10_000,
     }
   )
   return { data, isLoading, isError: !!error }
@@ -75,7 +75,7 @@ function useMarketIndex() {
   const { data, isLoading } = useSWR<MarketSummary>(
     '/market/summary',
     (path: string) => fetchAPI<MarketSummary>(path),
-    { refreshInterval: POLL_INTERVAL, dedupingInterval: 2000 }
+    { refreshInterval: 60_000, dedupingInterval: 10_000 }
   )
   return { summary: data, isLoading }
 }
@@ -83,7 +83,7 @@ function useMarketIndex() {
 function QuoteRowSkeleton() {
   return (
     <tr>
-      {[...Array(6)].map((_, i) => (
+      {[...Array(7)].map((_, i) => (
         <td key={i} className="px-4 py-3">
           <Skeleton className="h-4 w-14" style={{ background: 'var(--secondary)' }} />
         </td>
@@ -153,7 +153,7 @@ export default function RealtimePage() {
               即時報價
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-              自選股即時報價，每 5 秒自動更新
+              盤中每 15 秒更新；Fugle / TWSE 無資料時自動顯示 FinLab 收盤價
             </p>
           </div>
           {data?.date && (
@@ -192,7 +192,7 @@ export default function RealtimePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['代號', '名稱', '現價', '漲跌幅', '成交量', '成交金額'].map(
+                  {['代號', '名稱', '現價', '漲跌幅', '成交量', '成交金額', '狀態'].map(
                     (h) => (
                       <th
                         key={h}
@@ -248,12 +248,20 @@ export default function RealtimePage() {
                         >
                           {q.amount != null ? formatVolumeValue(q.amount) : '—'}
                         </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-xs font-medium" style={{ color: quoteStatusColor(q) }}>
+                            {quoteStatusLabel(q)}
+                          </div>
+                          <div className="text-[11px] mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                            {quoteTimeLabel(q)}
+                          </div>
+                        </td>
                       </tr>
                     ))
                   : null}
                 {!isLoading && !data?.quotes?.length && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       <EmptyState
                         title="暫無自選股報價"
                         description="尚未設定任何自選股"

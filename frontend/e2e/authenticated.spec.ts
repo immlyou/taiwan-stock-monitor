@@ -104,6 +104,52 @@ test('stock detail reports a critical API failure', async ({ page }) => {
   await expect(page.getByRole('button', { name: '重新載入' })).toBeVisible()
 })
 
+test('realtime page identifies a Fugle live quote', async ({ page }) => {
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/watchlists/default') {
+      return route.fulfill({
+        json: {
+          id: 'default', name: 'default', stocks_count: 1,
+          stocks: [{ stock_id: '2330' }],
+        },
+      })
+    }
+    if (pathname === '/api/quote/realtime/batch') {
+      return route.fulfill({
+        json: {
+          total: 1,
+          requested: 1,
+          date: '2026-08-24',
+          market_state: 'trading',
+          has_realtime: true,
+          sources: ['fugle'],
+          quotes: [{
+            stock_id: '2330', name: '台積電', price: 123.5,
+            change_pct: 2.92, volume: 5000, amount: 605000,
+            date: '2026-08-24', timestamp: '2026-08-24T10:00:01+08:00',
+            source: 'fugle', is_realtime: true,
+            market_state: 'trading', freshness: 'realtime',
+          }],
+        },
+      })
+    }
+    if (pathname === '/api/market/summary') {
+      return route.fulfill({
+        json: { taiex_index: 25000, taiex_change: 100 },
+      })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/realtime')
+
+  await expect(page.getByRole('heading', { name: '即時報價' })).toBeVisible()
+  await expect(page.getByRole('main').getByText('台積電')).toBeVisible()
+  await expect(page.getByRole('main').getByText('即時 · Fugle')).toBeVisible()
+})
+
 test('new account can add its first portfolio holding', async ({ page }) => {
   let holdings: Array<{ stock_id: string; shares: number; cost_price: number }> = []
 

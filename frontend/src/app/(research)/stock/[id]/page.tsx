@@ -10,6 +10,13 @@ import { ScreenshotImportDialog } from '@/components/shared/ScreenshotImportDial
 import { formatPrice, formatPercent, formatChange, getChangeColorVar } from '@/lib/utils/format'
 import { ratingColor } from '@/lib/constants/chartColors'
 import {
+  getQuoteRefreshInterval,
+  quoteStatusColor,
+  quoteStatusLabel,
+  quoteTimeLabel,
+  type RealtimeQuote,
+} from '@/lib/quotes/realtime'
+import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 
@@ -173,6 +180,16 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
     fetchAPI
   )
 
+  const { data: liveQuote, error: quoteError } = useSWR<RealtimeQuote>(
+    `/quote/realtime/${id}`,
+    fetchAPI,
+    {
+      refreshInterval: () => getQuoteRefreshInterval(),
+      dedupingInterval: 10_000,
+      revalidateOnFocus: true,
+    }
+  )
+
   const { data: ohlcv, isLoading: ohlcvLoading, error: ohlcvError } = useSWR<OhlcvResponse>(
     tab === 'chart' ? `/stock/${id}/ohlcv?days=120` : null,
     fetchAPI
@@ -225,6 +242,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
 
   const retryStockRequests = () => Promise.all([
     mutate(`/stock/${id}`),
+    mutate(`/quote/realtime/${id}`),
     mutate(`/stock/${id}/ohlcv?days=120`),
     mutate(`/stock/${id}/scorecard`),
     mutate(`/stock/${id}/profile`),
@@ -286,9 +304,11 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
   }
 
   const hasPartialError = Boolean(
-    ohlcvError || scorecardError || companyProfileError ||
+    quoteError || ohlcvError || scorecardError || companyProfileError ||
     scoreHistoryError || stockSummaryError
   )
+  const displayPrice = liveQuote?.price ?? stock?.latest_price
+  const displayChangePct = liveQuote?.change_pct ?? stock?.change_pct
 
   return (
     <div>
@@ -317,7 +337,16 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
             📷 截圖辨識
           </button>
         </div>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>個股詳細分析</p>
+        <div className="flex items-center gap-2 text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
+          <span>個股詳細分析</span>
+          {liveQuote ? (
+            <span style={{ color: quoteStatusColor(liveQuote) }}>
+              {quoteStatusLabel(liveQuote)} · {quoteTimeLabel(liveQuote)}
+            </span>
+          ) : stock ? (
+            <span>收盤 · FinLab · {stock.date ?? '—'}</span>
+          ) : null}
+        </div>
       </div>
 
       {hasPartialError && (
@@ -331,9 +360,9 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <KpiCard
           title="現價"
-          value={stock ? formatPrice(stock.latest_price) : '—'}
-          changeLabel={stock ? formatPercent(stock.change_pct) : undefined}
-          isLoading={stockLoading}
+          value={displayPrice != null ? formatPrice(displayPrice) : '—'}
+          changeLabel={displayChangePct != null ? formatPercent(displayChangePct) : undefined}
+          isLoading={stockLoading && !liveQuote}
           accentColor="var(--primary)"
         />
         <KpiCard
