@@ -6,6 +6,7 @@ import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
 import { getChangeColorVar } from '@/lib/utils/format'
+import { getBatchQuoteRefreshInterval, quoteStatusColor, quoteStatusLabel } from '@/lib/quotes/realtime'
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,12 @@ interface Holding {
   cost_value?: number
   pnl?: number
   pnl_pct?: number
+  source?: string
+  is_realtime?: boolean
+  freshness?: string
+  market_state?: string
+  timestamp?: string | null
+  quote_date?: string | null
 }
 
 interface PortfolioSummary {
@@ -83,7 +90,11 @@ const SWR_KEY = `/portfolios/${PORTFOLIO_ID}`
 
 export default function PortfolioPage() {
   const { mutate } = useSWRConfig()
-  const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI)
+  const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI, {
+    refreshInterval: (latest) => getBatchQuoteRefreshInterval(latest?.holdings.length ?? 1),
+    dedupingInterval: 10_000,
+    revalidateOnFocus: true,
+  })
   const { data: diagnostics } = useSWR<PortfolioDiagnostics>(`${SWR_KEY}/diagnostics`, fetchAPI)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -264,7 +275,7 @@ export default function PortfolioPage() {
       <div className="mb-6 flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>投資組合</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>持股明細與損益追蹤</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>持股明細與即時損益追蹤，盤中每 15 秒更新</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -431,7 +442,14 @@ export default function PortfolioPage() {
                           <td className="py-2 px-4" style={{ color: 'var(--foreground)' }}>{h.name ?? '—'}</td>
                           <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{h.shares}</td>
                           <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{h.cost_price.toFixed(2)}</td>
-                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>{currentPrice.toFixed(2)}</td>
+                          <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
+                            <div>{currentPrice.toFixed(2)}</div>
+                            {h.source && (
+                              <div className="text-[11px] mt-0.5" style={{ color: quoteStatusColor(h) }}>
+                                {quoteStatusLabel(h)}
+                              </div>
+                            )}
+                          </td>
                           <td className="py-2 px-4 tabular-nums" style={{ color: 'var(--foreground)' }}>
                             {(marketValue / 1e4).toFixed(1)} 萬
                           </td>

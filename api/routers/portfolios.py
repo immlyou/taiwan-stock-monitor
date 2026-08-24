@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_user_id, verify_api_key
 from api.helpers import _get_stock_name_map
@@ -14,7 +15,7 @@ from api.models import (
     PortfolioUpdateRequest,
     PortfolioWhatIfRequest,
 )
-from api.state import loader
+from api.state import loader, quote_service
 from core.intelligence import diagnose_portfolio
 
 logger = logging.getLogger(__name__)
@@ -93,29 +94,48 @@ async def portfolio_get(
 
         data = portfolios[portfolio_id]
         holdings = data.get("holdings", [])
-        close = loader.get("close")
+        try:
+            close = loader.get("close")
+        except Exception as exc:
+            # Live providers can still price holdings when FinLab is unavailable.
+            logger.warning("Portfolio close history unavailable: %s", exc)
+            close = None
         name_map = _get_stock_name_map()
+
+        stock_ids = [str(h.get("stock_id", "")).strip().upper() for h in holdings]
+        try:
+            live_quotes = await run_in_threadpool(quote_service.get_quotes, stock_ids)
+        except Exception as exc:
+            logger.warning("Portfolio quote enrichment failed: %s", exc)
+            live_quotes = []
+        quotes_by_id = {item["stock_id"]: item for item in live_quotes}
 
         enriched_holdings = []
         total_cost = 0.0
         total_value = 0.0
 
         for h in holdings:
-            sid = h.get("stock_id", "")
+            sid = str(h.get("stock_id", "")).strip().upper()
             shares = h.get("shares", 0)
             cost_price = h.get("cost_price", 0)
             cost = shares * cost_price
 
             current_price = cost_price
             price_history: list[float] = []
+            quote = quotes_by_id.get(sid)
+            has_daily_price = False
             try:
-                if sid in close.columns:
+                if close is not None and sid in close.columns:
                     recent = close[sid].dropna()
-                    current_price = float(recent.iloc[-1])
-                    # 近 30 個交易日收盤價，供前端繪製持股迷你走勢 (sparkline)
-                    price_history = [round(float(p), 2) for p in recent.tail(30).tolist()]
+                    if not recent.empty:
+                        current_price = float(recent.iloc[-1])
+                        has_daily_price = True
+                        # 近 30 個交易日收盤價，供前端繪製持股迷你走勢 (sparkline)
+                        price_history = [round(float(p), 2) for p in recent.tail(30).tolist()]
             except Exception:
                 pass
+            if quote and quote.get("price") is not None:
+                current_price = float(quote["price"])
 
             current_value = shares * current_price
             # 成本價明顯異常（資料輸入錯誤）時不計損益，回 None 而非荒謬百分比，
@@ -132,13 +152,19 @@ async def portfolio_get(
 
             enriched_holdings.append({
                 **h,
-                "name": name_map.get(sid, ""),
+                "name": (quote.get("name") if quote else "") or name_map.get(sid, ""),
                 "current_price": round(current_price, 2),
                 "current_value": round(current_value, 2),
                 "cost_value": round(cost, 2),
                 "pnl": pnl,
                 "pnl_pct": pnl_pct,
                 "price_history": price_history,
+                "source": quote.get("source") if quote else ("finlab" if has_daily_price else "unavailable"),
+                "is_realtime": bool(quote.get("is_realtime")) if quote else False,
+                "freshness": quote.get("freshness", "close") if quote else ("close" if has_daily_price else "unavailable"),
+                "market_state": quote.get("market_state", "closed") if quote else "closed",
+                "timestamp": quote.get("timestamp") if quote else None,
+                "quote_date": quote.get("date") if quote else None,
             })
 
         total_pnl = total_value - total_cost

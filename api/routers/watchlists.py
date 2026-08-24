@@ -5,11 +5,12 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_user_id, verify_api_key
 from api.helpers import _get_industry_map, _get_stock_name_map
 from api.models import WatchlistCreateRequest, WatchlistUpdateRequest
-from api.state import loader
+from api.state import loader, quote_service
 
 logger = logging.getLogger(__name__)
 
@@ -79,27 +80,50 @@ async def watchlist_get(
         watchlist_id = resolved
 
         stocks = get_watchlist_stocks(watchlist_id, user_id)
-        close = loader.get("close")
+        try:
+            close = loader.get("close")
+        except Exception as exc:
+            # Keep live Watchlist quotes available even if FinLab daily data fails.
+            logger.warning("Watchlist close history unavailable: %s", exc)
+            close = None
         name_map = _get_stock_name_map()
         industry_map = _get_industry_map()
+        try:
+            live_quotes = await run_in_threadpool(quote_service.get_quotes, stocks)
+        except Exception as exc:
+            logger.warning("Watchlist quote enrichment failed: %s", exc)
+            live_quotes = []
+        quotes_by_id = {item["stock_id"]: item for item in live_quotes}
 
         result_stocks = []
-        for sid in stocks:
+        for raw_sid in stocks:
+            sid = str(raw_sid).strip().upper()
             price = change_pct = None
+            quote = quotes_by_id.get(sid)
             try:
-                if sid in close.columns:
+                if close is not None and sid in close.columns:
                     s = close[sid].dropna()
                     price = round(float(s.iloc[-1]), 2)
                     if len(s) >= 2:
                         change_pct = round((float(s.iloc[-1]) - float(s.iloc[-2])) / float(s.iloc[-2]) * 100, 2)
             except Exception:
                 pass
+            if quote and quote.get("price") is not None:
+                price = round(float(quote["price"]), 2)
+                if quote.get("change_pct") is not None:
+                    change_pct = round(float(quote["change_pct"]), 2)
             result_stocks.append({
                 "stock_id": sid,
-                "name": name_map.get(sid, ""),
+                "name": (quote.get("name") if quote else "") or name_map.get(sid, ""),
                 "industry": industry_map.get(sid, ""),
                 "price": price,
                 "change_pct": change_pct,
+                "source": quote.get("source") if quote else ("finlab" if price is not None else "unavailable"),
+                "is_realtime": bool(quote.get("is_realtime")) if quote else False,
+                "freshness": quote.get("freshness", "close") if quote else ("close" if price is not None else "unavailable"),
+                "market_state": quote.get("market_state", "closed") if quote else "closed",
+                "timestamp": quote.get("timestamp") if quote else None,
+                "quote_date": quote.get("date") if quote else None,
             })
 
         return {

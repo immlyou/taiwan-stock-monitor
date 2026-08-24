@@ -5,6 +5,12 @@ import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar, formatPercent } from '@/lib/utils/format'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
+import {
+  getBatchQuoteRefreshInterval,
+  quoteStatusColor,
+  quoteStatusLabel,
+  quoteTimeLabel,
+} from '@/lib/quotes/realtime'
 
 interface WatchlistStock {
   stock_id: string
@@ -12,6 +18,12 @@ interface WatchlistStock {
   industry?: string
   price: number | null
   change_pct: number | null
+  source?: string
+  is_realtime?: boolean
+  freshness?: string
+  market_state?: string
+  timestamp?: string | null
+  quote_date?: string | null
 }
 
 interface WatchlistDetail {
@@ -26,7 +38,11 @@ const SWR_KEY = `/watchlists/${WATCHLIST_ID}`
 
 export default function WatchlistPage() {
   const { mutate } = useSWRConfig()
-  const { data, isLoading, error } = useSWR<WatchlistDetail>(SWR_KEY, fetchAPI)
+  const { data, isLoading, error } = useSWR<WatchlistDetail>(SWR_KEY, fetchAPI, {
+    refreshInterval: (latest) => getBatchQuoteRefreshInterval(latest?.stocks.length ?? 1),
+    dedupingInterval: 10_000,
+    revalidateOnFocus: true,
+  })
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
@@ -94,7 +110,7 @@ export default function WatchlistPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>自選股</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>追蹤關注的股票報價</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>追蹤關注股票，盤中每 15 秒更新</p>
       </div>
 
       {error && data && (
@@ -204,6 +220,11 @@ export default function WatchlistPage() {
               {item.industry && (
                 <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                   {item.industry}
+                </div>
+              )}
+              {item.source && (
+                <div className="text-[11px] mt-1" style={{ color: quoteStatusColor(item) }}>
+                  {quoteStatusLabel(item)} · {quoteTimeLabel({ timestamp: item.timestamp, date: item.quote_date })}
                 </div>
               )}
             </div>

@@ -66,6 +66,10 @@ taiwan-stock-monitor/
 
 ```env
 FINLAB_API_TOKEN=your_finlab_token
+# 選填；有設定時即時報價優先用 Fugle，未設定則直接走 TWSE
+FUGLE_MARKETDATA_API_KEY=your_fugle_marketdata_api_key
+# 預設 55，保留 Basic 方案每分鐘 60 次額度的安全空間；付費方案可調高
+FUGLE_MAX_CALLS_PER_MINUTE=55
 STOCK_API_KEY=optional_api_key
 CORS_ORIGINS=http://localhost:3000,https://taiwan-stock-monitor.vercel.app
 # 若既有 data/*.json 要歸給某個 Google 帳號，設成該 session 的 user.id
@@ -76,6 +80,10 @@ ENABLE_SCHEDULER=1            # 1/0；未設定時雲端預設開、本地預設
 ALERT_CHECK_INTERVAL_MIN=5   # 盤中每幾分鐘檢查一次警報（預設 5）
 ALERT_NOTIFY_COOLDOWN_SEC=3600  # 同一警報通知冷卻秒數，避免重複轟炸（預設 3600）
 ```
+
+報價統一採 `Fugle → TWSE MIS → FinLab 最新收盤`。Fugle / TWSE 只在後端呼叫，
+金鑰不可放進 `NEXT_PUBLIC_*`；盤中報價在程序內共用 15 秒快取，同一時間的
+重複請求會合併，超過 Fugle 分鐘預算時不等待、直接交給 TWSE。
 
 > 排程器在 API 進程內以 APScheduler 運作，平日 09:00–13:30（台北時區）
 > 自動檢查所有啟用警報並送通知；狀態可在 `GET /health` 的 `scheduler` 欄位查看。
