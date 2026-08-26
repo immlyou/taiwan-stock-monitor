@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { fetchAPI } from '@/lib/api/client'
+import { fetchXGBoost } from '@/lib/api/xgboost'
+import { getXGBoostErrorPresentation } from '@/lib/api/xgboost-ui'
 import { StockInput } from '@/components/shared/StockInput'
 import { CHART_SERIES } from '@/lib/constants/chartColors'
 import { formatPrice, formatPercent } from '@/lib/utils/format'
@@ -243,14 +245,30 @@ function Badge({
 // ─── XGBoost Tab ─────────────────────────────────────────────────────────────
 
 function XGBoostTab() {
-  const { data, isLoading, error } = useSWR<XGBoostResponse>(
+  const { data, isLoading, isValidating, error, mutate } = useSWR<XGBoostResponse>(
     '/strategy/ai-xgboost?top_n=20',
-    fetchAPI
+    fetchXGBoost
   )
+  const errorPresentation = error ? getXGBoostErrorPresentation(error) : null
 
-  if (error) {
+  if (errorPresentation && !data) {
     return (
-      <ErrorCard message="XGBoost 模型尚未安裝或服務不可用。請確認後端已配置 scikit-learn 及相關依賴。" />
+      <Card className="p-8 text-center">
+        <div role="alert">
+          <p className="text-sm" style={{ color: 'var(--destructive)' }}>
+            {errorPresentation.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => void mutate()}
+            disabled={isValidating}
+            className="mt-3 text-sm font-medium disabled:opacity-60"
+            style={{ color: 'var(--primary)' }}
+          >
+            {isValidating ? '正在重新運算…' : '重新嘗試 XGBoost'}
+          </button>
+        </div>
+      </Card>
     )
   }
   if (isLoading) return <LoadingCard />
@@ -263,6 +281,29 @@ function XGBoostTab() {
 
   return (
     <div className="space-y-4">
+      {errorPresentation && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-lg px-4 py-3 text-sm"
+          style={{
+            background: 'color-mix(in srgb, var(--destructive) 8%, var(--card))',
+            border: '1px solid color-mix(in srgb, var(--destructive) 30%, var(--border))',
+            color: 'var(--foreground)',
+          }}
+        >
+          <p>{errorPresentation.message} 正在顯示上次成功的模型結果。</p>
+          <button
+            type="button"
+            onClick={() => void mutate()}
+            disabled={isValidating}
+            className="mt-2 font-medium disabled:opacity-60"
+            style={{ color: 'var(--primary)' }}
+          >
+            {isValidating ? '正在重新運算…' : '重新嘗試 XGBoost'}
+          </button>
+        </div>
+      )}
       {/* Ranking table */}
       <Card className="overflow-hidden">
         <div

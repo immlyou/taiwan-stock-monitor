@@ -119,4 +119,33 @@ describe('authenticated backend proxy', () => {
     expect(response).toBeInstanceOf(Response)
     expect(response.status).toBe(504)
   })
+
+  it('preserves the longer request budget used by strategy AI operations', async () => {
+    vi.useFakeTimers()
+    authMock.mockResolvedValue({
+      user: { id: 'google_109876543210', email: 'imchris.yu@gmail.com' },
+    })
+    let aborted = false
+    const backendFetch = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true
+          reject(new DOMException('aborted', 'AbortError'))
+        })
+      })
+    )
+    vi.stubGlobal('fetch', backendFetch)
+
+    const result = GET(
+      new NextRequest('https://stocks.example/api/strategy/ai-xgboost'),
+      { params: Promise.resolve({ path: ['strategy', 'ai-xgboost'] }) }
+    ).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(aborted).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(40_000)
+    const response = await result
+    expect(response).toBeInstanceOf(Response)
+    expect(response.status).toBe(504)
+  })
 })

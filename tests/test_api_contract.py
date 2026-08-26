@@ -93,6 +93,7 @@ class TestSystemEndpoints:
         assert r.status_code == 200
         body = r.json()
         assert body["status"] in ("ok", "degraded")
+        assert body["version"] == APP_VERSION
         assert "finlab" in body
         assert "timestamp" in body
 

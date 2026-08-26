@@ -96,6 +96,47 @@ test('settings exposes a retry action when its API is unavailable', async ({ pag
   await expect(page.getByRole('button', { name: '重新載入' })).toBeVisible()
 })
 
+test('settings shows the complete version history through the current release', async ({ page }) => {
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/settings') {
+      return route.fulfill({
+        json: {
+          theme: 'light', language: 'zh-TW', notifications_enabled: true, default_days: 60,
+          telegram: { enabled: false, chatId: '', botTokenConfigured: false },
+          email: {
+            enabled: false, smtpHost: 'smtp.gmail.com', smtpPort: 587,
+            username: '', recipient: '', passwordConfigured: false,
+          },
+          system: {
+            dataUpdateInterval: 30, timezone: 'Asia/Taipei', autoBacktest: false,
+            marketOpenTime: '09:00', marketCloseTime: '13:30',
+          },
+        },
+      })
+    }
+    if (pathname === '/api/system/info') {
+      return route.fulfill({
+        json: {
+          version: '5.1.1', apiVersion: '5.1.1', uptime: '1 分',
+          dataLastUpdated: '2026-08-26', stockCount: 2300, dbSize: '1.0 GB',
+        },
+      })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/settings')
+
+  await expect(page.getByRole('heading', { name: '版本記錄' })).toBeVisible()
+  await expect(page.getByText('v5.1.1', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('v0.1.0', { exact: true })).toHaveCount(1)
+  await expect(page.getByText(/Google OAuth/).first()).toBeVisible()
+  await expect(page.getByText(/Fugle \/ TWSE/).first()).toBeVisible()
+  await expect(page.getByText(/single-flight/).first()).toBeVisible()
+})
+
 test('stock detail reports a critical API failure', async ({ page }) => {
   await mockUnavailableAppApi(page)
 
@@ -148,6 +189,69 @@ test('realtime page identifies a Fugle live quote', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '即時報價' })).toBeVisible()
   await expect(page.getByRole('main').getByText('台積電')).toBeVisible()
   await expect(page.getByRole('main').getByText('即時 · Fugle')).toBeVisible()
+})
+
+test('XGBoost keeps the last result when a refresh temporarily fails', async ({ page }) => {
+  let unavailable = false
+  let delaySuccess = false
+  let stockName = '快取中的模型結果'
+
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/market/summary') {
+      return route.fulfill({
+        json: { taiex_index: 25000, taiex_change: 100 },
+      })
+    }
+    if (pathname === '/api/strategy/ai-xgboost') {
+      if (unavailable) {
+        return route.fulfill({
+          status: 503,
+          json: { detail: 'upstream temporarily unavailable' },
+        })
+      }
+      if (delaySuccess) {
+        await new Promise((resolve) => setTimeout(resolve, 750))
+      }
+      return route.fulfill({
+        json: {
+          stocks: [{
+            stock_id: '2330',
+            name: stockName,
+            price: 100,
+            predicted_return: 0.05,
+            confidence: 0.8,
+            factors: {},
+          }],
+          feature_importance: { ret20: 0.5 },
+        },
+      })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/ai-pick')
+  // Wait until SessionProvider has switched SWR to the final account-scoped
+  // cache; data fetched by the hydration cache is intentionally discarded.
+  await expect(page.getByText(AUTH_EMAIL)).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('main').getByText('快取中的模型結果')).toBeVisible()
+
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')))
+  unavailable = true
+  await page.reload()
+
+  await expect(page.getByRole('main').getByText('快取中的模型結果')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('模型服務暫時不可用')
+  await expect(page.getByRole('button', { name: '重新嘗試 XGBoost' })).toBeVisible()
+  await expect(page.getByText('XGBoost 模型尚未安裝')).toHaveCount(0)
+
+  unavailable = false
+  delaySuccess = true
+  stockName = '重新整理後的模型結果'
+  await page.getByRole('button', { name: '重新嘗試 XGBoost' }).click()
+  await expect(page.getByRole('button', { name: '正在重新運算…' })).toBeVisible()
+  await expect(page.getByRole('main').getByText('重新整理後的模型結果')).toBeVisible()
 })
 
 test('new account can add its first portfolio holding', async ({ page }) => {

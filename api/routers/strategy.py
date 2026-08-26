@@ -189,7 +189,7 @@ def _get_xgboost_picker():
 
 
 @router.get("/strategy/ai-xgboost")
-@cached_response(ttl_seconds=3600)
+@cached_response(ttl_seconds=3600, singleflight=True)
 async def strategy_ai_xgboost(
     top_n: int = Query(default=20, ge=1, le=50, description="回傳預測報酬前 N 名股票"),
 ):
@@ -268,6 +268,13 @@ async def strategy_ai_xgboost(
         "stocks":             top_results,
         "feature_importance": feature_importance,
     }
+
+
+def warm_xgboost() -> None:
+    """Synchronously refresh the canonical XGBoost top-20 response cache."""
+    import asyncio
+
+    asyncio.run(strategy_ai_xgboost(top_n=20, _refresh_cache=True))
 
 
 @router.get("/strategy/ai-xgboost/backtest")
@@ -469,4 +476,3 @@ async def run_strategy(
         "total_matches": len(results),
         "stocks": results[:top_n],
     }
-

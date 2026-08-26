@@ -133,6 +133,17 @@ def _warm_radar_job() -> None:
         logger.exception("操盤雷達快取 re-warm 失敗")
 
 
+def _warm_xgboost_job() -> None:
+    """Refresh XGBoost before its one-hour response cache expires."""
+    try:
+        from api.routers.strategy import warm_xgboost
+
+        warm_xgboost()
+        logger.debug("XGBoost 快取 re-warm 完成")
+    except Exception:
+        logger.exception("XGBoost 快取 re-warm 失敗")
+
+
 def start_scheduler() -> Optional[Any]:
     """啟動背景排程器（若已啟動則直接回傳既有實例）。
 
@@ -149,6 +160,7 @@ def start_scheduler() -> Optional[Any]:
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
     except ImportError:
         logger.warning("apscheduler 未安裝，排程器停用（pip install apscheduler）")
         return None
@@ -219,6 +231,18 @@ def start_scheduler() -> Optional[Any]:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=300,
+        replace_existing=True,
+    )
+
+    # 每 45 分鐘強制更新 XGBoost（TTL 3600s），保留 15 分鐘安全餘裕。
+    sched.add_job(
+        _warm_xgboost_job,
+        IntervalTrigger(minutes=45, timezone=TAIPEI_TZ),
+        id="warm_xgboost",
+        name="XGBoost快取預熱",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
         replace_existing=True,
     )
 

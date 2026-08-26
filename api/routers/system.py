@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["系統"])
 
 # 應用程式版本（單一來源，供 / 、/health 、/system/info 與 FastAPI app 共用）。
-APP_VERSION = "4.0.0"
+APP_VERSION = "5.1.1"
 
 # 進程啟動時間，供 /system/info 計算 uptime（純記憶體，不觸發任何下載）。
 _START_TIME = datetime.now()
@@ -143,6 +143,7 @@ async def health() -> Dict[str, Any]:
     if _finlab_quota_exceeded:
         return {
             "status": "degraded",
+            "version": APP_VERSION,
             "error": (
                 "FinLab API 額度超限，已啟用多源 fallback "
                 "(yfinance/TWSE/FinMind)"
@@ -172,7 +173,7 @@ async def health() -> Dict[str, Any]:
     # 服務本身健康；資料尚在背景預熱或尚未被請求觸發載入。
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "data_status": "warming_up",
         "finlab": finlab_info,
         "scheduler": scheduler_info,
