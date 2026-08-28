@@ -5,7 +5,7 @@ import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Switch } from '@/components/ui/switch'
 import { ThemeSelector } from '@/components/settings/ThemeSelector'
-import { CURRENT_VERSION, RECENT_CHANGELOG } from '@/lib/changelog'
+import { CURRENT_VERSION, FRONTEND_VERSION, RECENT_CHANGELOG } from '@/lib/changelog'
 import {
   parseSettingsResponse,
   type SettingsForm,
@@ -14,6 +14,7 @@ import {
 
 interface SystemInfo {
   version: string
+  releaseVersion: string
   apiVersion: string
   uptime: string
   dataLastUpdated: string
@@ -352,7 +353,7 @@ export default function SettingsPage() {
             <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--foreground)' }}>系統資訊</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {[
-                { label: '前端版本', value: sysInfo.version },
+                { label: '前端版本', value: FRONTEND_VERSION },
                 { label: 'API 版本', value: sysInfo.apiVersion },
                 { label: '系統運行時間', value: sysInfo.uptime },
                 { label: '資料最後更新', value: sysInfo.dataLastUpdated },

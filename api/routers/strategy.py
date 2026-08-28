@@ -188,12 +188,9 @@ def _get_xgboost_picker():
     return _xgboost_picker
 
 
-@router.get("/strategy/ai-xgboost")
 @cached_response(ttl_seconds=3600, singleflight=True)
-async def strategy_ai_xgboost(
-    top_n: int = Query(default=20, ge=1, le=50, description="回傳預測報酬前 N 名股票"),
-):
-    """XGBoost 因子選股 — 以多因子模型預測未來 20 日報酬率後排名選股。
+async def _strategy_ai_xgboost_canonical():
+    """Train once and cache the canonical top-50 XGBoost ranking.
 
     特徵包含：PE/PB/殖利率、RSI/MACD/均線位置、成交量比、
     月營收年增/月增率、外資近 5 日買賣超、近 5/20/60 日報酬率。
@@ -234,8 +231,9 @@ async def strategy_ai_xgboost(
         for item in all_results[1:]:
             item.pop("__feature_importance__", None)
 
-    # 取前 top_n，補上股票名稱與目前股價，清理 NaN/inf
-    top_results = all_results[:top_n]
+    # 公開端點最多允許 top_n=50；固定快取 top-50，讓所有 top_n 共用同一
+    # 次模型訓練與 single-flight，最後才由公開端點切片。
+    top_results = all_results[:50]
     try:
         close = loader.get("close")
     except Exception:
@@ -270,11 +268,23 @@ async def strategy_ai_xgboost(
     }
 
 
+@router.get("/strategy/ai-xgboost")
+async def strategy_ai_xgboost(
+    top_n: int = Query(default=20, ge=1, le=50, description="回傳預測報酬前 N 名股票"),
+):
+    """Return a slice of the canonical XGBoost ranking without retraining."""
+    canonical = await _strategy_ai_xgboost_canonical()
+    return {
+        **canonical,
+        "stocks": canonical.get("stocks", [])[:top_n],
+    }
+
+
 def warm_xgboost() -> None:
-    """Synchronously refresh the canonical XGBoost top-20 response cache."""
+    """Synchronously refresh the canonical XGBoost top-50 response cache."""
     import asyncio
 
-    asyncio.run(strategy_ai_xgboost(top_n=20, _refresh_cache=True))
+    asyncio.run(_strategy_ai_xgboost_canonical(_refresh_cache=True))
 
 
 @router.get("/strategy/ai-xgboost/backtest")

@@ -7,6 +7,15 @@
 
 ## 🆕 2026-08
 
+### v5.2.0 — 功能一致性與架構收斂（2026-08-28）
+- Portfolio、持倉總覽與新增／編輯流程統一以「股」為單位，避免股／張混用造成部位放大或縮小 1,000 倍。
+- Alerts 評估加入帳號級 single-flight，完成後只合併評估時間戳與新 hits，不再覆蓋同時發生的規則編輯或刪除。
+- 自訂 Dashboard 五種 widget 全面接上實際資料與載入／錯誤／空狀態，並可啟用、停用及排序保存。
+- XGBoost 改為 canonical top-50 單一訓練快取；不同 `top_n` 請求只切片結果，不再各自訓練。
+- 側欄與功能總覽改用單一導航 catalog，統一功能分類、命名與 active route 規則。
+- 新增根目錄 release manifest，前端與 API build 讀取同一版本來源，設定頁分別顯示實際前端與 API 版本。
+- 補齊投組單位、Alerts 併發、Dashboard renderer、XGBoost canonical cache、導航與版本契約測試。
+
 ### v5.1.1 — XGBoost 韌性（2026-08-26）
 - 前端 XGBoost 總運算時限調整為 45 秒，`/strategy/ai-*` 代理層上游預算調整為 65 秒；取消會把等待時間放大成 90 秒的隱性自動 retry。
 - 服務啟動時背景預熱 XGBoost top-20，APScheduler 每 45 分鐘強制更新，早於一小時 cache TTL。

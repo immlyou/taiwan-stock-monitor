@@ -12,6 +12,10 @@ tmp dir 內，測試結束自動清理；不需要 mock 任何讀寫函式本身
 """
 from __future__ import annotations
 
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -486,6 +490,59 @@ class TestAlertsCRUD:
 
 
 class TestAlertsV2Rules:
+    def test_rule_update_is_not_lost_during_concurrent_evaluation(
+        self, stateful_client, monkeypatch
+    ):
+        """A scheduler snapshot must never overwrite a newer user edit."""
+        headers = {"X-User-ID": "google_concurrent_rule"}
+        created = stateful_client.post(
+            "/alerts/rules",
+            headers=headers,
+            json={
+                "name": "舊名稱",
+                "target": {"stockIds": ["2330"]},
+                "conditions": [
+                    {"field": "price", "operator": "gt", "value": 0}
+                ],
+            },
+        )
+        rule_id = created.json()["rule"]["id"]
+        evaluation_started = threading.Event()
+        allow_evaluation_to_finish = threading.Event()
+
+        def slow_no_hit(*_args, **_kwargs):
+            evaluation_started.set()
+            assert allow_evaluation_to_finish.wait(timeout=2)
+            return False, {}, []
+
+        monkeypatch.setattr(
+            "core.alert_rules.evaluate_rule_for_stock", slow_no_hit
+        )
+
+        from api.models import AlertEvaluateRequest
+        from api.routers.alerts import alert_rules_evaluate
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            evaluating = executor.submit(
+                asyncio.run,
+                alert_rules_evaluate(
+                    AlertEvaluateRequest(ruleIds=[rule_id]),
+                    user_id="google_concurrent_rule",
+                ),
+            )
+            assert evaluation_started.wait(timeout=2)
+            updated = stateful_client.patch(
+                f"/alerts/rules/{rule_id}",
+                headers=headers,
+                json={"name": "使用者的新名稱"},
+            )
+            assert updated.status_code == 200
+            allow_evaluation_to_finish.set()
+            assert evaluating.result(timeout=2)["evaluatedRules"] == 1
+
+        rules = stateful_client.get("/alerts/rules", headers=headers).json()["rules"]
+        assert rules[0]["name"] == "使用者的新名稱"
+
     def test_multi_condition_rule_evaluates_and_records_history(
         self, stateful_client
     ):

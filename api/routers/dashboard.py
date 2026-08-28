@@ -57,7 +57,7 @@ async def dashboard_config_update(
     """儲存自訂 Dashboard widget 設定。"""
     config = {
         "updated_at": datetime.now().isoformat(),
-        "widgets": [widget.dict() for widget in sorted(req.widgets, key=lambda item: item.order)],
+        "widgets": [widget.model_dump() for widget in sorted(req.widgets, key=lambda item: item.order)],
     }
     _save_json_file(CONFIG_FILE, config, user_id=user_id)
     return config

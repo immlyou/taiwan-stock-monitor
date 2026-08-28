@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from api.routers.system import APP_VERSION
+from api.routers.system import APP_VERSION, RELEASE_VERSION
 
 
 @pytest.fixture
@@ -96,6 +96,14 @@ class TestSystemEndpoints:
         assert body["version"] == APP_VERSION
         assert "finlab" in body
         assert "timestamp" in body
+
+    def test_system_info_separates_release_and_api_versions(self, api_client):
+        r = api_client.get("/system/info")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["releaseVersion"] == RELEASE_VERSION
+        assert body["apiVersion"] == APP_VERSION
+        assert "frontendVersion" not in body
 
     def test_openapi_schema_available(self, api_client):
         r = api_client.get("/openapi.json")

@@ -119,8 +119,8 @@ test('settings shows the complete version history through the current release', 
     if (pathname === '/api/system/info') {
       return route.fulfill({
         json: {
-          version: '5.1.1', apiVersion: '5.1.1', uptime: '1 分',
-          dataLastUpdated: '2026-08-26', stockCount: 2300, dbSize: '1.0 GB',
+          version: '5.2.0', releaseVersion: '5.2.0', apiVersion: '5.2.0', uptime: '1 分',
+          dataLastUpdated: '2026-08-28', stockCount: 2300, dbSize: '1.0 GB',
         },
       })
     }
@@ -130,7 +130,7 @@ test('settings shows the complete version history through the current release', 
   await page.goto('/settings')
 
   await expect(page.getByRole('heading', { name: '版本記錄' })).toBeVisible()
-  await expect(page.getByText('v5.1.1', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('v5.2.0', { exact: true })).toHaveCount(2)
   await expect(page.getByText('v0.1.0', { exact: true })).toHaveCount(1)
   await expect(page.getByText(/Google OAuth/).first()).toBeVisible()
   await expect(page.getByText(/Fugle \/ TWSE/).first()).toBeVisible()
@@ -189,6 +189,92 @@ test('realtime page identifies a Fugle live quote', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '即時報價' })).toBeVisible()
   await expect(page.getByRole('main').getByText('台積電')).toBeVisible()
   await expect(page.getByRole('main').getByText('即時 · Fugle')).toBeVisible()
+})
+
+test('dashboard renders every configured widget with real content', async ({ page }) => {
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/portfolios') {
+      return route.fulfill({
+        json: {
+          total: 1,
+          portfolios: [{ id: 'e2e-dashboard', name: '測試投組', holdings_count: 1 }],
+        },
+      })
+    }
+    if (pathname === '/api/portfolios/e2e-dashboard') {
+      return route.fulfill({
+        json: {
+          id: 'e2e-dashboard',
+          name: '測試投組',
+          holdings: [{
+            stock_id: '2330', name: '台積電', shares: 1000, cost_price: 600,
+            current_price: 650, current_value: 650000, pnl: 50000, pnl_pct: 8.33,
+            price_history: [600, 625, 650],
+          }],
+          summary: {
+            total_cost: 600000, total_value: 650000,
+            total_pnl: 50000, total_pnl_pct: 8.33,
+          },
+        },
+      })
+    }
+    if (pathname === '/api/dashboard/config') {
+      return route.fulfill({
+        json: {
+          updated_at: '2026-08-28T00:00:00+08:00',
+          widgets: [
+            { id: 'market', type: 'market_summary', enabled: true, order: 1, size: 'small', title: '市場摘要', config: {} },
+            { id: 'portfolio', type: 'portfolio_kpi', enabled: true, order: 2, size: 'small', title: '持倉 KPI', config: {} },
+            { id: 'alerts', type: 'smart_alerts', enabled: true, order: 3, size: 'medium', title: '智慧警報', config: {} },
+            { id: 'rotation', type: 'industry_rotation', enabled: true, order: 4, size: 'medium', title: '產業輪動', config: {} },
+            { id: 'upgrades', type: 'score_upgrades', enabled: true, order: 5, size: 'medium', title: '評分升降級', config: {} },
+          ],
+        },
+      })
+    }
+    if (pathname === '/api/market/summary') {
+      return route.fulfill({
+        json: {
+          taiex_index: 25000, taiex_change: 100, taiex_change_pct: 0.4,
+          up_count: 700, down_count: 300, flat_count: 50,
+          total_volume: 0, total_amount: 0, date: '2026-08-28',
+        },
+      })
+    }
+    if (pathname === '/api/alerts/smart-preview') {
+      return route.fulfill({
+        json: { alerts: [{ stock_id: '2330', severity: 'high', reasons: ['突破季線'] }] },
+      })
+    }
+    if (pathname === '/api/market/industry-rotation') {
+      return route.fulfill({
+        json: { industries: [{ industry: '半導體', rotation_score: 5.5, quadrant: '領先' }] },
+      })
+    }
+    if (pathname === '/api/screener/score-upgrades') {
+      return route.fulfill({
+        json: { upgrades: [{ stock_id: '2454', score_change: 3.2, rating: 'A' }] },
+      })
+    }
+    if (pathname === '/api/watchlists/default') {
+      return route.fulfill({ json: { id: 'default', name: 'default', stocks_count: 0, stocks: [] } })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/dashboard')
+
+  await expect(page.getByRole('heading', { name: '持倉總覽' })).toBeVisible()
+  for (const title of ['市場摘要', '持倉 KPI', '智慧警報', '產業輪動', '評分升降級']) {
+    await expect(page.getByText(title, { exact: true })).toBeVisible()
+  }
+  await expect(page.getByText('2330 突破季線')).toBeVisible()
+  await expect(page.getByText('半導體', { exact: true })).toBeVisible()
+  await expect(page.getByText('2454', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '管理 Widget' }).click()
+  await expect(page.getByRole('switch')).toHaveCount(5)
 })
 
 test('XGBoost keeps the last result when a refresh temporarily fails', async ({ page }) => {
@@ -312,12 +398,14 @@ test('new account can add its first portfolio holding', async ({ page }) => {
   // stateful dialog so the test exercises the settled authenticated UI.
   await expect(page.getByText(AUTH_EMAIL)).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '新增持股' }).click()
+  await expect(page.getByText('持股股數', { exact: true })).toBeVisible()
   await page.getByPlaceholder('例：2330').fill('2330')
-  await page.getByPlaceholder('例：10').fill('1')
+  await page.getByPlaceholder('例：1,000').fill('1000')
   await page.getByPlaceholder('例：580').fill('600')
   await page.getByRole('button', { name: '儲存', exact: true }).click()
 
   await expect(page.getByRole('main').getByText('台積電')).toBeVisible()
+  expect(holdings).toEqual([{ stock_id: '2330', shares: 1000, cost_price: 600 }])
 })
 
 test('new account can add its first watchlist stock', async ({ page }) => {

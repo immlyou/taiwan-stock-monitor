@@ -128,7 +128,7 @@ async def _lifespan(app: FastAPI):
             loaded, skipped, failed,
         )
 
-        # 資料集就緒後優先預熱 XGBoost top-20，避免再被其他重型預熱工作延後。
+        # 資料集就緒後優先預熱 XGBoost canonical top-50，避免再被其他重型預熱工作延後。
         try:
             from api.routers.strategy import warm_xgboost
             warm_xgboost()

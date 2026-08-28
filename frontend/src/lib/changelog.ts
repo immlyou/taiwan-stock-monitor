@@ -7,6 +7,14 @@ export interface ReleaseNote {
   changes: readonly string[]
 }
 
+export {
+  API_VERSION,
+  CURRENT_VERSION,
+  FRONTEND_VERSION,
+  RELEASE_MANIFEST,
+} from './release'
+import { CURRENT_VERSION } from './release'
+
 /**
  * v4.0.0 之後的版本記錄。
  *
@@ -15,13 +23,27 @@ export interface ReleaseNote {
  */
 export const RECENT_CHANGELOG = [
   {
+    version: CURRENT_VERSION,
+    date: '2026-08-28',
+    tag: 'Feature',
+    changes: [
+      '資料正確性：Portfolio、持倉總覽與新增／編輯流程統一以「股」為單位，避免把股數誤解為張數',
+      '可靠性修正：Alerts 評估加入帳號級 single-flight 與欄位合併，並行評估不再覆蓋使用者剛完成的規則編輯',
+      '功能完成：自訂 Dashboard 五種 widget 全面接上資料、載入／錯誤／空狀態，並可啟用、停用與排序保存',
+      '效能優化：XGBoost 改為 canonical top-50 單一訓練快取，各 top_n 請求只切片結果、不重複訓練',
+      '資訊架構：側欄與功能總覽共用單一導航 catalog，修正分類、命名、active route 與重複定義',
+      '版本治理：新增跨前端與 API 的 release manifest，系統資訊分別顯示實際前端版本與 API 版本',
+      '測試補強：加入投組單位、Alerts 併發、Dashboard renderer、XGBoost cache、導航 catalog 與版本契約測試',
+    ],
+  },
+  {
     version: 'v5.1.1',
     date: '2026-08-26',
     tag: 'Fix',
     changes: [
       '可靠性修正：XGBoost 前端總運算時限調整為 45 秒，取消隱性自動重試，逾時後改由使用者決定是否重試',
       '可靠性修正：Next.js 代理層為 /strategy/ai-* 提供 65 秒上游運算預算',
-      '效能優化：服務啟動時背景預熱 XGBoost top-20，之後每 45 分鐘更新，早於一小時 TTL 到期',
+      '效能優化：服務啟動時背景預熱 XGBoost canonical 排名，之後每 45 分鐘更新，早於一小時 TTL 到期',
       '效能優化：XGBoost cache key 加入 single-flight，同一服務進程的並行 cold miss 只訓練一次',
       '體驗改善：錯誤區分為運算逾時、暫時不可用與依賴缺失，不再一律誤報 scikit-learn 未安裝',
       '體驗改善：重新運算失敗時保留帳號快取的上次成功結果，顯示重試狀態並提供手動重試',
@@ -90,5 +112,3 @@ export const RECENT_CHANGELOG = [
     ],
   },
 ] as const satisfies readonly ReleaseNote[]
-
-export const CURRENT_VERSION = RECENT_CHANGELOG[0].version

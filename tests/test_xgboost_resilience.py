@@ -26,12 +26,13 @@ def test_concurrent_xgboost_requests_train_only_once(monkeypatch):
             time.sleep(0.05)
             return [
                 {
-                    "stock_id": "2330",
-                    "predicted_return": 0.05,
+                    "stock_id": f"{index:04d}",
+                    "predicted_return": 0.05 - index / 1000,
                     "confidence": 0.8,
                     "factors": {},
                     "__feature_importance__": {"ret20": 0.5},
                 }
+                for index in range(50)
             ]
 
     get_cache().clear()
@@ -45,28 +46,31 @@ def test_concurrent_xgboost_requests_train_only_once(monkeypatch):
 
     async def request_twice():
         return await asyncio.gather(
-            strategy_router.strategy_ai_xgboost(top_n=37),
+            strategy_router.strategy_ai_xgboost(top_n=10),
             strategy_router.strategy_ai_xgboost(top_n=37),
         )
 
     first, second = asyncio.run(request_twice())
 
-    assert first == second
+    assert len(first["stocks"]) == 10
+    assert len(second["stocks"]) == 37
     assert calls == 1
 
 
 def test_warm_xgboost_force_refreshes_the_canonical_top_20(monkeypatch):
     calls = []
 
-    async def fake_endpoint(**kwargs):
+    async def fake_canonical(**kwargs):
         calls.append(kwargs)
         return {"stocks": []}
 
-    monkeypatch.setattr(strategy_router, "strategy_ai_xgboost", fake_endpoint)
+    monkeypatch.setattr(
+        strategy_router, "_strategy_ai_xgboost_canonical", fake_canonical
+    )
 
     strategy_router.warm_xgboost()
 
-    assert calls == [{"top_n": 20, "_refresh_cache": True}]
+    assert calls == [{"_refresh_cache": True}]
 
 
 def test_service_startup_prewarms_xgboost_in_background(monkeypatch):
