@@ -162,6 +162,8 @@ def test_start_scheduler_live_registers_job(monkeypatch):
         assert status["running"] is True
         job_ids = {j["id"] for j in status["jobs"]}
         assert "alert_check" in job_ids
+        assert "warm_xgboost" in job_ids
+        assert sched.get_job("warm_xgboost").trigger.interval.total_seconds() == 45 * 60
         # 重複呼叫回傳同一實例（不重複註冊）
         assert scheduler.start_scheduler() is sched
     finally:

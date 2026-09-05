@@ -11,13 +11,14 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from api.deps import rate_limit, verify_api_key
+from core.release import API_VERSION, RELEASE_VERSION
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["系統"])
 
-# 應用程式版本（單一來源，供 / 、/health 、/system/info 與 FastAPI app 共用）。
-APP_VERSION = "4.0.0"
+# API build 版本由根目錄 release-manifest.json 統一供應。
+APP_VERSION = API_VERSION
 
 # 進程啟動時間，供 /system/info 計算 uptime（純記憶體，不觸發任何下載）。
 _START_TIME = datetime.now()
@@ -102,6 +103,7 @@ async def system_info() -> Dict[str, Any]:
 
     return {
         "version": APP_VERSION,
+        "releaseVersion": RELEASE_VERSION,
         "apiVersion": APP_VERSION,
         "uptime": _format_uptime(uptime_seconds),
         "dataLastUpdated": data_last_updated,
@@ -143,6 +145,7 @@ async def health() -> Dict[str, Any]:
     if _finlab_quota_exceeded:
         return {
             "status": "degraded",
+            "version": APP_VERSION,
             "error": (
                 "FinLab API 額度超限，已啟用多源 fallback "
                 "(yfinance/TWSE/FinMind)"
@@ -172,7 +175,7 @@ async def health() -> Dict[str, Any]:
     # 服務本身健康；資料尚在背景預熱或尚未被請求觸發載入。
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "data_status": "warming_up",
         "finlab": finlab_info,
         "scheduler": scheduler_info,

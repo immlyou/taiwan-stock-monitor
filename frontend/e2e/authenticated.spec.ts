@@ -96,6 +96,67 @@ test('settings exposes a retry action when its API is unavailable', async ({ pag
   await expect(page.getByRole('button', { name: '重新載入' })).toBeVisible()
 })
 
+test('settings shows the complete version history through the current release', async ({ page }) => {
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/settings') {
+      return route.fulfill({
+        json: {
+          theme: 'light', language: 'zh-TW', notifications_enabled: true, default_days: 60,
+          telegram: { enabled: false, chatId: '', botTokenConfigured: false },
+          email: {
+            enabled: false, smtpHost: 'smtp.gmail.com', smtpPort: 587,
+            username: '', recipient: '', passwordConfigured: false,
+          },
+          system: {
+            dataUpdateInterval: 30, timezone: 'Asia/Taipei', autoBacktest: false,
+            marketOpenTime: '09:00', marketCloseTime: '13:30',
+          },
+        },
+      })
+    }
+    if (pathname === '/api/system/info') {
+      return route.fulfill({
+        json: {
+          version: '5.2.1', releaseVersion: '5.2.1', apiVersion: '5.2.1', uptime: '1 分',
+          dataLastUpdated: '2026-08-28', stockCount: 2300, dbSize: '1.0 GB',
+        },
+      })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/settings')
+
+  await expect(page.getByRole('heading', { name: '版本記錄' })).toBeVisible()
+  await expect(page.getByText('v5.2.1', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('v0.1.0', { exact: true })).toHaveCount(1)
+  await expect(page.getByText(/Google OAuth/).first()).toBeVisible()
+  await expect(page.getByText(/Fugle \/ TWSE/).first()).toBeVisible()
+  await expect(page.getByText(/single-flight/).first()).toBeVisible()
+})
+
+test('portfolio outage does not hide healthy dashboard widgets', async ({ page }) => {
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.startsWith('/api/auth/')) return route.continue()
+    if (path === '/api/dashboard/config') return route.fulfill({ json: {
+      widgets: [{ id: 'market', type: 'market_summary', title: '獨立市場卡片', enabled: true, order: 1, config: {} }],
+    } })
+    if (path === '/api/market/summary') return route.fulfill({ json: {
+      taiex_index: 25000, taiex_change: 100, up_count: 600, down_count: 200,
+    } })
+    return route.fulfill({ status: 503, json: { detail: 'unavailable' } })
+  })
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await expect(page.getByText('無法載入持倉資料')).toBeVisible()
+  await expect(page.getByText('獨立市場卡片')).toBeVisible()
+  await expect(page.getByRole('button', { name: '管理 Widget' })).toBeVisible()
+  await expect(page.getByText('上漲 600 · 下跌 200')).toBeVisible()
+  await expect(page.getByText('尚未建立投資組合', { exact: true })).toHaveCount(0)
+})
+
 test('stock detail reports a critical API failure', async ({ page }) => {
   await mockUnavailableAppApi(page)
 
@@ -148,6 +209,155 @@ test('realtime page identifies a Fugle live quote', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '即時報價' })).toBeVisible()
   await expect(page.getByRole('main').getByText('台積電')).toBeVisible()
   await expect(page.getByRole('main').getByText('即時 · Fugle')).toBeVisible()
+})
+
+test('dashboard renders every configured widget with real content', async ({ page }) => {
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/portfolios') {
+      return route.fulfill({
+        json: {
+          total: 1,
+          portfolios: [{ id: 'e2e-dashboard', name: '測試投組', holdings_count: 1 }],
+        },
+      })
+    }
+    if (pathname === '/api/portfolios/e2e-dashboard') {
+      return route.fulfill({
+        json: {
+          id: 'e2e-dashboard',
+          name: '測試投組',
+          holdings: [{
+            stock_id: '2330', name: '台積電', shares: 1000, cost_price: 600,
+            current_price: 650, current_value: 650000, pnl: 50000, pnl_pct: 8.33,
+            price_history: [600, 625, 650],
+          }],
+          summary: {
+            total_cost: 600000, total_value: 650000,
+            total_pnl: 50000, total_pnl_pct: 8.33,
+          },
+        },
+      })
+    }
+    if (pathname === '/api/dashboard/config') {
+      return route.fulfill({
+        json: {
+          updated_at: '2026-08-28T00:00:00+08:00',
+          widgets: [
+            { id: 'market', type: 'market_summary', enabled: true, order: 1, size: 'small', title: '市場摘要', config: {} },
+            { id: 'portfolio', type: 'portfolio_kpi', enabled: true, order: 2, size: 'small', title: '持倉 KPI', config: {} },
+            { id: 'alerts', type: 'smart_alerts', enabled: true, order: 3, size: 'medium', title: '智慧警報', config: {} },
+            { id: 'rotation', type: 'industry_rotation', enabled: true, order: 4, size: 'medium', title: '產業輪動', config: {} },
+            { id: 'upgrades', type: 'score_upgrades', enabled: true, order: 5, size: 'medium', title: '評分升降級', config: {} },
+          ],
+        },
+      })
+    }
+    if (pathname === '/api/market/summary') {
+      return route.fulfill({
+        json: {
+          taiex_index: 25000, taiex_change: 100, taiex_change_pct: 0.4,
+          up_count: 700, down_count: 300, flat_count: 50,
+          total_volume: 0, total_amount: 0, date: '2026-08-28',
+        },
+      })
+    }
+    if (pathname === '/api/alerts/smart-preview') {
+      return route.fulfill({
+        json: { alerts: [{ stock_id: '2330', severity: 'high', reasons: ['突破季線'] }] },
+      })
+    }
+    if (pathname === '/api/market/industry-rotation') {
+      return route.fulfill({
+        json: { industries: [{ industry: '半導體', rotation_score: 5.5, quadrant: '領先' }] },
+      })
+    }
+    if (pathname === '/api/screener/score-upgrades') {
+      return route.fulfill({
+        json: { upgrades: [{ stock_id: '2454', score_change: 3.2, rating: 'A' }] },
+      })
+    }
+    if (pathname === '/api/watchlists/default') {
+      return route.fulfill({ json: { id: 'default', name: 'default', stocks_count: 0, stocks: [] } })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/dashboard')
+
+  await expect(page.getByRole('heading', { name: '持倉總覽' })).toBeVisible()
+  for (const title of ['市場摘要', '持倉 KPI', '智慧警報', '產業輪動', '評分升降級']) {
+    await expect(page.getByText(title, { exact: true })).toBeVisible()
+  }
+  await expect(page.getByText('2330 突破季線')).toBeVisible()
+  await expect(page.getByText('半導體', { exact: true })).toBeVisible()
+  await expect(page.getByText('2454', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '管理 Widget' }).click()
+  await expect(page.getByRole('switch')).toHaveCount(5)
+})
+
+test('XGBoost keeps the last result when a refresh temporarily fails', async ({ page }) => {
+  let unavailable = false
+  let delaySuccess = false
+  let stockName = '快取中的模型結果'
+
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/auth/')) return route.continue()
+    if (pathname === '/api/market/summary') {
+      return route.fulfill({
+        json: { taiex_index: 25000, taiex_change: 100 },
+      })
+    }
+    if (pathname === '/api/strategy/ai-xgboost') {
+      if (unavailable) {
+        return route.fulfill({
+          status: 503,
+          json: { detail: 'upstream temporarily unavailable' },
+        })
+      }
+      if (delaySuccess) {
+        await new Promise((resolve) => setTimeout(resolve, 750))
+      }
+      return route.fulfill({
+        json: {
+          stocks: [{
+            stock_id: '2330',
+            name: stockName,
+            price: 100,
+            predicted_return: 0.05,
+            confidence: 0.8,
+            factors: {},
+          }],
+          feature_importance: { ret20: 0.5 },
+        },
+      })
+    }
+    return route.fulfill({ status: 404, json: { detail: 'missing fixture' } })
+  })
+
+  await page.goto('/ai-pick')
+  // Wait until SessionProvider has switched SWR to the final account-scoped
+  // cache; data fetched by the hydration cache is intentionally discarded.
+  await expect(page.getByText(AUTH_EMAIL)).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('main').getByText('快取中的模型結果')).toBeVisible()
+
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')))
+  unavailable = true
+  await page.reload()
+
+  await expect(page.getByRole('main').getByText('快取中的模型結果')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('模型服務暫時不可用')
+  await expect(page.getByRole('button', { name: '重新嘗試 XGBoost' })).toBeVisible()
+  await expect(page.getByText('XGBoost 模型尚未安裝')).toHaveCount(0)
+
+  unavailable = false
+  delaySuccess = true
+  stockName = '重新整理後的模型結果'
+  await page.getByRole('button', { name: '重新嘗試 XGBoost' }).click()
+  await expect(page.getByRole('button', { name: '正在重新運算…' })).toBeVisible()
+  await expect(page.getByRole('main').getByText('重新整理後的模型結果')).toBeVisible()
 })
 
 test('new account can add its first portfolio holding', async ({ page }) => {
@@ -208,12 +418,14 @@ test('new account can add its first portfolio holding', async ({ page }) => {
   // stateful dialog so the test exercises the settled authenticated UI.
   await expect(page.getByText(AUTH_EMAIL)).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '新增持股' }).click()
+  await expect(page.getByText('持股股數', { exact: true })).toBeVisible()
   await page.getByPlaceholder('例：2330').fill('2330')
-  await page.getByPlaceholder('例：10').fill('1')
+  await page.getByPlaceholder('例：1,000').fill('1000')
   await page.getByPlaceholder('例：580').fill('600')
   await page.getByRole('button', { name: '儲存', exact: true }).click()
 
   await expect(page.getByRole('main').getByText('台積電')).toBeVisible()
+  expect(holdings).toEqual([{ stock_id: '2330', shares: 1000, cost_price: 600 }])
 })
 
 test('new account can add its first watchlist stock', async ({ page }) => {

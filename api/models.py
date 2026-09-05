@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -158,6 +159,13 @@ class PredictionRequest(BaseModel):
     method: str = Field(default="trend", description="trend | mean_reversion")
 
 
+class ManualPredictionRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=20, pattern=r"^[A-Za-z0-9]+$")
+    direction: Literal["up", "down"]
+    targetPrice: float = Field(gt=0, allow_inf_nan=False)
+    targetDate: date
+
+
 class StrategyCreateRequest(BaseModel):
     name: str
     strategy_type: str
@@ -190,10 +198,10 @@ class EmailSettingsUpdate(BaseModel):
 
 class SystemSettingsUpdate(BaseModel):
     dataUpdateInterval: Optional[int] = Field(default=None, ge=5, le=86400)
-    timezone: Optional[str] = None
-    autoBacktest: Optional[bool] = None
-    marketOpenTime: Optional[str] = None
-    marketCloseTime: Optional[str] = None
+    timezone: Optional[Literal["Asia/Taipei"]] = None
+    autoBacktest: Optional[Literal[False]] = None
+    marketOpenTime: Optional[Literal["09:00"]] = None
+    marketCloseTime: Optional[Literal["13:30"]] = None
 
 
 class SettingsUpdateRequest(BaseModel):

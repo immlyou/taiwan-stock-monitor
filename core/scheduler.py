@@ -86,14 +86,22 @@ def _alert_check_job() -> None:
 def _verify_predictions_job() -> None:
     """排程任務：用最新收盤驗證所有到期的預測（含 XGBoost 選股前向追蹤）。"""
     try:
-        from api.state import loader
+        from api.state import DATA_DIR, loader
         from core.prediction_tracker import get_tracker
+        from core.user_predictions import verify_user_predictions
+        from core.user_storage import iter_user_ids, user_data_path
 
         close = loader.get("close")
         if close is None or close.empty:
             return
+        verified = 0
+        for user_id in iter_user_ids(DATA_DIR):
+            try:
+                verified += verify_user_predictions(user_data_path(user_id, "predictions.json", DATA_DIR), close)
+            except Exception:
+                logger.exception("帳號預測驗證失敗：%s", user_id)
         result = get_tracker().verify_predictions(close)
-        verified = result.get("verified") if isinstance(result, dict) else result
+        verified += int(result.get("verified_count", 0))
         logger.info("排程預測驗證完成：%s", verified)
     except Exception:
         logger.exception("排程預測驗證失敗")
@@ -133,6 +141,17 @@ def _warm_radar_job() -> None:
         logger.exception("操盤雷達快取 re-warm 失敗")
 
 
+def _warm_xgboost_job() -> None:
+    """Refresh XGBoost before its one-hour response cache expires."""
+    try:
+        from api.routers.strategy import warm_xgboost
+
+        warm_xgboost()
+        logger.debug("XGBoost 快取 re-warm 完成")
+    except Exception:
+        logger.exception("XGBoost 快取 re-warm 失敗")
+
+
 def start_scheduler() -> Optional[Any]:
     """啟動背景排程器（若已啟動則直接回傳既有實例）。
 
@@ -149,6 +168,7 @@ def start_scheduler() -> Optional[Any]:
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
     except ImportError:
         logger.warning("apscheduler 未安裝，排程器停用（pip install apscheduler）")
         return None
@@ -219,6 +239,18 @@ def start_scheduler() -> Optional[Any]:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=300,
+        replace_existing=True,
+    )
+
+    # 每 45 分鐘強制更新 XGBoost（TTL 3600s），保留 15 分鐘安全餘裕。
+    sched.add_job(
+        _warm_xgboost_job,
+        IntervalTrigger(minutes=45, timezone=TAIPEI_TZ),
+        id="warm_xgboost",
+        name="XGBoost快取預熱",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
         replace_existing=True,
     )
 

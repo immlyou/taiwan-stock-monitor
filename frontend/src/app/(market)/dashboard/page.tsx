@@ -1,6 +1,8 @@
 'use client'
 
+import { useState } from 'react'
 import useSWR from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
@@ -9,6 +11,7 @@ import { StaleBanner } from '@/components/shared/StaleBanner'
 import { DataTable } from '@/components/shared/DataTable'
 import { Sparkline } from '@/components/shared/Sparkline'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +25,8 @@ import {
   formatChange,
   getChangeColorVar,
 } from '@/lib/utils/format'
+import type { MarketSummary } from '@/lib/types'
+import { isSupportedDashboardWidgetType } from '@/lib/dashboard/widgets'
 
 interface Holding {
   stock_id: string
@@ -88,12 +93,13 @@ interface ScoreUpgrades {
 }
 
 function useDashboard() {
+  const refreshInterval = useRefreshInterval()(30000)
   // Fetch portfolio list first
   const { data: listData, error: listError, isLoading: listLoading } =
     useSWR<PortfoliosListResponse>(
       '/portfolios',
       (path: string) => fetchAPI<PortfoliosListResponse>(path),
-      { refreshInterval: 30000, revalidateOnFocus: true }
+      { refreshInterval, revalidateOnFocus: true }
     )
 
   // Use first portfolio id if available, otherwise try 'default'
@@ -104,7 +110,7 @@ function useDashboard() {
     useSWR<PortfolioDetail>(
       portfolioId ? `/portfolios/${portfolioId}` : null,
       (path: string) => fetchAPI<PortfolioDetail>(path),
-      { refreshInterval: 30000, revalidateOnFocus: true }
+      { refreshInterval, revalidateOnFocus: true }
     )
 
   const isLoading = listLoading || (!!portfolioId && detailLoading)
@@ -175,7 +181,7 @@ const positionColumns: ColumnDef<PositionRow, unknown>[] = [
   },
   {
     accessorKey: 'shares',
-    header: () => <HeaderLabel label="持股(張)" />,
+    header: () => <HeaderLabel label="持股(股)" />,
     cell: ({ row }) => (
       <span className="tabular-nums" style={{ color: 'var(--foreground)' }}>
         {row.original.shares.toLocaleString()}
@@ -245,12 +251,21 @@ const positionColumns: ColumnDef<PositionRow, unknown>[] = [
 
 export default function DashboardPage() {
   const { detail, listData, isLoading, isError, hasPortfolio } = useDashboard()
-  const { data: dashboardConfig } = useSWR<DashboardConfig>('/dashboard/config', fetchAPI)
-  const { data: smartAlerts } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=4', fetchAPI)
-  const { data: rotation } = useSWR<IndustryRotation>('/market/industry-rotation?top_n=4', fetchAPI)
-  const { data: scoreUpgrades } = useSWR<ScoreUpgrades>('/screener/score-upgrades?days=20&top_n=4', fetchAPI)
+  const {
+    data: dashboardConfig,
+    error: dashboardConfigError,
+    mutate: mutateDashboardConfig,
+  } = useSWR<DashboardConfig>('/dashboard/config', fetchAPI)
+  const { data: marketSummary, error: marketSummaryError } = useSWR<MarketSummary>('/market/summary', fetchAPI)
+  const { data: smartAlerts, error: smartAlertsError } = useSWR<SmartAlertsResponse>('/alerts/smart-preview?top_n=4', fetchAPI)
+  const { data: rotation, error: rotationError } = useSWR<IndustryRotation>('/market/industry-rotation?top_n=4', fetchAPI)
+  const { data: scoreUpgrades, error: scoreUpgradesError } = useSWR<ScoreUpgrades>('/screener/score-upgrades?days=20&top_n=4', fetchAPI)
+  const [showWidgetSettings, setShowWidgetSettings] = useState(false)
+  const [widgetSaving, setWidgetSaving] = useState(false)
+  const [widgetActionError, setWidgetActionError] = useState('')
 
   const summary = detail?.summary
+  const portfolioUnavailable = isError && !detail
   const holdings = detail?.holdings ?? []
   const positionRows: PositionRow[] = holdings.map((h) => {
     const currentPrice = h.current_price ?? h.cost_price
@@ -266,7 +281,130 @@ export default function DashboardPage() {
       price_history: h.price_history ?? [],
     }
   })
-  const widgets = (dashboardConfig?.widgets ?? []).filter((widget) => widget.enabled).sort((a, b) => a.order - b.order)
+  const configuredWidgets = [...(dashboardConfig?.widgets ?? [])].sort((a, b) => a.order - b.order)
+  const widgets = configuredWidgets.filter((widget) => widget.enabled)
+
+  const saveWidgetConfig = async (nextWidgets: DashboardWidget[]) => {
+    setWidgetSaving(true)
+    setWidgetActionError('')
+    const normalized = nextWidgets.map((widget, index) => ({ ...widget, order: index + 1 }))
+    try {
+      const updated = await fetchAPI<DashboardConfig>('/dashboard/config', {
+        method: 'PUT',
+        body: JSON.stringify({ widgets: normalized }),
+      })
+      await mutateDashboardConfig(updated, { revalidate: false })
+    } catch {
+      setWidgetActionError('Widget 設定儲存失敗，原設定未變更。')
+    } finally {
+      setWidgetSaving(false)
+    }
+  }
+
+  const toggleWidget = (id: string, enabled: boolean) => {
+    void saveWidgetConfig(
+      configuredWidgets.map((widget) => widget.id === id ? { ...widget, enabled } : widget)
+    )
+  }
+
+  const moveWidget = (index: number, offset: -1 | 1) => {
+    const target = index + offset
+    if (target < 0 || target >= configuredWidgets.length) return
+    const next = [...configuredWidgets]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    void saveWidgetConfig(next)
+  }
+
+  const widgetError = (message = '資料暫時無法載入') => (
+    <p className="text-sm" role="status" style={{ color: 'var(--destructive)' }}>{message}</p>
+  )
+
+  const widgetEmpty = (message: string) => (
+    <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{message}</p>
+  )
+
+  const renderWidget = (widget: DashboardWidget) => {
+    if (!isSupportedDashboardWidgetType(widget.type)) {
+      return widgetError('此 Widget 版本不受支援，請在管理介面停用。')
+    }
+    if (widget.type === 'market_summary') {
+      if (marketSummaryError) return widgetError()
+      if (!marketSummary) return widgetEmpty('市場資料載入中…')
+      return (
+        <div className="space-y-1">
+          <p className="text-lg font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatPrice(marketSummary.taiex_index)}
+          </p>
+          <p className="text-xs" style={{ color: getChangeColorVar(marketSummary.taiex_change) }}>
+            加權指數 {formatChange(marketSummary.taiex_change)}
+          </p>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            上漲 {marketSummary.up_count} · 下跌 {marketSummary.down_count}
+          </p>
+        </div>
+      )
+    }
+    if (widget.type === 'portfolio_kpi') {
+      if (isError && !detail) return widgetError('持倉資料暫時無法載入')
+      if (isLoading) return widgetEmpty('持倉資料載入中…')
+      if (!summary) return widgetEmpty('尚未建立投資組合')
+      return (
+        <div className="space-y-1">
+          <p className="text-lg font-semibold tabular-nums" style={{ color: 'var(--foreground)' }}>
+            {formatCurrency(summary.total_value)}
+          </p>
+          <p className="text-xs" style={{ color: getChangeColorVar(summary.total_pnl) }}>
+            損益 {formatChange(summary.total_pnl)}（{formatPercent(summary.total_pnl_pct)}）
+          </p>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{holdings.length} 檔持股</p>
+        </div>
+      )
+    }
+    if (widget.type === 'smart_alerts') {
+      if (smartAlertsError) return widgetError()
+      if (!smartAlerts) return widgetEmpty('智慧警報載入中…')
+      if (!smartAlerts.alerts.length) return widgetEmpty('目前沒有智慧警報')
+      return (
+        <div className="space-y-1">
+          {smartAlerts.alerts.slice(0, 3).map((item) => (
+            <p key={item.stock_id} className="text-sm truncate" style={{ color: 'var(--foreground)' }}>
+              {item.stock_id} {item.reasons[0]}
+            </p>
+          ))}
+        </div>
+      )
+    }
+    if (widget.type === 'industry_rotation') {
+      if (rotationError) return widgetError()
+      if (!rotation) return widgetEmpty('產業輪動載入中…')
+      if (!rotation.industries.length) return widgetEmpty('目前沒有產業輪動資料')
+      return (
+        <div className="space-y-1">
+          {rotation.industries.slice(0, 3).map((item) => (
+            <p key={item.industry} className="text-sm flex justify-between gap-2" style={{ color: 'var(--foreground)' }}>
+              <span className="truncate">{item.industry}</span>
+              <span style={{ color: getChangeColorVar(item.rotation_score) }}>{item.quadrant}</span>
+            </p>
+          ))}
+        </div>
+      )
+    }
+    if (scoreUpgradesError) return widgetError()
+    if (!scoreUpgrades) return widgetEmpty('評分升降級載入中…')
+    if (!scoreUpgrades.upgrades.length) return widgetEmpty('目前沒有評分升級資料')
+    return (
+      <div className="space-y-1">
+        {scoreUpgrades.upgrades.slice(0, 3).map((item) => (
+          <p key={item.stock_id} className="text-sm flex justify-between gap-2" style={{ color: 'var(--foreground)' }}>
+            <span>{item.stock_id}</span>
+            <span style={{ color: getChangeColorVar(item.score_change ?? 0) }}>
+              {item.score_change != null && item.score_change > 0 ? '+' : ''}{item.score_change?.toFixed(1) ?? '—'}
+            </span>
+          </p>
+        ))}
+      </div>
+    )
+  }
 
   const kpiCards = [
     {
@@ -303,7 +441,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {isError && !detail && !listData && (
+      {portfolioUnavailable && (
         <EmptyState
           title="無法載入持倉資料"
           description="請確認後端服務是否正常運行，或稍後再試"
@@ -311,11 +449,10 @@ export default function DashboardPage() {
         />
       )}
 
-      {(!isError || detail || listData) && (
-        <>
+      <>
           {isError && (detail || listData) && <StaleBanner />}
           {/* KPI 卡片 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          {!portfolioUnavailable && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             {kpiCards.map((card) => (
               <KpiCard
                 key={card.title}
@@ -327,9 +464,9 @@ export default function DashboardPage() {
                 change={card.change}
               />
             ))}
-          </div>
+          </div>}
 
-          {widgets.length > 0 && (
+          {(configuredWidgets.length > 0 || dashboardConfigError) && (
             <div
               className="rounded-lg p-4 mb-6"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
@@ -338,46 +475,63 @@ export default function DashboardPage() {
                 <div>
                   <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>自訂 Dashboard</h2>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
-                    Widget 設定由 /dashboard/config 管理
+                    選擇、排序並保存你的首頁資訊卡
                   </p>
                 </div>
-                <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{widgets.length} 個啟用</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{widgets.length} 個啟用</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowWidgetSettings((value) => !value)}
+                    className="text-xs font-medium"
+                    style={{ color: 'var(--primary)' }}
+                  >
+                    {showWidgetSettings ? '完成' : '管理 Widget'}
+                  </button>
+                </div>
               </div>
+              {dashboardConfigError && widgetError('Widget 設定載入失敗，請稍後重試。')}
+              {widgetActionError && widgetError(widgetActionError)}
+              {showWidgetSettings && configuredWidgets.length > 0 && (
+                <div className="mb-4 space-y-2 rounded-md p-3" style={{ background: 'var(--secondary)' }}>
+                  {configuredWidgets.map((widget, index) => (
+                    <div key={widget.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={widget.enabled}
+                        onCheckedChange={(enabled) => toggleWidget(widget.id, enabled)}
+                        disabled={widgetSaving}
+                        aria-label={`切換 ${widget.title}`}
+                      />
+                      <span className="flex-1 text-sm" style={{ color: 'var(--foreground)' }}>{widget.title}</span>
+                      <button
+                        type="button"
+                        disabled={widgetSaving || index === 0}
+                        onClick={() => moveWidget(index, -1)}
+                        className="h-7 px-2 text-xs disabled:opacity-40"
+                        aria-label={`上移 ${widget.title}`}
+                        style={{ color: 'var(--muted-foreground)' }}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        disabled={widgetSaving || index === configuredWidgets.length - 1}
+                        onClick={() => moveWidget(index, 1)}
+                        className="h-7 px-2 text-xs disabled:opacity-40"
+                        aria-label={`下移 ${widget.title}`}
+                        style={{ color: 'var(--muted-foreground)' }}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="grid md:grid-cols-3 gap-3">
                 {widgets.slice(0, 6).map((widget) => (
                   <div key={widget.id} className="rounded-md p-3" style={{ background: 'var(--secondary)' }}>
                     <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>{widget.title}</p>
-                    {widget.type === 'smart_alerts' ? (
-                      <div className="space-y-1">
-                        {(smartAlerts?.alerts ?? []).slice(0, 3).map((item) => (
-                          <p key={item.stock_id} className="text-sm truncate" style={{ color: 'var(--foreground)' }}>
-                            {item.stock_id} {item.reasons[0]}
-                          </p>
-                        ))}
-                      </div>
-                    ) : widget.type === 'industry_rotation' ? (
-                      <div className="space-y-1">
-                        {(rotation?.industries ?? []).slice(0, 3).map((item) => (
-                          <p key={item.industry} className="text-sm flex justify-between gap-2" style={{ color: 'var(--foreground)' }}>
-                            <span className="truncate">{item.industry}</span>
-                            <span style={{ color: getChangeColorVar(item.rotation_score) }}>{item.quadrant}</span>
-                          </p>
-                        ))}
-                      </div>
-                    ) : widget.type === 'score_upgrades' ? (
-                      <div className="space-y-1">
-                        {(scoreUpgrades?.upgrades ?? []).slice(0, 3).map((item) => (
-                          <p key={item.stock_id} className="text-sm flex justify-between gap-2" style={{ color: 'var(--foreground)' }}>
-                            <span>{item.stock_id}</span>
-                            <span style={{ color: getChangeColorVar(item.score_change ?? 0) }}>
-                              {item.score_change != null && item.score_change > 0 ? '+' : ''}{item.score_change?.toFixed(1) ?? '—'}
-                            </span>
-                          </p>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm" style={{ color: 'var(--foreground)' }}>{widget.type}</p>
-                    )}
+                    {renderWidget(widget)}
                   </div>
                 ))}
               </div>
@@ -385,7 +539,7 @@ export default function DashboardPage() {
           )}
 
           {/* 持股列表 */}
-          <div
+          {!portfolioUnavailable && <div
             className="rounded-lg overflow-hidden"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
@@ -419,9 +573,8 @@ export default function DashboardPage() {
                 />
               )}
             </div>
-          </div>
-        </>
-      )}
+          </div>}
+      </>
     </div>
   )
 }

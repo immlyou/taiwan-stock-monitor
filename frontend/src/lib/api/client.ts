@@ -62,7 +62,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 export async function fetchAPI<T>(
   path: string,
   options?: RequestInit,
-  timeoutMs = 10000
+  timeoutMs = 10000,
+  maxRetries = MAX_RETRIES
 ): Promise<T> {
   const url = `${API_URL}${path}`
 
@@ -125,7 +126,8 @@ export async function fetchAPI<T>(
   }
 
   let lastErr: unknown
-  for (let i = 0; i <= MAX_RETRIES; i++) {
+  const retryLimit = Math.max(0, Math.floor(maxRetries))
+  for (let i = 0; i <= retryLimit; i++) {
     try {
       return await attempt()
     } catch (err) {
@@ -141,7 +143,7 @@ export async function fetchAPI<T>(
         (err instanceof ApiError && RETRYABLE_STATUS.has(err.status)) ||
         (err instanceof DOMException && err.name === 'AbortError') ||
         err instanceof TypeError
-      if (!retryable || i === MAX_RETRIES) throw err
+      if (!retryable || i === retryLimit) throw err
       await sleep(RETRY_BACKOFF_MS[i] ?? 1000)
     }
   }

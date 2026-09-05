@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
@@ -89,9 +90,10 @@ const PORTFOLIO_ID = 'default'
 const SWR_KEY = `/portfolios/${PORTFOLIO_ID}`
 
 export default function PortfolioPage() {
+  const refreshInterval = useRefreshInterval()
   const { mutate } = useSWRConfig()
   const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI, {
-    refreshInterval: (latest) => getBatchQuoteRefreshInterval(latest?.holdings.length ?? 1),
+    refreshInterval: (latest) => refreshInterval(getBatchQuoteRefreshInterval(latest?.holdings.length ?? 1)),
     dedupingInterval: 10_000,
     revalidateOnFocus: true,
   })
@@ -425,7 +427,7 @@ export default function PortfolioPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ background: 'var(--secondary)' }}>
-                      {['代號', '名稱', '持股（張）', '成本價', '現價', '市值', '未實現損益', '報酬率', '操作'].map(h => (
+                      {['代號', '名稱', '持股（股）', '成本價', '現價', '市值', '未實現損益', '報酬率', '操作'].map(h => (
                         <th key={h} className="text-left py-2 px-4" style={{ color: 'var(--muted-foreground)' }}>{h}</th>
                       ))}
                     </tr>
@@ -590,12 +592,12 @@ export default function PortfolioPage() {
               />
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>持股張數</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>持股股數</label>
               <input
                 type="number"
                 value={form.shares}
                 onChange={(e) => setForm(p => ({ ...p, shares: e.target.value }))}
-                placeholder="例：10"
+                placeholder="例：1,000"
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               />

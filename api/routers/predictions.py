@@ -3,17 +3,20 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import timedelta
 from typing import Optional
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import get_user_id, verify_api_key
-from api.helpers import _load_json_file, _save_json_file
-from api.models import PredictionRequest
+from api.helpers import _get_stock_name_map, _user_json_path
+from api.models import ManualPredictionRequest, PredictionRequest
 from api.state import loader
 from core.indicators import calculate_sma
+from core.json_store import file_lock
+from core.timeutils import now_taipei
+from core.user_predictions import load_predictions, normalize_prediction, save_predictions
 
 logger = logging.getLogger(__name__)
 
@@ -23,38 +26,31 @@ router = APIRouter(tags=["預測"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get("/predictions")
-async def predictions_list(
+def predictions_list(
     stock_id: Optional[str] = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=500, ge=1, le=500),
     user_id: str = Depends(get_user_id),
 ):
     """取得已儲存的預測記錄。"""
     try:
-        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []}, user_id=user_id)
-        # 容錯：舊資料檔可能存成 list 格式（非 {"predictions": [...]}）
-        if isinstance(data, list):
-            data = {"predictions": data}
-        preds = data.get("predictions", [])
+        preds = load_predictions(_user_json_path(PREDICTIONS_FILE, user_id=user_id))
         if stock_id:
-            preds = [p for p in preds if p.get("stock_id") == stock_id]
-        preds = sorted(preds, key=lambda x: x.get("created_at", ""), reverse=True)
+            preds = [p for p in preds if p["code"] == stock_id]
+        preds = sorted(preds, key=lambda x: x["createdAt"], reverse=True)
         return {"total": len(preds), "predictions": preds[:limit]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/predictions/stats")
-async def predictions_stats(user_id: str = Depends(get_user_id)):
+def predictions_stats(user_id: str = Depends(get_user_id)):
     """預測準確率統計：總數、正確 / 錯誤 / 進行中筆數與命中率。
 
-    以儲存的預測記錄為準。未經驗證（無 status 或 status=pending）者計為進行中；
+    舊狀態先正規化；僅 pending 計為進行中，expired/cancelled 分開計數。
     accuracy = 正確 /（正確 + 錯誤），尚無已驗證結果時為 0。
     """
     try:
-        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []}, user_id=user_id)
-        if isinstance(data, list):
-            data = {"predictions": data}
-        preds = data.get("predictions", [])
+        preds = load_predictions(_user_json_path(PREDICTIONS_FILE, user_id=user_id))
 
         correct = wrong = pending = 0
         for p in preds:
@@ -63,8 +59,7 @@ async def predictions_stats(user_id: str = Depends(get_user_id)):
                 correct += 1
             elif status == "wrong":
                 wrong += 1
-            else:
-                # pending / expired / 無 status 一律歸為「進行中」，不計入命中率分母
+            elif status == "pending":
                 pending += 1
 
         resolved = correct + wrong
@@ -74,6 +69,8 @@ async def predictions_stats(user_id: str = Depends(get_user_id)):
             "correct": correct,
             "wrong": wrong,
             "pending": pending,
+            "expired": sum(p["status"] == "expired" for p in preds),
+            "cancelled": sum(p["status"] == "cancelled" for p in preds),
             "accuracy": accuracy,
         }
     except Exception as e:
@@ -81,15 +78,40 @@ async def predictions_stats(user_id: str = Depends(get_user_id)):
 
 
 @router.post("/predictions")
-async def prediction_create(
-    req: PredictionRequest, user_id: str = Depends(get_user_id)
+def prediction_create(
+    req: ManualPredictionRequest | PredictionRequest, user_id: str = Depends(get_user_id)
 ):
-    """建立個股價格預測（簡單技術面推估）。
+    """建立手動目標價預測，並相容舊版技術面推估請求。
 
     支援 trend（趨勢延伸）與 mean_reversion（均值回歸）兩種方法。
     注意：此為基礎統計推估，不構成投資建議。
     """
     try:
+        if isinstance(req, ManualPredictionRequest):
+            now = now_taipei()
+            if not now.date() < req.targetDate <= now.date() + timedelta(days=365):
+                raise HTTPException(status_code=422, detail="目標日期須為未來一年內的日期")
+            close = loader.get("close")
+            if close is None or req.code not in close.columns:
+                raise HTTPException(status_code=404, detail="找不到股票")
+            series = close[req.code].dropna()
+            if series.empty:
+                raise HTTPException(status_code=503, detail="暫無可用收盤價，請稍後重試")
+            current = float(series.iloc[-1])
+            if not np.isfinite(current) or current <= 0:
+                raise HTTPException(status_code=503, detail="收盤價暫時不可用，請稍後重試")
+            if (req.direction == "up" and req.targetPrice <= current) or (
+                req.direction == "down" and req.targetPrice >= current
+            ):
+                raise HTTPException(status_code=422, detail="目標價須與看漲／看跌方向一致")
+            prediction = {
+                "id": str(uuid.uuid4()), **req.model_dump(mode="json"),
+                "name": _get_stock_name_map().get(req.code, ""),
+                "currentPrice": current, "priceDate": str(series.index[-1].date()),
+                "createdAt": now.isoformat(), "status": "pending", "source": "manual",
+            }
+            return _append_prediction(prediction, user_id)
+
         close = loader.get("close")
         if req.stock_id not in close.columns:
             raise HTTPException(status_code=404, detail=f"找不到股票: {req.stock_id}")
@@ -136,19 +158,35 @@ async def prediction_create(
             "predicted_change_pct": round(predicted_change_pct, 2),
             "confidence": confidence,
             "method_detail": method_detail,
-            "created_at": datetime.now().isoformat(),
+            "created_at": now_taipei().isoformat(),
             "disclaimer": "此為基礎統計推估，不構成任何投資建議。",
         }
 
-        data = _load_json_file(PREDICTIONS_FILE, default={"predictions": []}, user_id=user_id)
-        if isinstance(data, list):
-            data = {"predictions": data}
-        data["predictions"].append(prediction)
-        data["predictions"] = data["predictions"][-500:]  # 只保留最近 500 筆
-        _save_json_file(PREDICTIONS_FILE, data, user_id=user_id)
-
-        return prediction
+        return _append_prediction(prediction, user_id)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _append_prediction(prediction: dict, user_id: str) -> dict:
+    path = _user_json_path(PREDICTIONS_FILE, user_id=user_id)
+    prediction = normalize_prediction(prediction)
+    with file_lock(path):
+        records = load_predictions(path)
+        records.append(prediction)
+        # Never evict an unresolved prediction just because new ones are added.
+        save_predictions(path, records)
+    return prediction
+
+
+@router.delete("/predictions/{prediction_id}")
+def prediction_delete(prediction_id: str, user_id: str = Depends(get_user_id)):
+    path = _user_json_path(PREDICTIONS_FILE, user_id=user_id)
+    with file_lock(path):
+        records = load_predictions(path)
+        kept = [p for p in records if p["id"] != prediction_id]
+        if len(kept) == len(records):
+            raise HTTPException(status_code=404, detail="找不到預測記錄")
+        save_predictions(path, kept)
+    return {"message": "預測已刪除"}

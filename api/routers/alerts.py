@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_user_id, verify_api_key
 from api.helpers import (
@@ -34,6 +35,39 @@ router = APIRouter(tags=["警報"], dependencies=[Depends(verify_api_key)])
 
 ALERT_RULES_FILE = "alert_rules.json"
 ALERT_HITS_FILE = "alert_hits.json"
+ALERT_DELIVERY_FILE = "alert_delivery.json"
+
+
+def _delivery_due(rule: dict, state: dict, now: datetime) -> bool:
+    if state.get("retryAt") and now.timestamp() < state["retryAt"]:
+        return False
+    delivered = state.get("deliveredAt")
+    if delivered is None:
+        return True
+    if rule.get("frequency") == "once":
+        return False
+    return now.timestamp() - delivered >= int(rule.get("cooldownMinutes", 60)) * 60
+
+
+def _load_delivery(user_id: str, hits: list[dict]) -> dict:
+    stored = _load_json_file(ALERT_DELIVERY_FILE, default=None, user_id=user_id)
+    if "channels" in stored:
+        return stored
+    stored = {"channels": {}}
+    # One-time migration: only confirmed successful deliveries consume a
+    # notification. Preview hits and unknown/failed deliveries must not.
+    for hit in hits:
+        for channel, success in hit.get("notificationResults", {}).items():
+            if not success:
+                continue
+            key = f"{hit['ruleId']}:{hit['stockId']}:{channel}"
+            try:
+                stamp = datetime.fromisoformat(hit["triggeredAt"]).timestamp()
+            except (ValueError, KeyError):
+                continue
+            previous = stored["channels"].get(key, {}).get("deliveredAt", 0)
+            stored["channels"][key] = {"deliveredAt": max(stamp, previous)}
+    return stored
 
 ALERT_TYPES = [
     {"type": "price_above", "label": "價格高於", "unit": "元", "default_value": 600},
@@ -194,80 +228,154 @@ async def alert_hits_list(
 async def alert_rules_evaluate(
     req: AlertEvaluateRequest, user_id: str = Depends(get_user_id)
 ):
+    """Evaluate one user's rules without blocking the event loop."""
+    return await run_in_threadpool(_evaluate_alert_rules, req, user_id)
+
+
+def _evaluate_alert_rules(req: AlertEvaluateRequest, user_id: str) -> dict:
+    """Serialize evaluations and merge timestamps into the latest user state.
+
+    Rule CRUD remains available while evaluation is running.  The final write
+    only merges evaluator-owned timestamp fields, so a newer user edit or
+    deletion can never be overwritten by the evaluation snapshot.
+    """
     from core.alert_rules import evaluate_rule_for_stock
-
-    rules_data = _load_rules(user_id)
-    hits_data = _load_hits(user_id)
-    rule_ids = set(req.ruleIds or [])
-    rules = [
-        rule for rule in rules_data.get("rules", [])
-        if rule.get("enabled", True) and (not rule_ids or rule.get("id") in rule_ids)
-    ]
-    now = now_taipei()
-    market_data = {
-        "close": loader.get("close"),
-        "volume": loader.get("volume"),
-        "high": loader.get("high"),
-        "low": loader.get("low"),
-    }
-    new_hits = []
-    suppressed_count = 0
-
-    for rule in rules:
-        rule["lastEvaluatedAt"] = now.isoformat()
-        for stock_id in _target_stock_ids(rule, user_id):
-            try:
-                triggered, metrics, condition_results = evaluate_rule_for_stock(
-                    rule, stock_id, market_data
-                )
-            except (KeyError, IndexError, ValueError):
-                continue
-            if not triggered:
-                continue
-            if _is_hit_suppressed(
-                rule, stock_id, hits_data.get("hits", []), now
-            ):
-                suppressed_count += 1
-                continue
-
-            hit = {
-                "id": str(uuid.uuid4()),
-                "ruleId": rule["id"],
-                "ruleName": rule["name"],
-                "stockId": stock_id,
-                "triggeredAt": now.isoformat(),
-                "metrics": metrics,
-                "conditions": condition_results,
-                "channels": rule.get("channels", []),
-            }
-            if req.sendNotifications and hit["channels"]:
-                from core.notification import NotificationManager
-
-                hit["notificationResults"] = NotificationManager(user_id).send(
-                    title=f"警報：{rule['name']}",
-                    message=f"{stock_id} 已符合 Alerts 2.0 規則。",
-                    channels=hit["channels"],
-                )
-            new_hits.append(hit)
-            hits_data.setdefault("hits", []).append(hit)
-            rule["lastTriggeredAt"] = now.isoformat()
 
     rules_path = _user_json_path(ALERT_RULES_FILE, user_id=user_id)
     hits_path = _user_json_path(ALERT_HITS_FILE, user_id=user_id)
-    with file_lock(rules_path):
-        _save_json_file(ALERT_RULES_FILE, rules_data, user_id=user_id)
-    if new_hits:
-        hits_data["hits"] = hits_data["hits"][-1000:]
-        with file_lock(hits_path):
-            _save_json_file(ALERT_HITS_FILE, hits_data, user_id=user_id)
+    evaluation_lock = file_lock(
+        _user_json_path("alert_evaluation.lock", user_id=user_id)
+    )
 
-    return {
-        "evaluatedRules": len(rules),
-        "triggeredCount": len(new_hits),
-        "suppressedCount": suppressed_count,
-        "hits": new_hits,
-        "evaluatedAt": now.isoformat(),
-    }
+    with evaluation_lock:
+        rules_data = _load_rules(user_id)
+        hits_data = _load_hits(user_id)
+        delivery = _load_delivery(user_id, hits_data.get("hits", []))
+        live_rule_ids = {rule["id"] for rule in rules_data.get("rules", [])}
+        delivery["channels"] = {key: value for key, value in delivery["channels"].items()
+                                if key.split(":", 1)[0] in live_rule_ids}
+        # Persist migrations even if all deliveries are suppressed this run;
+        # later history compaction must never erase migrated once-state.
+        _save_json_file(ALERT_DELIVERY_FILE, delivery, user_id=user_id)
+        rule_ids = set(req.ruleIds or [])
+        rules = [
+            rule for rule in rules_data.get("rules", [])
+            if rule.get("enabled", True)
+            and (not rule_ids or rule.get("id") in rule_ids)
+        ]
+        now = now_taipei()
+        market_data = {
+            "close": loader.get("close"),
+            "volume": loader.get("volume"),
+            "high": loader.get("high"),
+            "low": loader.get("low"),
+        }
+        new_hits = []
+        suppressed_count = 0
+
+        for rule in rules:
+            rule["lastEvaluatedAt"] = now.isoformat()
+            for stock_id in _target_stock_ids(rule, user_id):
+                try:
+                    triggered, metrics, condition_results = evaluate_rule_for_stock(
+                        rule, stock_id, market_data
+                    )
+                except (KeyError, IndexError, ValueError):
+                    continue
+                if not triggered:
+                    continue
+                channels = rule.get("channels") or ["in_app"]
+                due_channels = [channel for channel in channels if _delivery_due(
+                    rule, delivery["channels"].get(f"{rule['id']}:{stock_id}:{channel}", {}), now
+                )]
+                if (req.sendNotifications and not due_channels) or (not req.sendNotifications and _is_hit_suppressed(
+                    rule, stock_id, hits_data.get("hits", []), now
+                )):
+                    suppressed_count += 1
+                    continue
+
+                hit = {
+                    "id": str(uuid.uuid4()),
+                    "ruleId": rule["id"],
+                    "ruleName": rule["name"],
+                    "stockId": stock_id,
+                    "triggeredAt": now.isoformat(),
+                    "metrics": metrics,
+                    "conditions": condition_results,
+                    "channels": rule.get("channels", []),
+                }
+                hit["notificationStatus"] = "preview"
+                if req.sendNotifications:
+                    from core.notification import NotificationManager
+
+                    results = {}
+                    retry_times = []
+                    manager = NotificationManager(user_id)
+                    for channel in due_channels:
+                        key = f"{rule['id']}:{stock_id}:{channel}"
+                        state = delivery["channels"].setdefault(key, {})
+                        attempts = min(int(state.get("attempts", 0)) + 1, 10)
+                        # Persist a retry lease before external I/O; crashes and
+                        # repeated requests cannot create a tight retry storm.
+                        state.update(attempts=attempts, retryAt=now.timestamp() + min(60 * 2 ** (attempts - 1), 900))
+                        _save_json_file(ALERT_DELIVERY_FILE, delivery, user_id=user_id)
+                        try:
+                            success = channel == "in_app" or manager.send(
+                                title=f"警報：{rule['name']}",
+                                message=f"{stock_id} 已符合 Alerts 2.0 規則。",
+                                channels=[channel],
+                            ).get(channel, False)
+                        except Exception:
+                            logger.warning("警報通知暫時失敗，將依退避時間重試")
+                            success = False
+                        results[channel] = bool(success)
+                        if success:
+                            state.clear()
+                            state["deliveredAt"] = now.timestamp()
+                        else:
+                            retry_times.append(state["retryAt"])
+                        _save_json_file(ALERT_DELIVERY_FILE, delivery, user_id=user_id)
+                    hit["notificationResults"] = results
+                    hit["notificationStatus"] = "retrying" if retry_times else "delivered"
+                    if retry_times:
+                        hit["nextRetryAt"] = datetime.fromtimestamp(min(retry_times), tz=now.tzinfo).isoformat()
+                new_hits.append(hit)
+                hits_data.setdefault("hits", []).append(hit)
+                rule["lastTriggeredAt"] = now.isoformat()
+
+        evaluated_by_id = {rule["id"]: rule for rule in rules}
+        with file_lock(rules_path):
+            latest_rules_data = _load_rules(user_id)
+            for latest_rule in latest_rules_data.get("rules", []):
+                evaluated = evaluated_by_id.get(latest_rule.get("id"))
+                if evaluated is None:
+                    continue
+                latest_rule["lastEvaluatedAt"] = evaluated["lastEvaluatedAt"]
+                if evaluated.get("lastTriggeredAt"):
+                    latest_rule["lastTriggeredAt"] = evaluated["lastTriggeredAt"]
+            _save_json_file(ALERT_RULES_FILE, latest_rules_data, user_id=user_id)
+
+        if new_hits:
+            with file_lock(hits_path):
+                latest_hits_data = _load_hits(user_id)
+                existing_ids = {
+                    hit.get("id") for hit in latest_hits_data.get("hits", [])
+                }
+                latest_hits_data.setdefault("hits", []).extend(
+                    hit for hit in new_hits if hit["id"] not in existing_ids
+                )
+                latest_hits_data["hits"] = latest_hits_data["hits"][-1000:]
+                _save_json_file(
+                    ALERT_HITS_FILE, latest_hits_data, user_id=user_id
+                )
+
+        return {
+            "evaluatedRules": len(rules),
+            "triggeredCount": len(new_hits),
+            "suppressedCount": suppressed_count,
+            "hits": new_hits,
+            "evaluatedAt": now.isoformat(),
+        }
 
 
 @router.post("/alerts")

@@ -6,7 +6,8 @@ import { defineConfig, devices } from '@playwright/test'
  * 預設啟動本機 Next.js；需要驗證外部部署時可用 PLAYWRIGHT_BASE_URL 覆寫。
  */
 const EXTERNAL_BASE_URL = process.env.PLAYWRIGHT_BASE_URL
-const BASE_URL = EXTERNAL_BASE_URL ?? 'http://localhost:3000'
+const LOCAL_PORT = process.env.PLAYWRIGHT_PORT ?? '3000'
+const BASE_URL = EXTERNAL_BASE_URL ?? `http://localhost:${LOCAL_PORT}`
 
 export default defineConfig({
   testDir: './e2e',
@@ -20,7 +21,7 @@ export default defineConfig({
   webServer: EXTERNAL_BASE_URL
     ? undefined
     : {
-        command: 'npm run dev',
+        command: `npm run dev -- --port ${LOCAL_PORT}`,
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

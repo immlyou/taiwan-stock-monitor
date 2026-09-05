@@ -3,87 +3,20 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  type LucideIcon,
   ChevronDown, ChevronRight, Star, Settings, Compass, TrendingUp,
-  LayoutGrid, LineChart, Crosshair, Briefcase,
-  LayoutDashboard, Activity, Sunrise, Grid3x3, ArrowLeftRight, Moon,
-  CandlestickChart, GitCompare, Building2, Users, FileText, ShieldAlert,
-  SlidersHorizontal, Sparkles, Radar, Siren, History, Layers, Settings2, Target, Gem,
-  PieChart, Bot, NotebookPen, Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import { useWatchlist } from '@/lib/hooks/useWatchlist'
 import { getChangeColorVar } from '@/lib/utils/format'
+import {
+  NAVIGATION_GROUPS,
+  isNavigationItemActive,
+  type NavigationItem,
+} from '@/lib/navigation/catalog'
 
-interface NavItem {
-  label: string
-  href: string
-  icon: LucideIcon
-}
-
-interface NavGroup {
-  label: string
-  icon: LucideIcon
-  items: NavItem[]
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: '市場動態',
-    icon: LayoutGrid,
-    items: [
-      { label: '持倉總覽', href: '/dashboard', icon: LayoutDashboard },
-      { label: '即時報價', href: '/realtime', icon: Activity },
-      { label: '每日晨報', href: '/morning-report', icon: Sunrise },
-      { label: '市場熱力圖', href: '/heatmap', icon: Grid3x3 },
-      { label: '資金流向', href: '/money-flow', icon: ArrowLeftRight },
-      { label: '盤後總覽', href: '/after-hours', icon: Moon },
-    ],
-  },
-  {
-    label: '研究分析',
-    icon: LineChart,
-    items: [
-      { label: '個股分析', href: '/stock/2330', icon: TrendingUp },
-      { label: '技術分析', href: '/technical', icon: CandlestickChart },
-      { label: '比較分析', href: '/compare', icon: GitCompare },
-      { label: '產業分析', href: '/industry', icon: Building2 },
-      { label: '籌碼分析', href: '/chip', icon: Users },
-      { label: '財報分析', href: '/financials', icon: FileText },
-      { label: '風險分析', href: '/risk', icon: ShieldAlert },
-    ],
-  },
-  {
-    label: '選股策略',
-    icon: Crosshair,
-    items: [
-      { label: '選股篩選', href: '/screener', icon: SlidersHorizontal },
-      { label: 'AI 智慧選股', href: '/ai-pick', icon: Sparkles },
-      { label: 'AI 操盤雷達', href: '/trading-radar', icon: Radar },
-      { label: 'AI 異常警報', href: '/ai-anomaly', icon: Siren },
-      { label: '回測分析', href: '/backtest', icon: History },
-      { label: '策略管理', href: '/strategies', icon: Layers },
-      { label: '參數優化', href: '/optimizer', icon: Settings2 },
-      { label: '預測驗證', href: '/predictions', icon: Target },
-      { label: '遺珠掃描', href: '/hidden-gems', icon: Gem },
-    ],
-  },
-  {
-    label: '投資管理',
-    icon: Briefcase,
-    items: [
-      { label: '投資組合', href: '/portfolio', icon: PieChart },
-      { label: 'AI 投資顧問', href: '/advisor', icon: Bot },
-      { label: '自選股', href: '/watchlist', icon: Star },
-      { label: '交易日誌', href: '/journal', icon: NotebookPen },
-      { label: '警報設定', href: '/alerts', icon: Bell },
-    ],
-  },
-]
-
-const SYSTEM_ITEMS: NavItem[] = [
-  { label: '系統設定', href: '/settings', icon: Settings },
+const SYSTEM_ITEMS: NavigationItem[] = [
+  { label: '系統設定', href: '/settings', icon: Settings, description: '通知、主題與系統資訊' },
 ]
 
 /** 側欄持久自選股快捷：點代號直接前往個股分析（master-detail lite）。 */
@@ -157,8 +90,8 @@ export function Sidebar() {
   const mobileVisible = isMobile ? sidebarOpen : true
 
   // 導航連結（含 lucide 圖示），選中態用主題 accent-soft 底。
-  const navLink = (item: NavItem) => {
-    const isActive = pathname === item.href
+  const navLink = (item: NavigationItem) => {
+    const isActive = isNavigationItemActive(item, pathname)
     const Icon = item.icon
     return (
       <Link
@@ -252,7 +185,7 @@ export function Sidebar() {
             {(!sidebarCollapsed || isMobile) && <span>功能總覽</span>}
           </Link>
 
-          {NAV_GROUPS.map((group) => {
+          {NAVIGATION_GROUPS.map((group) => {
             const isExpanded = expandedGroups.includes(group.label)
             const GroupIcon = group.icon
             return (

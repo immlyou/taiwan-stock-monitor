@@ -8,8 +8,10 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from functools import wraps
 from typing import Dict
 
@@ -127,7 +129,26 @@ def resolve_default_id(items: Dict, requested: str):
 
 
 # ─── API 回應快取裝飾器 ────────────────────────────────
-def cached_response(ttl_seconds: int = 300):
+_singleflight_locks: dict[str, threading.Lock] = {}
+_singleflight_locks_guard = threading.Lock()
+
+
+def _singleflight_lock(cache_key: str) -> threading.Lock:
+    """Return the process-local lock for one cache key."""
+    with _singleflight_locks_guard:
+        return _singleflight_locks.setdefault(cache_key, threading.Lock())
+
+
+async def _acquire_without_blocking_loop(lock: threading.Lock) -> bool:
+    """Acquire a cross-event-loop lock and report whether another caller led."""
+    waited = False
+    while not lock.acquire(blocking=False):
+        waited = True
+        await asyncio.sleep(0.01)
+    return waited
+
+
+def cached_response(ttl_seconds: int = 300, *, singleflight: bool = False):
     """快取 API 回應的裝飾器，預設 5 分鐘 TTL。
 
     Backend 在程序啟動時決定（Redis / in-memory，由 REDIS_URL 控制），
@@ -135,20 +156,43 @@ def cached_response(ttl_seconds: int = 300):
     函式收到的所有 kwargs（含路徑參數，FastAPI 以 kwargs 傳入）納入，因此路徑參數
     端點也可安全使用（如 ``/stock/{stock_id}/score-history``）；僅需避免用在回應
     依賴 header/cookie 等未進入函式 kwargs 之輸入的端點。
+
+    ``singleflight=True`` 會讓同一進程、同一 cache key 的並行 cold miss 共用一次
+    計算。背景預熱可在直接呼叫 decorated function 時傳入保留參數
+    ``_refresh_cache=True`` 強制更新；它不會成為 FastAPI 的公開參數。
     """
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            force_refresh = bool(kwargs.pop("_refresh_cache", False))
             cache = get_cache()
             cache_key = make_key(func.__name__, kwargs)
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return cached
-            result = await func(*args, **kwargs)
-            # 不要快取錯誤回應：許多端點把例外包成 {"error": ...} + HTTP 200，
-            # 若快取下去，一次暫時性失敗會被釘住整個 TTL（曾導致舊 model 404 殘留）。
-            if not (isinstance(result, dict) and result.get("error")):
-                cache.set(cache_key, result, ttl_seconds)
-            return result
+            if not force_refresh:
+                cached = cache.get(cache_key)
+                if cached is not None:
+                    return cached
+
+            lock = _singleflight_lock(cache_key) if singleflight else None
+            waited_for_leader = False
+            if lock is not None:
+                waited_for_leader = await _acquire_without_blocking_loop(lock)
+
+            try:
+                # A follower always re-checks after the leader finishes. A normal
+                # leader also closes the race between the first GET and lock acquire.
+                if waited_for_leader or not force_refresh:
+                    cached = cache.get(cache_key)
+                    if cached is not None:
+                        return cached
+
+                result = await func(*args, **kwargs)
+                # 不要快取錯誤回應：許多端點把例外包成 {"error": ...} + HTTP 200，
+                # 若快取下去，一次暫時性失敗會被釘住整個 TTL（曾導致舊 model 404 殘留）。
+                if not (isinstance(result, dict) and result.get("error")):
+                    cache.set(cache_key, result, ttl_seconds)
+                return result
+            finally:
+                if lock is not None:
+                    lock.release()
         return wrapper
     return decorator

@@ -128,6 +128,14 @@ async def _lifespan(app: FastAPI):
             loaded, skipped, failed,
         )
 
+        # 資料集就緒後優先預熱 XGBoost canonical top-50，避免再被其他重型預熱工作延後。
+        try:
+            from api.routers.strategy import warm_xgboost
+            warm_xgboost()
+            _log.info("XGBoost 選股預熱完成")
+        except Exception as e:
+            _log.warning("XGBoost 選股預熱失敗: %s", e)
+
         # 預熱全市場評分表（memoized）：讓 smart-preview / advisor / radar 第一次
         # 請求就命中快取，避免冷啟動重算 ~2300 檔評分（原本 ~23s）而超過前端 timeout。
         try:

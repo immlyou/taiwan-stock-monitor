@@ -1,6 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import { fetchAPI } from '@/lib/api/client'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StaleBanner } from '@/components/shared/StaleBanner'
@@ -39,6 +40,7 @@ interface WatchlistDetail {
 }
 
 function useRealtimeQuotes() {
+  const refreshInterval = useRefreshInterval()
   // 直接取 default 明細；列表端點只有數量，不含股票代號。
   const { data: wlData } = useSWR<WatchlistDetail>(
     '/watchlists/default',
@@ -63,7 +65,7 @@ function useRealtimeQuotes() {
         body: JSON.stringify({ stock_ids: ids.split(',') }),
       }),
     {
-      refreshInterval: () => getBatchQuoteRefreshInterval(stockIds.length),
+      refreshInterval: () => refreshInterval(getBatchQuoteRefreshInterval(stockIds.length)),
       revalidateOnFocus: true,
       dedupingInterval: 10_000,
     }

@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from 'swr'
 import { fetchAPI } from '@/lib/api/client'
 import { Switch } from '@/components/ui/switch'
 import { ThemeSelector } from '@/components/settings/ThemeSelector'
+import { CURRENT_VERSION, FRONTEND_VERSION, RECENT_CHANGELOG } from '@/lib/changelog'
 import {
   parseSettingsResponse,
   type SettingsForm,
@@ -13,6 +14,7 @@ import {
 
 interface SystemInfo {
   version: string
+  releaseVersion: string
   apiVersion: string
   uptime: string
   dataLastUpdated: string
@@ -289,10 +291,13 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>
-                資料更新間隔（秒）
+                行情報價最短更新間隔（秒）
               </label>
               <input
                 type="number"
+                min={5}
+                max={86400}
+                aria-label="行情報價最短更新間隔"
                 value={sys?.dataUpdateInterval ?? 30}
                 onChange={(e) => updateSystem('dataUpdateInterval', Number(e.target.value))}
                 className="h-9 w-full rounded-md border px-3 text-sm"
@@ -303,12 +308,12 @@ export default function SettingsPage() {
               <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>時區</label>
               <select
                 value={sys?.timezone ?? 'Asia/Taipei'}
+                disabled
                 onChange={(e) => updateSystem('timezone', e.target.value)}
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               >
                 <option value="Asia/Taipei">Asia/Taipei (UTC+8)</option>
-                <option value="UTC">UTC</option>
               </select>
             </div>
             <div>
@@ -316,6 +321,7 @@ export default function SettingsPage() {
               <input
                 type="time"
                 value={sys?.marketOpenTime ?? '09:00'}
+                disabled
                 onChange={(e) => updateSystem('marketOpenTime', e.target.value)}
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -326,6 +332,7 @@ export default function SettingsPage() {
               <input
                 type="time"
                 value={sys?.marketCloseTime ?? '13:30'}
+                disabled
                 onChange={(e) => updateSystem('marketCloseTime', e.target.value)}
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -334,12 +341,16 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3">
               <Switch
                 checked={!!sys?.autoBacktest}
+                disabled
                 onCheckedChange={(v) => updateSystem('autoBacktest', v)}
                 aria-label="自動定期回測"
               />
-              <span className="text-sm" style={{ color: 'var(--foreground)' }}>自動定期回測</span>
+              <span className="text-sm" style={{ color: 'var(--foreground)' }}>自動定期回測（尚未提供）</span>
             </div>
           </div>
+          <p className="mt-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            更新間隔套用於即時報價、投組、自選股、個股與持倉總覽；休市及報價來源限流可能延長間隔。台股時區與開收盤時間固定，自動回測尚未啟用。
+          </p>
         </div>
 
         {/* 系統資訊 */}
@@ -351,7 +362,7 @@ export default function SettingsPage() {
             <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--foreground)' }}>系統資訊</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {[
-                { label: '前端版本', value: sysInfo.version },
+                { label: '前端版本', value: FRONTEND_VERSION },
                 { label: 'API 版本', value: sysInfo.apiVersion },
                 { label: '系統運行時間', value: sysInfo.uptime },
                 { label: '資料最後更新', value: sysInfo.dataLastUpdated },
@@ -380,7 +391,7 @@ export default function SettingsPage() {
               className="px-3 py-1 rounded-full text-xs font-bold"
               style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
-              v3.6.0
+              {CURRENT_VERSION}
             </span>
           </div>
 
@@ -441,7 +452,7 @@ export default function SettingsPage() {
 /*  Changelog Data                                                     */
 /* ------------------------------------------------------------------ */
 
-const CHANGELOG = [
+const LEGACY_CHANGELOG = [
   {
     version: 'v4.0.0',
     date: '2026-06-25',
@@ -449,6 +460,7 @@ const CHANGELOG = [
     changes: [
       '功能新增：三套可切換佈景主題（終端金 / 編輯帳冊 / 石墨黃銅），深淺雙模式，於系統設定即時套用並記憶選擇',
       '功能新增：機構級終端視覺系統，襯線標題、等寬數字、lucide 線性圖示，全站以 CSS 變數驅動',
+      '功能新增：系統資訊面板顯示前端 / API 版本、運行時間、資料日期、股票數量與快取大小',
       '版本修正：保留台股漲紅跌綠與 A–F 評級固定色；首屏前套用主題避免閃白（no-flash）',
       '效能優化：重運算端點（回測 / 雷達 / AI 選股）暫時性 503 與逾時自動重試，雷達各區塊獨立失敗不再整頁中斷',
     ],
@@ -495,8 +507,11 @@ const CHANGELOG = [
     tag: 'Feature' as const,
     changes: [
       '功能新增：AI 投資顧問頁（量化 + Claude 敘述）與投資組合診斷端點',
+      '功能新增：Claude Vision 持股截圖辨識、多張合併與可編輯匯入，接入 Advisor / Portfolio / Watchlist / 個股頁',
       '功能新增：共用 TanStack DataTable、密集表格全面遷移、全站設計系統收斂與無障礙優化',
       '功能新增：側欄持久自選股快捷、全域行情列與 KPI 迷你走勢',
+      '功能新增：Header 手動更新最新市場資料，後端安全清除價格快取並重新下載',
+      '資料持久化：Railway Volume 保存投組、自選、交易日誌與其他使用者資料，redeploy 後不再遺失',
       '版本修正：修復 XGBoost 選股於 pandas 2.2+ 崩潰、評分卡 500 與預測舊格式 500',
     ],
   },
@@ -565,6 +580,10 @@ const CHANGELOG = [
     tag: 'Feature' as const,
     changes: [
       '功能新增：公開工具目錄鏡像至前端 public/tool_catalog.json，方便外部 AI / app 直接讀取工具定義',
+      '架構重構：FastAPI 拆分為 20+ api/routers 模組，api_server.py 收斂為純 app 入口',
+      '基礎設施：CI 加入 pytest coverage gate；API response cache 支援 Redis backend',
+      '可靠性新增：FinLab 額度壓力主動警報，避免接近配額時無預警中斷',
+      'AI 整合：新增 MCP server、35 個工具與第三方 Function Calling / Python wrapper 整合指南',
       '功能新增：新增 API router registration smoke test，保護 24 個核心 router 不會在重構時漏掛',
       '版本修正：README 與前端 README 更新為 FastAPI + Next.js + Streamlit 並存架構',
       '版本修正：Vercel 部署忽略規則補齊，排除後端、測試、快取與本機工具狀態',
@@ -579,12 +598,17 @@ const CHANGELOG = [
     tag: 'Feature' as const,
     changes: [
       'Claude AI 智慧分析上線（Anthropic API 整合）',
+      '功能新增：Hidden Gems 遺珠掃描，全市場尋找被低估或動能尚未反映的股票',
+      '功能新增：新聞情緒、AI 異常偵測、交易日誌覆盤、個股對話與盤後 AI 摘要',
+      '資料備援：FinLab quota 超限時顯示友善提示並啟用多來源 fallback；Goodinfo 補足興櫃 OHLCV 與技術指標',
+      '行動體驗：全站 mobile RWD、overlay sidebar、響應式 grid 與觸控操作',
       'LSTM 趨勢預測修正：支援中文方向值（上漲/下跌/盤整）',
       '全站股票搜尋元件升級：50 筆結果 + 可滾動下拉 + 鍵盤導航',
       '個股分析頁面新增搜尋框，可直接切換股票',
       'Header 搜尋 bar 支援滾動選取',
       '選股篩選結果新增中文名稱欄位',
       '參數優化功能（Grid Search 均線交叉回測）',
+      '風險修正：Portfolio VaR 改用正確矩陣計算並支援空白、逗號與頓號輸入',
       '財報分析 + 籌碼分析頁面重寫對齊 API',
       '版本記錄時間軸 UI',
     ],
@@ -708,3 +732,5 @@ const CHANGELOG = [
     ],
   },
 ]
+
+const CHANGELOG = [...RECENT_CHANGELOG, ...LEGACY_CHANGELOG]

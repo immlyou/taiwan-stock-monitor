@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import { fetchAPI } from '@/lib/api/client'
 import { getChangeColorVar, formatPercent } from '@/lib/utils/format'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
@@ -37,9 +38,10 @@ const WATCHLIST_ID = 'default'
 const SWR_KEY = `/watchlists/${WATCHLIST_ID}`
 
 export default function WatchlistPage() {
+  const refreshInterval = useRefreshInterval()
   const { mutate } = useSWRConfig()
   const { data, isLoading, error } = useSWR<WatchlistDetail>(SWR_KEY, fetchAPI, {
-    refreshInterval: (latest) => getBatchQuoteRefreshInterval(latest?.stocks.length ?? 1),
+    refreshInterval: (latest) => refreshInterval(getBatchQuoteRefreshInterval(latest?.stocks.length ?? 1)),
     dedupingInterval: 10_000,
     revalidateOnFocus: true,
   })

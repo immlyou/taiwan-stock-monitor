@@ -35,11 +35,12 @@ async function proxy(
 
   const { path } = await params
   const url = `${BACKEND_URL}/${path.join('/')}${request.nextUrl.search}`
+  const isStrategyAi = path[0] === 'strategy' && path[1]?.startsWith('ai-')
   const upstreamTimeoutMs = path[0] === 'refresh'
     ? REFRESH_UPSTREAM_TIMEOUT_MS
     : path[0] === 'advisor'
       ? ADVISOR_UPSTREAM_TIMEOUT_MS
-      : path[0] === 'ai' || path[0] === 'scanner'
+      : path[0] === 'ai' || path[0] === 'scanner' || isStrategyAi
         ? AI_UPSTREAM_TIMEOUT_MS
         : DEFAULT_UPSTREAM_TIMEOUT_MS
 

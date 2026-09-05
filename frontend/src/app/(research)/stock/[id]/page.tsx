@@ -3,6 +3,7 @@
 import { use, useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR, { useSWRConfig } from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { StockInput } from '@/components/shared/StockInput'
@@ -165,6 +166,7 @@ function formatScore(score: number | null | undefined): string {
 }
 
 export default function StockDetailPage({ params }: StockDetailPageProps) {
+  const refreshInterval = useRefreshInterval()
   const { id } = use(params)
   const { mutate } = useSWRConfig()
   const router = useRouter()
@@ -184,7 +186,7 @@ export default function StockDetailPage({ params }: StockDetailPageProps) {
     `/quote/realtime/${id}`,
     fetchAPI,
     {
-      refreshInterval: () => getQuoteRefreshInterval(),
+      refreshInterval: () => refreshInterval(getQuoteRefreshInterval()),
       dedupingInterval: 10_000,
       revalidateOnFocus: true,
     }

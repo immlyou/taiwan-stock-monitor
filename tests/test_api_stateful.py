@@ -12,6 +12,10 @@ tmp dir 內，測試結束自動清理；不需要 mock 任何讀寫函式本身
 """
 from __future__ import annotations
 
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -107,6 +111,161 @@ def stateful_client(monkeypatch, tmp_path, sample_close, sample_volume, sample_s
 
 
 # ── 自選股 CRUD ──────────────────────────────────────────
+def test_manual_prediction_crud_is_account_scoped(stateful_client):
+    from datetime import timedelta
+    from core.timeutils import today_taipei
+
+    alice = {"X-User-ID": "google_prediction_alice"}
+    bob = {"X-User-ID": "google_prediction_bob"}
+    created = stateful_client.post('/predictions', headers=alice, json={
+        'code': '2330', 'direction': 'up', 'targetPrice': 999,
+        'targetDate': (today_taipei() + timedelta(days=5)).isoformat(),
+    })
+    assert created.status_code == 200, created.text
+    prediction = created.json()
+    listed = stateful_client.get('/predictions', headers=alice).json()
+    assert listed['predictions'][0]['id'] == prediction['id']
+    assert listed['predictions'][0]['code'] == '2330'
+    assert listed['predictions'][0]['status'] == 'pending'
+    assert stateful_client.get('/predictions', headers=bob).json()['total'] == 0
+    assert stateful_client.delete(f"/predictions/{prediction['id']}", headers=bob).status_code == 404
+    assert stateful_client.delete(f"/predictions/{prediction['id']}", headers=alice).status_code == 200
+    assert stateful_client.get('/predictions', headers=alice).json()['total'] == 0
+
+
+def test_prediction_schedule_uses_account_records_and_deadline_prices(stateful_client, monkeypatch, tmp_path):
+    from datetime import datetime
+    from core.timeutils import TAIPEI_TZ
+    from core.scheduler import _verify_predictions_job
+    from api.state import loader
+
+    monkeypatch.setattr('api.routers.predictions.now_taipei', lambda: datetime(2026, 9, 1, 15, tzinfo=TAIPEI_TZ))
+    initial = pd.DataFrame({'2330': [100.]}, index=pd.to_datetime(['2026-09-01']))
+    monkeypatch.setattr(loader, 'get', lambda key: initial if key == 'close' else None)
+    for user in ('google_prediction_alice', 'google_prediction_bob'):
+        response = stateful_client.post('/predictions', headers={'X-User-ID': user}, json={
+            'code': '2330', 'direction': 'up', 'targetPrice': 120, 'targetDate': '2026-09-03',
+        })
+        assert response.status_code == 200
+
+    # Only after the deadline does the price cross 120: this must NOT count as correct.
+    prices = pd.DataFrame({'2330': [100., 105., 110., 130.]}, index=pd.to_datetime([
+        '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04',
+    ]))
+    monkeypatch.setattr(loader, 'get', lambda key: prices)
+    monkeypatch.setattr('core.user_predictions.now_taipei', lambda: datetime(2026, 9, 4, 15, tzinfo=TAIPEI_TZ))
+    monkeypatch.setattr('core.prediction_tracker.PREDICTIONS_FILE', tmp_path / 'strategy_predictions.json')
+    monkeypatch.setattr('core.prediction_tracker.VERIFICATION_LOG_FILE', tmp_path / 'verification_log.json')
+    monkeypatch.setattr('core.prediction_tracker.DATA_DIR', tmp_path)
+    monkeypatch.setattr('core.prediction_tracker._tracker', None)
+    monkeypatch.setattr(loader, 'get', lambda key: initial)
+    _verify_predictions_job()
+    assert stateful_client.get('/predictions', headers={
+        'X-User-ID': 'google_prediction_alice',
+    }).json()['predictions'][0]['status'] == 'pending'
+    monkeypatch.setattr(loader, 'get', lambda key: prices)
+    _verify_predictions_job()
+    for user in ('google_prediction_alice', 'google_prediction_bob'):
+        headers = {'X-User-ID': user}
+        record = stateful_client.get('/predictions', headers=headers).json()['predictions'][0]
+        assert record['status'] == 'wrong'
+        assert record['actualPrice'] == 110
+        assert stateful_client.get('/predictions/stats', headers=headers).json()['pending'] == 0
+
+
+def test_alert_preview_and_failed_delivery_do_not_consume_once(stateful_client, monkeypatch, tmp_path):
+    from datetime import datetime, timedelta
+    from core.timeutils import TAIPEI_TZ
+    from core.exceptions import NotificationSendError
+
+    headers = {'X-User-ID': 'google_delivery'}
+    monkeypatch.setattr('core.notification.NOTIFICATION_DATA_DIR', tmp_path)
+    stateful_client.put('/settings', headers=headers, json={
+        'telegram': {'enabled': True, 'botToken': 'test-token', 'chatId': 'test-chat'},
+    })
+    sent = []
+
+    def deliver(_self, title, message):
+        sent.append(title)
+        if len(sent) == 1:
+            raise NotificationSendError('telegram', 'temporary outage')
+        return True
+
+    monkeypatch.setattr('core.notification.TelegramChannel.send', deliver)
+    now = datetime(2026, 9, 1, 10, tzinfo=TAIPEI_TZ)
+    monkeypatch.setattr('api.routers.alerts.now_taipei', lambda: now)
+    rule = stateful_client.post('/alerts/rules', headers=headers, json={
+        'name': 'send once', 'target': {'stockIds': ['2330']},
+        'conditions': [{'field': 'price', 'operator': 'gt', 'value': 0}],
+        'frequency': 'once', 'channels': ['telegram'],
+    }).json()['rule']
+    preview = stateful_client.post('/alerts/evaluate', headers=headers, json={'ruleIds': [rule['id']]})
+    assert preview.status_code == 200
+    assert sent == []
+    body = {'ruleIds': [rule['id']], 'sendNotifications': True}
+    failed = stateful_client.post('/alerts/evaluate', headers=headers, json=body).json()
+    assert failed['hits'][0]['notificationResults'] == {'telegram': False}
+    assert len(sent) == 1
+    # Backoff prevents a tight retry loop.
+    stateful_client.post('/alerts/evaluate', headers=headers, json=body)
+    assert len(sent) == 1
+    now += timedelta(minutes=2)
+    delivered = stateful_client.post('/alerts/evaluate', headers=headers, json=body).json()
+    assert delivered['hits'][0]['notificationResults'] == {'telegram': True}
+    stateful_client.post('/alerts/evaluate', headers=headers, json=body)
+    assert len(sent) == 2
+    # Simulate bounded-history compaction while keeping delivery state intact.
+    from core.json_store import save_json_atomic
+    save_json_atomic(tmp_path / 'users' / 'google_delivery' / 'alert_hits.json', {'hits': []})
+    now += timedelta(days=30)
+    stateful_client.post('/alerts/evaluate', headers=headers, json=body)
+    assert len(sent) == 2
+
+
+def test_settings_reject_unimplemented_scheduler_controls(stateful_client):
+    for update in ({'autoBacktest': True}, {'timezone': 'UTC'}, {'marketOpenTime': '10:00'}):
+        result = stateful_client.put('/settings', json={'system': update})
+        assert result.status_code == 422
+    saved = stateful_client.put('/settings', json={'system': {'dataUpdateInterval': 90}})
+    assert saved.status_code == 200
+    assert stateful_client.get('/settings').json()['system']['dataUpdateInterval'] == 90
+
+
+def test_alert_partial_delivery_retries_only_failed_channel(stateful_client, monkeypatch, tmp_path):
+    from datetime import datetime, timedelta
+    from core.timeutils import TAIPEI_TZ
+
+    monkeypatch.setattr('core.notification.NOTIFICATION_DATA_DIR', tmp_path)
+    headers = {'X-User-ID': 'google_partial_delivery'}
+    stateful_client.put('/settings', headers=headers, json={
+        'telegram': {'enabled': True, 'botToken': 'test-token', 'chatId': 'test-chat'},
+        'email': {'enabled': True, 'smtpHost': 'smtp.example.test', 'username': 'test@example.test',
+                  'password': 'test-password', 'recipient': 'test@example.test'},
+    })
+    sends = {'telegram': 0, 'email': 0}
+
+    def telegram(*args):
+        sends['telegram'] += 1
+        return True
+
+    def email(*args):
+        sends['email'] += 1
+        return sends['email'] > 1
+
+    monkeypatch.setattr('core.notification.TelegramChannel.send', telegram)
+    monkeypatch.setattr('core.notification.EmailChannel.send', email)
+    now = datetime(2026, 9, 1, 10, tzinfo=TAIPEI_TZ)
+    monkeypatch.setattr('api.routers.alerts.now_taipei', lambda: now)
+    stateful_client.post('/alerts/rules', headers=headers, json={
+        'name': 'two channels', 'target': {'stockIds': ['2330']}, 'frequency': 'once',
+        'conditions': [{'field': 'price', 'operator': 'gt', 'value': 0}], 'channels': ['telegram', 'email'],
+    })
+    stateful_client.post('/alerts/evaluate', headers=headers, json={'sendNotifications': True})
+    now += timedelta(minutes=2)
+    stateful_client.post('/alerts/evaluate', headers=headers, json={'sendNotifications': True})
+    assert sends == {'telegram': 1, 'email': 2}
+
+
 class TestWatchlistsCRUD:
     def test_data_is_isolated_per_user(self, stateful_client):
         alice = {"X-User-ID": "google_alice123"}
@@ -486,6 +645,59 @@ class TestAlertsCRUD:
 
 
 class TestAlertsV2Rules:
+    def test_rule_update_is_not_lost_during_concurrent_evaluation(
+        self, stateful_client, monkeypatch
+    ):
+        """A scheduler snapshot must never overwrite a newer user edit."""
+        headers = {"X-User-ID": "google_concurrent_rule"}
+        created = stateful_client.post(
+            "/alerts/rules",
+            headers=headers,
+            json={
+                "name": "舊名稱",
+                "target": {"stockIds": ["2330"]},
+                "conditions": [
+                    {"field": "price", "operator": "gt", "value": 0}
+                ],
+            },
+        )
+        rule_id = created.json()["rule"]["id"]
+        evaluation_started = threading.Event()
+        allow_evaluation_to_finish = threading.Event()
+
+        def slow_no_hit(*_args, **_kwargs):
+            evaluation_started.set()
+            assert allow_evaluation_to_finish.wait(timeout=2)
+            return False, {}, []
+
+        monkeypatch.setattr(
+            "core.alert_rules.evaluate_rule_for_stock", slow_no_hit
+        )
+
+        from api.models import AlertEvaluateRequest
+        from api.routers.alerts import alert_rules_evaluate
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            evaluating = executor.submit(
+                asyncio.run,
+                alert_rules_evaluate(
+                    AlertEvaluateRequest(ruleIds=[rule_id]),
+                    user_id="google_concurrent_rule",
+                ),
+            )
+            assert evaluation_started.wait(timeout=2)
+            updated = stateful_client.patch(
+                f"/alerts/rules/{rule_id}",
+                headers=headers,
+                json={"name": "使用者的新名稱"},
+            )
+            assert updated.status_code == 200
+            allow_evaluation_to_finish.set()
+            assert evaluating.result(timeout=2)["evaluatedRules"] == 1
+
+        rules = stateful_client.get("/alerts/rules", headers=headers).json()["rules"]
+        assert rules[0]["name"] == "使用者的新名稱"
+
     def test_multi_condition_rule_evaluates_and_records_history(
         self, stateful_client
     ):
