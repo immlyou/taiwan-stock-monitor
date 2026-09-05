@@ -77,6 +77,10 @@ def _settings_with_defaults(stored: dict | None) -> dict:
         email["recipient"] = recipients[0] if recipients else ""
     for old_key in ("smtp_server", "smtp_port", "sender", "recipients"):
         email.pop(old_key, None)
+    # Report effective capabilities, not old saved values that never affected
+    # a scheduler. Leave raw storage intact until the user next saves settings.
+    settings["system"].update(timezone="Asia/Taipei", autoBacktest=False,
+                              marketOpenTime="09:00", marketCloseTime="13:30")
     return settings
 
 

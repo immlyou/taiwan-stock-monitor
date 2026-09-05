@@ -24,6 +24,18 @@ import { CURRENT_VERSION } from './release'
 export const RECENT_CHANGELOG = [
   {
     version: CURRENT_VERSION,
+    date: '2026-09-05',
+    tag: 'Fix',
+    changes: [
+      '預測驗證：接通目標價新增、列表、刪除與帳號化排程；統一舊版狀態，依截止日前的收盤資料判定結果',
+      'Alerts：命中紀錄與送達狀態分離，手動評估不消耗通知；各頻道失敗退避重試，一次性狀態不隨歷史清理而遺失',
+      '系統設定：行情報價更新間隔接到五個頁面；固定台股時區與交易時間，標示自動回測尚未提供',
+      'Dashboard：投組載入失敗不再隱藏其他 widgets，避免將 API 錯誤顯示為零資產或空持股',
+      '契約測試：新增登入後真實 Next.js proxy → FastAPI 測試，涵蓋預測 CRUD、帳號隔離、設定儲存及秘密遮罩，納入 blocking CI',
+    ],
+  },
+  {
+    version: 'v5.2.0',
     date: '2026-08-28',
     tag: 'Feature',
     changes: [

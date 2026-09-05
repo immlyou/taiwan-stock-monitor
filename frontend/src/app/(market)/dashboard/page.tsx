@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import type { ColumnDef } from '@tanstack/react-table'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
@@ -92,12 +93,13 @@ interface ScoreUpgrades {
 }
 
 function useDashboard() {
+  const refreshInterval = useRefreshInterval()(30000)
   // Fetch portfolio list first
   const { data: listData, error: listError, isLoading: listLoading } =
     useSWR<PortfoliosListResponse>(
       '/portfolios',
       (path: string) => fetchAPI<PortfoliosListResponse>(path),
-      { refreshInterval: 30000, revalidateOnFocus: true }
+      { refreshInterval, revalidateOnFocus: true }
     )
 
   // Use first portfolio id if available, otherwise try 'default'
@@ -108,7 +110,7 @@ function useDashboard() {
     useSWR<PortfolioDetail>(
       portfolioId ? `/portfolios/${portfolioId}` : null,
       (path: string) => fetchAPI<PortfolioDetail>(path),
-      { refreshInterval: 30000, revalidateOnFocus: true }
+      { refreshInterval, revalidateOnFocus: true }
     )
 
   const isLoading = listLoading || (!!portfolioId && detailLoading)
@@ -263,6 +265,7 @@ export default function DashboardPage() {
   const [widgetActionError, setWidgetActionError] = useState('')
 
   const summary = detail?.summary
+  const portfolioUnavailable = isError && !detail
   const holdings = detail?.holdings ?? []
   const positionRows: PositionRow[] = holdings.map((h) => {
     const currentPrice = h.current_price ?? h.cost_price
@@ -438,7 +441,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {isError && !detail && !listData && (
+      {portfolioUnavailable && (
         <EmptyState
           title="無法載入持倉資料"
           description="請確認後端服務是否正常運行，或稍後再試"
@@ -446,11 +449,10 @@ export default function DashboardPage() {
         />
       )}
 
-      {(!isError || detail || listData) && (
-        <>
+      <>
           {isError && (detail || listData) && <StaleBanner />}
           {/* KPI 卡片 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          {!portfolioUnavailable && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             {kpiCards.map((card) => (
               <KpiCard
                 key={card.title}
@@ -462,7 +464,7 @@ export default function DashboardPage() {
                 change={card.change}
               />
             ))}
-          </div>
+          </div>}
 
           {(configuredWidgets.length > 0 || dashboardConfigError) && (
             <div
@@ -537,7 +539,7 @@ export default function DashboardPage() {
           )}
 
           {/* 持股列表 */}
-          <div
+          {!portfolioUnavailable && <div
             className="rounded-lg overflow-hidden"
             style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
           >
@@ -571,9 +573,8 @@ export default function DashboardPage() {
                 />
               )}
             </div>
-          </div>
-        </>
-      )}
+          </div>}
+      </>
     </div>
   )
 }

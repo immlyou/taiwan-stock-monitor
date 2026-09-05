@@ -66,6 +66,8 @@ interface AlertHit {
   ruleName: string
   stockId: string
   triggeredAt: string
+  notificationStatus?: 'preview' | 'retrying' | 'delivered'
+  nextRetryAt?: string
 }
 
 interface AlertRulesResponse {
@@ -354,6 +356,11 @@ export default function AlertsPage() {
               <div key={hit.id} className="border-b pb-2 last:border-0" style={{ borderColor: 'var(--border)' }}>
                 <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{hit.stockId} · {hit.ruleName}</p>
                 <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{new Date(hit.triggeredAt).toLocaleString('zh-TW')}</p>
+                <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  {hit.notificationStatus === 'preview' ? '手動評估（未發送通知）'
+                    : hit.notificationStatus === 'retrying' ? `通知失敗，${hit.nextRetryAt ? new Date(hit.nextRetryAt).toLocaleTimeString('zh-TW') : ''} 後條件仍符合時重試`
+                    : hit.notificationStatus === 'delivered' ? '本次通知已送達' : '歷史命中紀錄'}
+                </p>
               </div>
             ))}
             {!hitsData?.hits.length && <p className="py-6 text-center text-sm" style={{ color: 'var(--muted-foreground)' }}>尚無命中紀錄</p>}

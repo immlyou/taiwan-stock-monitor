@@ -15,11 +15,11 @@ interface Prediction {
   code: string
   name: string
   direction: 'up' | 'down'
-  targetPrice: number
+  targetPrice: number | null
   currentPrice: number
   targetDate: string
   createdAt: string
-  status: 'pending' | 'correct' | 'wrong' | 'expired'
+  status: 'pending' | 'correct' | 'wrong' | 'expired' | 'cancelled'
   actualPrice?: number
 }
 
@@ -39,11 +39,13 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   correct: { label: '預測正確', color: 'var(--stock-down)' },
   wrong: { label: '預測錯誤', color: 'var(--stock-up)' },
   expired: { label: '已過期', color: 'var(--muted-foreground)' },
+  cancelled: { label: '已取消', color: 'var(--muted-foreground)' },
 }
 
 export default function PredictionsPage() {
   const { mutate } = useSWRConfig()
-  const { data: predictions, isLoading, error } = useSWR<Prediction[]>(SWR_KEY, fetchAPI)
+  const { data, isLoading, error } = useSWR<{ total: number; predictions: Prediction[] }>(SWR_KEY, fetchAPI)
+  const predictions = data?.predictions
   const { data: stats, error: statsError } = useSWR<PredictionStats>(STATS_KEY, fetchAPI)
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -55,10 +57,12 @@ export default function PredictionsPage() {
     targetDate: '',
   })
   const [saving, setSaving] = useState(false)
+  const [actionError, setActionError] = useState('')
 
   const handleCreate = async () => {
     if (!form.code.trim() || !form.targetPrice || !form.targetDate) return
     setSaving(true)
+    setActionError('')
     try {
       await fetchAPI(SWR_KEY, {
         method: 'POST',
@@ -73,16 +77,25 @@ export default function PredictionsPage() {
       await mutate(STATS_KEY)
       setDialogOpen(false)
       setForm({ code: '', direction: 'up', targetPrice: '', targetDate: '' })
+    } catch {
+      setActionError('新增失敗。請確認股票代號、目標價方向與未來日期後重試。')
     } finally {
       setSaving(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    await fetchAPI(`${SWR_KEY}/${id}`, { method: 'DELETE' })
-    await mutate(SWR_KEY)
-    await mutate(STATS_KEY)
-    setDeleteId(null)
+    setSaving(true)
+    setActionError('')
+    try {
+      await fetchAPI(`${SWR_KEY}/${id}`, { method: 'DELETE' })
+      await Promise.all([mutate(SWR_KEY), mutate(STATS_KEY)])
+      setDeleteId(null)
+    } catch {
+      setActionError('刪除失敗，記錄仍保留，請重試。')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const columns = useMemo<ColumnDef<Prediction, unknown>[]>(() => [
@@ -123,13 +136,13 @@ export default function PredictionsPage() {
       accessorKey: 'targetPrice',
       header: '目標價',
       cell: ({ row }) => (
-        <span style={{ color: 'var(--foreground)' }}>{formatPrice(row.original.targetPrice)}</span>
+        <span style={{ color: 'var(--foreground)' }}>{row.original.targetPrice == null ? '—' : formatPrice(row.original.targetPrice)}</span>
       ),
     },
     {
-      id: '現價',
+      id: '建立參考價',
       accessorKey: 'currentPrice',
-      header: '現價',
+      header: '建立參考價',
       cell: ({ row }) => (
         <span style={{ color: 'var(--foreground)' }}>{formatPrice(row.original.currentPrice)}</span>
       ),
@@ -137,7 +150,7 @@ export default function PredictionsPage() {
     {
       id: '目標價差',
       header: '目標價差',
-      accessorFn: (p) => (p.currentPrice ? ((p.targetPrice - p.currentPrice) / p.currentPrice) * 100 : 0),
+      accessorFn: (p) => (p.currentPrice && p.targetPrice != null ? ((p.targetPrice - p.currentPrice) / p.currentPrice) * 100 : 0),
       cell: ({ getValue }) => {
         const gapPct = getValue() as number
         return (
@@ -208,10 +221,10 @@ export default function PredictionsPage() {
       <div className="mb-6 flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>預測驗證</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>股價預測記錄與準確率追蹤</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>以建立後至截止日的每日收盤價驗證目標價；不包含盤中觸價。參考價為建立時可取得的最新收盤。</p>
         </div>
         <button
-          onClick={() => setDialogOpen(true)}
+          onClick={() => { setActionError(''); setDialogOpen(true) }}
           className="h-9 px-4 rounded-md text-sm font-medium"
           style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
         >
@@ -293,6 +306,7 @@ export default function PredictionsPage() {
               <div>
                 <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>股票代號</label>
                 <input
+                  aria-label="股票代號"
                   type="text"
                   value={form.code}
                   onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
@@ -324,6 +338,9 @@ export default function PredictionsPage() {
               <div>
                 <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>目標價</label>
                 <input
+                  aria-label="目標價"
+                  min="0.01"
+                  step="any"
                   type="number"
                   value={form.targetPrice}
                   onChange={(e) => setForm(p => ({ ...p, targetPrice: e.target.value }))}
@@ -335,6 +352,7 @@ export default function PredictionsPage() {
               <div>
                 <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>目標日期</label>
                 <input
+                  aria-label="目標日期"
                   type="date"
                   value={form.targetDate}
                   onChange={(e) => setForm(p => ({ ...p, targetDate: e.target.value }))}
@@ -343,6 +361,7 @@ export default function PredictionsPage() {
                 />
               </div>
             </div>
+            {actionError && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--destructive)' }}>{actionError}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setDialogOpen(false)}
@@ -373,6 +392,7 @@ export default function PredictionsPage() {
           >
             <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>確認刪除</h2>
             <p className="text-sm mb-4" style={{ color: 'var(--muted-foreground)' }}>確定要刪除此預測記錄嗎？</p>
+            {actionError && <p role="alert" style={{ color: 'var(--destructive)' }}>{actionError}</p>}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setDeleteId(null)}
@@ -383,6 +403,7 @@ export default function PredictionsPage() {
               </button>
               <button
                 onClick={() => handleDelete(deleteId)}
+                disabled={saving}
                 className="h-9 px-4 rounded-md text-sm"
                 style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}
               >

@@ -35,6 +35,39 @@ router = APIRouter(tags=["警報"], dependencies=[Depends(verify_api_key)])
 
 ALERT_RULES_FILE = "alert_rules.json"
 ALERT_HITS_FILE = "alert_hits.json"
+ALERT_DELIVERY_FILE = "alert_delivery.json"
+
+
+def _delivery_due(rule: dict, state: dict, now: datetime) -> bool:
+    if state.get("retryAt") and now.timestamp() < state["retryAt"]:
+        return False
+    delivered = state.get("deliveredAt")
+    if delivered is None:
+        return True
+    if rule.get("frequency") == "once":
+        return False
+    return now.timestamp() - delivered >= int(rule.get("cooldownMinutes", 60)) * 60
+
+
+def _load_delivery(user_id: str, hits: list[dict]) -> dict:
+    stored = _load_json_file(ALERT_DELIVERY_FILE, default=None, user_id=user_id)
+    if "channels" in stored:
+        return stored
+    stored = {"channels": {}}
+    # One-time migration: only confirmed successful deliveries consume a
+    # notification. Preview hits and unknown/failed deliveries must not.
+    for hit in hits:
+        for channel, success in hit.get("notificationResults", {}).items():
+            if not success:
+                continue
+            key = f"{hit['ruleId']}:{hit['stockId']}:{channel}"
+            try:
+                stamp = datetime.fromisoformat(hit["triggeredAt"]).timestamp()
+            except (ValueError, KeyError):
+                continue
+            previous = stored["channels"].get(key, {}).get("deliveredAt", 0)
+            stored["channels"][key] = {"deliveredAt": max(stamp, previous)}
+    return stored
 
 ALERT_TYPES = [
     {"type": "price_above", "label": "價格高於", "unit": "元", "default_value": 600},
@@ -217,6 +250,13 @@ def _evaluate_alert_rules(req: AlertEvaluateRequest, user_id: str) -> dict:
     with evaluation_lock:
         rules_data = _load_rules(user_id)
         hits_data = _load_hits(user_id)
+        delivery = _load_delivery(user_id, hits_data.get("hits", []))
+        live_rule_ids = {rule["id"] for rule in rules_data.get("rules", [])}
+        delivery["channels"] = {key: value for key, value in delivery["channels"].items()
+                                if key.split(":", 1)[0] in live_rule_ids}
+        # Persist migrations even if all deliveries are suppressed this run;
+        # later history compaction must never erase migrated once-state.
+        _save_json_file(ALERT_DELIVERY_FILE, delivery, user_id=user_id)
         rule_ids = set(req.ruleIds or [])
         rules = [
             rule for rule in rules_data.get("rules", [])
@@ -244,9 +284,13 @@ def _evaluate_alert_rules(req: AlertEvaluateRequest, user_id: str) -> dict:
                     continue
                 if not triggered:
                     continue
-                if _is_hit_suppressed(
+                channels = rule.get("channels") or ["in_app"]
+                due_channels = [channel for channel in channels if _delivery_due(
+                    rule, delivery["channels"].get(f"{rule['id']}:{stock_id}:{channel}", {}), now
+                )]
+                if (req.sendNotifications and not due_channels) or (not req.sendNotifications and _is_hit_suppressed(
                     rule, stock_id, hits_data.get("hits", []), now
-                ):
+                )):
                     suppressed_count += 1
                     continue
 
@@ -260,14 +304,41 @@ def _evaluate_alert_rules(req: AlertEvaluateRequest, user_id: str) -> dict:
                     "conditions": condition_results,
                     "channels": rule.get("channels", []),
                 }
-                if req.sendNotifications and hit["channels"]:
+                hit["notificationStatus"] = "preview"
+                if req.sendNotifications:
                     from core.notification import NotificationManager
 
-                    hit["notificationResults"] = NotificationManager(user_id).send(
-                        title=f"警報：{rule['name']}",
-                        message=f"{stock_id} 已符合 Alerts 2.0 規則。",
-                        channels=hit["channels"],
-                    )
+                    results = {}
+                    retry_times = []
+                    manager = NotificationManager(user_id)
+                    for channel in due_channels:
+                        key = f"{rule['id']}:{stock_id}:{channel}"
+                        state = delivery["channels"].setdefault(key, {})
+                        attempts = min(int(state.get("attempts", 0)) + 1, 10)
+                        # Persist a retry lease before external I/O; crashes and
+                        # repeated requests cannot create a tight retry storm.
+                        state.update(attempts=attempts, retryAt=now.timestamp() + min(60 * 2 ** (attempts - 1), 900))
+                        _save_json_file(ALERT_DELIVERY_FILE, delivery, user_id=user_id)
+                        try:
+                            success = channel == "in_app" or manager.send(
+                                title=f"警報：{rule['name']}",
+                                message=f"{stock_id} 已符合 Alerts 2.0 規則。",
+                                channels=[channel],
+                            ).get(channel, False)
+                        except Exception:
+                            logger.warning("警報通知暫時失敗，將依退避時間重試")
+                            success = False
+                        results[channel] = bool(success)
+                        if success:
+                            state.clear()
+                            state["deliveredAt"] = now.timestamp()
+                        else:
+                            retry_times.append(state["retryAt"])
+                        _save_json_file(ALERT_DELIVERY_FILE, delivery, user_id=user_id)
+                    hit["notificationResults"] = results
+                    hit["notificationStatus"] = "retrying" if retry_times else "delivered"
+                    if retry_times:
+                        hit["nextRetryAt"] = datetime.fromtimestamp(min(retry_times), tz=now.tzinfo).isoformat()
                 new_hits.append(hit)
                 hits_data.setdefault("hits", []).append(hit)
                 rule["lastTriggeredAt"] = now.isoformat()

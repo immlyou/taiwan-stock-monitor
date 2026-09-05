@@ -86,14 +86,22 @@ def _alert_check_job() -> None:
 def _verify_predictions_job() -> None:
     """排程任務：用最新收盤驗證所有到期的預測（含 XGBoost 選股前向追蹤）。"""
     try:
-        from api.state import loader
+        from api.state import DATA_DIR, loader
         from core.prediction_tracker import get_tracker
+        from core.user_predictions import verify_user_predictions
+        from core.user_storage import iter_user_ids, user_data_path
 
         close = loader.get("close")
         if close is None or close.empty:
             return
+        verified = 0
+        for user_id in iter_user_ids(DATA_DIR):
+            try:
+                verified += verify_user_predictions(user_data_path(user_id, "predictions.json", DATA_DIR), close)
+            except Exception:
+                logger.exception("帳號預測驗證失敗：%s", user_id)
         result = get_tracker().verify_predictions(close)
-        verified = result.get("verified") if isinstance(result, dict) else result
+        verified += int(result.get("verified_count", 0))
         logger.info("排程預測驗證完成：%s", verified)
     except Exception:
         logger.exception("排程預測驗證失敗")

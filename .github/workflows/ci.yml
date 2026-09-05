@@ -115,6 +115,36 @@ jobs:
           AUTH_ALLOWED_EMAIL: imchris.yu@gmail.com
         run: npm run build
 
+  contract:
+    name: Real frontend/backend contract E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-api.txt
+      - name: Install API dependencies
+        run: pip install -r requirements-api.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Real proxy and FastAPI contracts (blocking, no retries)
+        run: npm run test:e2e:contract
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: contract-e2e-traces
+          path: frontend/test-results/
+
   e2e:
     name: Playwright auth and core flows
     runs-on: ubuntu-latest

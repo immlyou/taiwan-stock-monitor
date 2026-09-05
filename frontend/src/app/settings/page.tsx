@@ -291,10 +291,13 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>
-                資料更新間隔（秒）
+                行情報價最短更新間隔（秒）
               </label>
               <input
                 type="number"
+                min={5}
+                max={86400}
+                aria-label="行情報價最短更新間隔"
                 value={sys?.dataUpdateInterval ?? 30}
                 onChange={(e) => updateSystem('dataUpdateInterval', Number(e.target.value))}
                 className="h-9 w-full rounded-md border px-3 text-sm"
@@ -305,12 +308,12 @@ export default function SettingsPage() {
               <label className="block text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>時區</label>
               <select
                 value={sys?.timezone ?? 'Asia/Taipei'}
+                disabled
                 onChange={(e) => updateSystem('timezone', e.target.value)}
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
               >
                 <option value="Asia/Taipei">Asia/Taipei (UTC+8)</option>
-                <option value="UTC">UTC</option>
               </select>
             </div>
             <div>
@@ -318,6 +321,7 @@ export default function SettingsPage() {
               <input
                 type="time"
                 value={sys?.marketOpenTime ?? '09:00'}
+                disabled
                 onChange={(e) => updateSystem('marketOpenTime', e.target.value)}
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -328,6 +332,7 @@ export default function SettingsPage() {
               <input
                 type="time"
                 value={sys?.marketCloseTime ?? '13:30'}
+                disabled
                 onChange={(e) => updateSystem('marketCloseTime', e.target.value)}
                 className="h-9 w-full rounded-md border px-3 text-sm"
                 style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
@@ -336,12 +341,16 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3">
               <Switch
                 checked={!!sys?.autoBacktest}
+                disabled
                 onCheckedChange={(v) => updateSystem('autoBacktest', v)}
                 aria-label="自動定期回測"
               />
-              <span className="text-sm" style={{ color: 'var(--foreground)' }}>自動定期回測</span>
+              <span className="text-sm" style={{ color: 'var(--foreground)' }}>自動定期回測（尚未提供）</span>
             </div>
           </div>
+          <p className="mt-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            更新間隔套用於即時報價、投組、自選股、個股與持倉總覽；休市及報價來源限流可能延長間隔。台股時區與開收盤時間固定，自動回測尚未啟用。
+          </p>
         </div>
 
         {/* 系統資訊 */}

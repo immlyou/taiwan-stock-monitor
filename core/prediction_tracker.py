@@ -29,7 +29,9 @@ def _now() -> datetime:
 
 # 資料儲存路徑
 DATA_DIR = Path(__file__).parent.parent / 'data'
-PREDICTIONS_FILE = DATA_DIR / 'predictions.json'
+# Legacy strategy tracking is global model evaluation, not a user's manual
+# predictions. Never let this singleton overwrite account API records.
+PREDICTIONS_FILE = DATA_DIR / 'strategy_predictions.json'
 VERIFICATION_LOG_FILE = DATA_DIR / 'verification_log.json'
 
 
@@ -95,10 +97,24 @@ class PredictionTracker:
         DATA_DIR.mkdir(exist_ok=True)
 
         # 載入預測記錄
-        if PREDICTIONS_FILE.exists():
+        source_file = PREDICTIONS_FILE
+        if not source_file.exists() and source_file.name == 'strategy_predictions.json':
+            source_file = DATA_DIR / 'predictions.json'
+        if source_file.exists():
             try:
-                with open(PREDICTIONS_FILE, 'r', encoding='utf-8') as f:
+                with open(source_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    if isinstance(data, dict):
+                        data = data.get('predictions', [])
+                    # Copy only legacy tracker records, preserving the source
+                    # file and excluding unrelated HTTP prediction schemas.
+                    if source_file != PREDICTIONS_FILE:
+                        data = [p for p in data if 'type' in p and 'created_price' in p]
+                        fields = Prediction.__dataclass_fields__
+                        data = [{k: v for k, v in p.items() if k in fields} for p in data]
+                        for record in data:
+                            record['status'] = {'correct': 'success', 'wrong': 'failed'}.get(
+                                record.get('status'), record.get('status', 'pending'))
                     self.predictions = [Prediction(**p) for p in data]
             except Exception as e:
                 print(f"載入預測記錄失敗: {e}")

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
+import { useRefreshInterval } from '@/lib/hooks/useRefreshInterval'
 import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ScreenshotImportDialog, type ImportedHolding } from '@/components/shared/ScreenshotImportDialog'
@@ -89,9 +90,10 @@ const PORTFOLIO_ID = 'default'
 const SWR_KEY = `/portfolios/${PORTFOLIO_ID}`
 
 export default function PortfolioPage() {
+  const refreshInterval = useRefreshInterval()
   const { mutate } = useSWRConfig()
   const { data, isLoading, error } = useSWR<PortfolioDetail>(SWR_KEY, fetchAPI, {
-    refreshInterval: (latest) => getBatchQuoteRefreshInterval(latest?.holdings.length ?? 1),
+    refreshInterval: (latest) => refreshInterval(getBatchQuoteRefreshInterval(latest?.holdings.length ?? 1)),
     dedupingInterval: 10_000,
     revalidateOnFocus: true,
   })

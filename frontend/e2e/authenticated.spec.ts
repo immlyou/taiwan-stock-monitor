@@ -119,7 +119,7 @@ test('settings shows the complete version history through the current release', 
     if (pathname === '/api/system/info') {
       return route.fulfill({
         json: {
-          version: '5.2.0', releaseVersion: '5.2.0', apiVersion: '5.2.0', uptime: '1 分',
+          version: '5.2.1', releaseVersion: '5.2.1', apiVersion: '5.2.1', uptime: '1 分',
           dataLastUpdated: '2026-08-28', stockCount: 2300, dbSize: '1.0 GB',
         },
       })
@@ -130,11 +130,31 @@ test('settings shows the complete version history through the current release', 
   await page.goto('/settings')
 
   await expect(page.getByRole('heading', { name: '版本記錄' })).toBeVisible()
-  await expect(page.getByText('v5.2.0', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('v5.2.1', { exact: true })).toHaveCount(2)
   await expect(page.getByText('v0.1.0', { exact: true })).toHaveCount(1)
   await expect(page.getByText(/Google OAuth/).first()).toBeVisible()
   await expect(page.getByText(/Fugle \/ TWSE/).first()).toBeVisible()
   await expect(page.getByText(/single-flight/).first()).toBeVisible()
+})
+
+test('portfolio outage does not hide healthy dashboard widgets', async ({ page }) => {
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.startsWith('/api/auth/')) return route.continue()
+    if (path === '/api/dashboard/config') return route.fulfill({ json: {
+      widgets: [{ id: 'market', type: 'market_summary', title: '獨立市場卡片', enabled: true, order: 1, config: {} }],
+    } })
+    if (path === '/api/market/summary') return route.fulfill({ json: {
+      taiex_index: 25000, taiex_change: 100, up_count: 600, down_count: 200,
+    } })
+    return route.fulfill({ status: 503, json: { detail: 'unavailable' } })
+  })
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await expect(page.getByText('無法載入持倉資料')).toBeVisible()
+  await expect(page.getByText('獨立市場卡片')).toBeVisible()
+  await expect(page.getByRole('button', { name: '管理 Widget' })).toBeVisible()
+  await expect(page.getByText('上漲 600 · 下跌 200')).toBeVisible()
+  await expect(page.getByText('尚未建立投資組合', { exact: true })).toHaveCount(0)
 })
 
 test('stock detail reports a critical API failure', async ({ page }) => {
