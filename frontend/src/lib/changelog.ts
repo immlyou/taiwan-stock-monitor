@@ -24,6 +24,18 @@ import { CURRENT_VERSION } from './release'
 export const RECENT_CHANGELOG = [
   {
     version: CURRENT_VERSION,
+    date: '2026-09-22',
+    tag: 'Feature',
+    changes: [
+      '帳號管理：新增 Google 邀請名單後台，支援管理員、一般使用者、唯讀角色與帳號啟用／停用',
+      '權限防護：每次 API 請求查核最新帳號狀態；保留個人資料隔離，防止自行鎖帳與併發權限覆寫',
+      '登入與操作紀錄：記錄新功能啟用後的成功 Google 登入與最近帳號管理操作，不推測舊版登入歷史',
+      '停用管理：停用或唯讀帳號不再執行個人排程通知；帳號名單與權限不寫入瀏覽器持久快取',
+      '安全測試：補齊邀請、Google 已驗證 Email、角色限制、即時撤銷、偽造標頭與真實前後端帳號管理 E2E',
+    ],
+  },
+  {
+    version: 'v5.2.1',
     date: '2026-09-05',
     tag: 'Fix',
     changes: [

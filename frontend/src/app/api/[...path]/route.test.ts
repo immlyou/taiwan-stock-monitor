@@ -7,7 +7,7 @@ vi.mock('@/auth', () => ({
   auth: authMock,
 }))
 
-import { GET } from './route'
+import { GET, POST } from './route'
 
 const context = { params: Promise.resolve({ path: ['settings'] }) }
 
@@ -49,7 +49,7 @@ describe('authenticated backend proxy', () => {
 
     const response = await GET(
       new NextRequest('https://stocks.example/api/settings', {
-        headers: { 'x-user-id': 'attacker' },
+        headers: { 'x-user-id': 'attacker', 'x-user-email': 'attacker@example.com', 'x-role': 'admin', 'x-bootstrap-email': 'attacker@example.com' },
       }),
       context
     )
@@ -59,6 +59,54 @@ describe('authenticated backend proxy', () => {
     const headers = new Headers(init.headers)
     expect(headers.get('x-user-id')).toBe('google_109876543210')
     expect(headers.get('x-user-id')).not.toBe('attacker')
+    expect(headers.get('x-user-email')).toBe('imchris.yu@gmail.com')
+    expect(headers.get('x-bootstrap-email')).toBe('imchris.yu@gmail.com')
+    expect(headers.has('x-role')).toBe(false)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+  })
+
+  it.each([
+    ['internal', 'accounts', 'google-login'],
+    ['settings', '..', 'internal', 'accounts', 'google-login'],
+    ['internal%2Faccounts', 'google-login'],
+    ['settings\\..\\internal', 'accounts', 'google-login'],
+  ])('rejects internal or normalized traversal paths: %j', async (...path) => {
+    authMock.mockResolvedValue({ user: { id: 'google_owner', email: 'owner@example.com' } })
+    const backendFetch = vi.fn()
+    vi.stubGlobal('fetch', backendFetch)
+    const response = await POST(new NextRequest('https://stocks.example/api/internal/accounts/google-login', { method: 'POST' }),
+      { params: Promise.resolve({ path }) })
+    expect(response.status).toBe(403)
+    expect(backendFetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects cross-origin mutations before forwarding', async () => {
+    authMock.mockResolvedValue({ user: { id: 'google_owner', email: 'owner@example.com' } })
+    const backendFetch = vi.fn()
+    vi.stubGlobal('fetch', backendFetch)
+    const response = await POST(new NextRequest('https://stocks.example/api/admin/accounts', {
+      method: 'POST', headers: { origin: 'https://attacker.example' },
+    }), { params: Promise.resolve({ path: ['admin', 'accounts'] }) })
+    expect(response.status).toBe(403)
+    expect(backendFetch).not.toHaveBeenCalled()
+  })
+
+  it('preserves a live backend permission denial', async () => {
+    authMock.mockResolvedValue({ user: { id: 'google_member', email: 'member@example.com' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ detail: '停用' }, { status: 403 })))
+    const response = await GET(new NextRequest('https://stocks.example/api/settings'), context)
+    expect(response.status).toBe(403)
+  })
+
+  it('keeps Unicode portfolio names working without allowing URL injection', async () => {
+    authMock.mockResolvedValue({ user: { id: 'google_owner', email: 'owner@example.com' } })
+    const backendFetch = vi.fn().mockResolvedValue(Response.json({ ok: true }))
+    vi.stubGlobal('fetch', backendFetch)
+    const name = '我的投組 #1'
+    const response = await GET(new NextRequest('https://stocks.example/api/portfolios/test'),
+      { params: Promise.resolve({ path: ['portfolios', name] }) })
+    expect(response.status).toBe(200)
+    expect(backendFetch.mock.calls[0][0]).toMatch(new RegExp(`/portfolios/${encodeURIComponent(name)}$`))
   })
 
   it('returns a gateway timeout when the backend exceeds its request budget', async () => {

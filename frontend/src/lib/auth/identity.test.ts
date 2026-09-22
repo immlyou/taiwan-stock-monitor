@@ -15,8 +15,7 @@ describe('authenticated proxy identity', () => {
             id: 'google_109876543210',
             email: 'investor@example.com',
           },
-        },
-        'investor@example.com'
+        }
       )
     ).toEqual({
       authenticated: true,
@@ -25,7 +24,7 @@ describe('authenticated proxy identity', () => {
     })
   })
 
-  it('rejects a valid session from an account outside the allowlist', () => {
+  it('extracts invited identities; live authorization belongs to the backend', () => {
     expect(
       identityFromSession(
         {
@@ -33,10 +32,9 @@ describe('authenticated proxy identity', () => {
             id: 'google_109876543210',
             email: 'other@example.com',
           },
-        },
-        'imchris.yu@gmail.com'
+        }
       )
-    ).toEqual({ authenticated: false })
+    ).toEqual({ authenticated: true, userId: 'google_109876543210', email: 'other@example.com' })
   })
 
   it('rejects an unsafe user id instead of forwarding it to the backend', () => {
@@ -45,5 +43,13 @@ describe('authenticated proxy identity', () => {
         user: { id: '../other-user', email: 'investor@example.com' },
       })
     ).toEqual({ authenticated: false })
+  })
+
+  it.each(['owner', 'other', 'google_'])('rejects non-Google identities: %s', (id) => {
+    expect(identityFromSession({ user: { id, email: 'member@example.com' } })).toEqual({ authenticated: false })
+  })
+
+  it('rejects a session without email', () => {
+    expect(identityFromSession({ user: { id: 'google_12345' } })).toEqual({ authenticated: false })
   })
 })

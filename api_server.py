@@ -37,6 +37,7 @@ from core.data_loader import FinLabQuotaExceededError
 
 # ── Router 匯入 ──────────────────────────────────────────
 from api.routers import (
+    accounts as accounts_router,
     advisor as advisor_router,
     ai as ai_router,
     alerts as alerts_router,
@@ -239,6 +240,7 @@ async def finlab_quota_handler(request: Request, exc: FinLabQuotaExceededError) 
 
 # ── Router 掛載 ─────────────────────────────────────────
 for _router_module in (
+    accounts_router,
     system_router,       # /, /health
     news_router,         # /news/*
     social_router,       # /social/*

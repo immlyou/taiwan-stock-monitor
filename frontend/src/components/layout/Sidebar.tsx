@@ -3,11 +3,12 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  ChevronDown, ChevronRight, Star, Settings, Compass, TrendingUp,
+  ChevronDown, ChevronRight, Star, Settings, Compass, TrendingUp, Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import { useWatchlist } from '@/lib/hooks/useWatchlist'
+import { useAccount } from '@/lib/hooks/useAccount'
 import { getChangeColorVar } from '@/lib/utils/format'
 import {
   NAVIGATION_GROUPS,
@@ -69,6 +70,7 @@ function WatchlistNav({
 }
 
 export function Sidebar() {
+  const { data: account, error: accountError } = useAccount()
   const pathname = usePathname()
   const {
     sidebarCollapsed,
@@ -244,6 +246,9 @@ export function Sidebar() {
               {(!sidebarCollapsed || isMobile) && '系統'}
             </div>
             {(!sidebarCollapsed || isMobile) && SYSTEM_ITEMS.map((item) => navLink(item))}
+            {(!sidebarCollapsed || isMobile) && !accountError && account?.role === 'admin' && navLink({
+              label: '帳號管理', href: '/admin/accounts', icon: Users, description: 'Google 帳號與存取權限',
+            })}
           </div>
         </nav>
       </aside>

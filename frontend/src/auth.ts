@@ -1,18 +1,31 @@
 import NextAuth from 'next-auth'
 import Google from 'next-auth/providers/google'
-import { canAccessPath, isAllowedGoogleAccount } from '@/lib/auth/access'
+import { canAccessPath } from '@/lib/auth/access'
 import { identityFromSession } from '@/lib/auth/identity'
+import { accountRequest, AccountAccessError } from '@/lib/auth/account-server'
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [Google],
   session: { strategy: 'jwt' },
-  pages: { signIn: '/login' },
+  pages: { signIn: '/login', error: '/login' },
   callbacks: {
-    signIn({ user, account }) {
-      return Boolean(
-        account?.provider === 'google' &&
-        isAllowedGoogleAccount(user.email, process.env.AUTH_ALLOWED_EMAIL)
-      )
+    async signIn({ user, account, profile }) {
+      if (account?.provider !== 'google' || !account.providerAccountId ||
+          profile?.email_verified !== true || !user.email ||
+          profile.email?.toLowerCase() !== user.email.toLowerCase()) return false
+      try {
+        await accountRequest('/internal/accounts/google-login', {
+          method: 'POST', body: JSON.stringify({
+            user_id: `google_${account.providerAccountId}`, email: user.email,
+            name: (user.name || '').slice(0, 120),
+            bootstrap_email: process.env.AUTH_ALLOWED_EMAIL || '',
+          }),
+        })
+        return true
+      } catch (error) {
+        return error instanceof AccountAccessError && error.status === 403
+          ? false : '/login?error=ServiceUnavailable'
+      }
     },
     jwt({ token, account }) {
       if (account?.provider === 'google' && account.providerAccountId) {
@@ -27,10 +40,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session
     },
     authorized({ auth: session, request }) {
-      const identity = identityFromSession(
-        session,
-        process.env.AUTH_ALLOWED_EMAIL
-      )
+      const identity = identityFromSession(session)
       return canAccessPath(
         request.nextUrl.pathname,
         identity.authenticated

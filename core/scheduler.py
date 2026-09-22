@@ -59,11 +59,14 @@ def _alert_check_job() -> None:
         from api.routers.alerts import alert_rules_evaluate
         from api.state import DATA_DIR, loader
         from core.alerts import check_alerts_and_notify
+        from core.accounts import AccountStore
         from core.user_storage import iter_user_ids
 
         data = {key: loader.get(key) for key in ("close", "volume", "high", "low")}
         triggered_count = 0
         for user_id in iter_user_ids(DATA_DIR):
+            if not AccountStore(DATA_DIR).can_run_jobs(user_id):
+                continue
             triggered = check_alerts_and_notify(
                 data, send_notification=True, user_id=user_id
             )
@@ -88,6 +91,7 @@ def _verify_predictions_job() -> None:
     try:
         from api.state import DATA_DIR, loader
         from core.prediction_tracker import get_tracker
+        from core.accounts import AccountStore
         from core.user_predictions import verify_user_predictions
         from core.user_storage import iter_user_ids, user_data_path
 
@@ -96,6 +100,8 @@ def _verify_predictions_job() -> None:
             return
         verified = 0
         for user_id in iter_user_ids(DATA_DIR):
+            if not AccountStore(DATA_DIR).can_run_jobs(user_id):
+                continue
             try:
                 verified += verify_user_predictions(user_data_path(user_id, "predictions.json", DATA_DIR), close)
             except Exception:

@@ -14,8 +14,12 @@
 |---|---|
 | 前端 (Next.js on Vercel) | https://taiwan-stock-monitor.vercel.app |
 | 功能總覽（App 內導覽頁） | https://taiwan-stock-monitor.vercel.app/overview |
-| API Server (FastAPI on Railway) | https://taiwan-stock-api-production.up.railway.app |
-| API 文件 (Swagger UI) | https://taiwan-stock-api-production.up.railway.app/docs |
+| API Server (FastAPI on Railway) | https://web-production-f80b4.up.railway.app |
+| API 文件 (Swagger UI) | https://web-production-f80b4.up.railway.app/docs |
+
+正式前端目前連至 Railway `truthful-creation` 專案的 `web` 服務（production）。
+另有 `taiwan-stock-api` 專案，但不是目前正式前端的 API 來源。部署前應核對
+Vercel production 的 `NEXT_PUBLIC_API_URL`，不可只依本機 Railway link 判定部署目標。
 
 ## 功能特色
 

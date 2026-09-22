@@ -1,11 +1,11 @@
 import { encode } from '@auth/core/jwt'
 import { test, expect, type BrowserContext } from '@playwright/test'
 
-async function signIn(context: BrowserContext, baseURL: string, userId: string) {
+async function signIn(context: BrowserContext, baseURL: string, userId: string, email?: string) {
   const name = 'authjs.session-token'
   const value = await encode({
     salt: name, secret: 'contract-only-secret-contract-only-secret',
-    token: { sub: userId, userId, email: 'contract@example.test', name: 'Contract User' },
+    token: { sub: userId, userId, email: email ?? (userId === 'google_contract_alice' ? 'contract@example.test' : `${userId.replace('google_contract_', '')}@example.test`), name: 'Contract User' },
   })
   await context.addCookies([{ name, value, url: baseURL, httpOnly: true, sameSite: 'Lax' }])
 }
@@ -59,4 +59,51 @@ test('settings UI persists effective settings and never receives saved secrets',
 test('unauthenticated proxy access stays rejected', async ({ request, baseURL }) => {
   const response = await request.get(`${baseURL}/api/predictions`)
   expect(response.status()).toBe(401)
+})
+
+test('account management UI and live role/disable enforcement through the real proxy', async ({ page, context, browser, baseURL }) => {
+  await signIn(context, baseURL!, 'google_contract_alice')
+  await page.goto('/admin/accounts')
+  await expect(page.getByRole('heading', { name: '帳號管理', exact: true })).toBeVisible()
+  await expect(page.getByLabel('contract@example.test 啟用')).toBeDisabled()
+  await page.getByLabel('Google Email', { exact: true }).fill('viewer@example.test')
+  await page.getByLabel('邀請角色').selectOption('viewer')
+  await page.getByRole('button', { name: '加入帳號' }).click()
+  await expect(page.getByText('已邀請，待登入', { exact: true })).toBeVisible()
+
+  const api = `http://127.0.0.1:${process.env.PLAYWRIGHT_API_PORT ?? 41738}`
+  const registered = await context.request.post(`${api}/internal/accounts/google-login`, {
+    headers: { authorization: 'Bearer contract-only-api-key' },
+    data: { user_id: 'google_contract_viewer', email: 'viewer@example.test', name: 'Viewer' },
+  })
+  expect(registered.status()).toBe(200)
+  const viewer = await browser.newContext()
+  try {
+    await signIn(viewer, baseURL!, 'google_contract_viewer', 'viewer@example.test')
+    expect((await viewer.request.get(`${baseURL}/api/admin/accounts`)).status()).toBe(403)
+    expect((await viewer.request.get(`${baseURL}/api/settings`)).status()).toBe(200)
+    expect((await viewer.request.put(`${baseURL}/api/settings`, { data: { system: { dataUpdateInterval: 60 } } })).status()).toBe(403)
+    expect((await viewer.request.post(`${baseURL}/api/internal/accounts/google-login`, { data: {
+      user_id: 'google_contract_viewer', email: 'viewer@example.test', bootstrap_email: 'viewer@example.test',
+    } })).status()).toBe(403)
+    const viewerPage = await viewer.newPage()
+    await viewerPage.goto('/admin/accounts')
+    await expect(viewerPage.getByText('此頁面僅開放管理員使用。')).toBeVisible()
+    await expect(viewerPage.getByRole('link', { name: '帳號管理', exact: true })).toHaveCount(0)
+
+    page.on('dialog', (dialog) => dialog.accept())
+    await page.getByLabel('viewer@example.test 權限').selectOption('member')
+    const row = page.getByRole('row').filter({ has: page.getByLabel('viewer@example.test 權限') })
+    await row.getByRole('button', { name: '儲存' }).click()
+    await expect.poll(async () => (await (await viewer.request.get(`${baseURL}/api/accounts/me`)).json()).role).toBe('member')
+    expect((await viewer.request.put(`${baseURL}/api/settings`, { data: { system: { dataUpdateInterval: 60 } } })).status()).toBe(200)
+    await page.getByLabel('viewer@example.test 啟用').uncheck()
+    await row.getByRole('button', { name: '儲存' }).click()
+    await expect.poll(async () => (await viewer.request.get(`${baseURL}/api/settings`)).status()).toBe(403)
+    const relogin = await context.request.post(`${api}/internal/accounts/google-login`, {
+      headers: { authorization: 'Bearer contract-only-api-key' },
+      data: { user_id: 'google_contract_viewer', email: 'viewer@example.test' },
+    })
+    expect(relogin.status()).toBe(403)
+  } finally { await viewer.close() }
 })

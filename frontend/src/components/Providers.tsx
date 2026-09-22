@@ -40,6 +40,7 @@ function localStorageProvider(storageKey: string): Cache {
     const saved = localStorage.getItem(storageKey)
     if (saved) {
       for (const [key, value] of JSON.parse(saved) as [string, State<unknown>][]) {
+        if (key.includes('/admin/') || key.includes('/accounts/')) continue
         map.set(key, value)
       }
     }
@@ -51,6 +52,8 @@ function localStorageProvider(storageKey: string): Cache {
     try {
       const entries: [string, State<unknown>][] = []
       for (const [key, value] of map.entries()) {
+        // Live authorization and the admin email registry must not persist.
+        if (key.includes('/admin/') || key.includes('/accounts/')) continue
         // 只存成功取得的資料；丟掉 error / isLoading 等暫態
         if (value && value.data !== undefined && !value.error) {
           entries.push([key, { data: value.data } as State<unknown>])
