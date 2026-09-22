@@ -48,7 +48,7 @@ API 拒绝停用帳號的下一次請求；已在執行的請求或排程不會�
 
 ## 部署順序與檢查
 
-1. 備份 Railway Volume 的資料，確認單 worker 與持久 Volume。
+1. 核對 Vercel production 的 `NEXT_PUBLIC_API_URL` 對應實際 Railway 服務；目前為 `truthful-creation` → `web` → `production`。備份該服務 `/app/data`，確認單 worker 與掛載至 `/app/data` 的持久 Volume。若原服務沒有 Volume，須先匯出資料、核對備份雜湊、將資料填入新 Volume 並校驗，再切換；不可先重新部署或把空白 Volume 蓋在既有資料上。
 2. Vercel `AUTH_ALLOWED_EMAIL` 保持原管理員 Email，兩端 `STOCK_API_KEY` 必須一致；不需新增 provider。
 3. **前後端需協調切換**：舊前端不送 Email，升級後端後會拒絕舊前端帶 user-id 的請求；新前端也不能安全搭配沒有帳號驗權的舊後端。安排短暫維護窗口，先部署後端成功，再立即部署前端。
 4. 用原管理員登入，確認帳號後台與私人資料仍正確。進行真正 Google OAuth 登入確認最近登入紀錄。
