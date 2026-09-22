@@ -5,6 +5,22 @@ import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from contextlib import asynccontextmanager
+
+
+@pytest.fixture
+def isolated_api_lifespan(monkeypatch):
+    """Endpoint tests must not start real data downloads or background training.
+
+    Startup prewarming has dedicated lifecycle tests in test_xgboost_resilience.
+    """
+    from api_server import app
+
+    @asynccontextmanager
+    async def endpoint_only_lifespan(app):
+        yield
+
+    monkeypatch.setattr(app.router, "lifespan_context", endpoint_only_lifespan)
 
 
 

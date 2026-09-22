@@ -6,6 +6,7 @@ import { fetchAPI } from '@/lib/api/client'
 import { fetchXGBoost } from '@/lib/api/xgboost'
 import { getXGBoostErrorPresentation } from '@/lib/api/xgboost-ui'
 import { StockInput } from '@/components/shared/StockInput'
+import { XGBoostLifecyclePanel } from '@/components/strategy/XGBoostLifecyclePanel'
 import { CHART_SERIES } from '@/lib/constants/chartColors'
 import { formatPrice, formatPercent } from '@/lib/utils/format'
 import {
@@ -34,6 +35,7 @@ interface XGBoostStock {
 interface XGBoostResponse {
   stocks: XGBoostStock[]
   feature_importance: Record<string, number>
+  data_as_of?: string | null
 }
 
 interface PredictedPrice {
@@ -48,6 +50,8 @@ interface LSTMResponse {
   confidence: number
   predicted_prices: PredictedPrice[]
   trend_strength: number
+  model_used?: 'lstm' | 'ewma' | 'unknown'
+  data_as_of?: string | null
 }
 
 interface ClaudeResponse {
@@ -305,6 +309,10 @@ function XGBoostTab() {
         </div>
       )}
       {/* Ranking table */}
+      <p role="note" className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+        研究模型，尚未證明可用於投資。排序分數是啟發式指標，不是上漲機率或勝率；預測報酬未扣成本。
+        資料截至：{data.data_as_of ?? '未提供'}。特徵重要性不代表因果關係。
+      </p>
       <Card className="overflow-hidden">
         <div
           className="px-4 py-3 border-b"
@@ -318,7 +326,7 @@ function XGBoostTab() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--secondary)' }}>
-                {['排名', '代號', '名稱', '目前股價', '預測報酬率', '信心度'].map((h) => (
+                {['排名', '代號', '名稱', '最新收盤價', '20 交易日預測報酬', '排序分數'].map((h) => (
                   <th
                     key={h}
                     className="text-left py-2 px-4"
@@ -379,7 +387,7 @@ function XGBoostTab() {
                         />
                       </div>
                       <span className="text-xs tabular-nums">
-                        {(row.confidence * 100).toFixed(1)}%
+                        {(row.confidence * 100).toFixed(1)} / 100
                       </span>
                     </div>
                   </td>
@@ -468,7 +476,7 @@ function LSTMTab() {
       )}
 
       {stockId && error && (
-        <ErrorCard message="LSTM 模型尚未安裝或服務不可用。請確認後端已配置 TensorFlow/PyTorch 及相關依賴。" />
+        <ErrorCard message="趨勢推估暫時無法取得，可能是資料不足或服務失敗，請稍後重試。未安裝 PyTorch 時會使用 EWMA，不代表服務不可用。" />
       )}
 
       {stockId && isLoading && <LoadingCard />}
@@ -496,7 +504,7 @@ function LSTMTab() {
                   color: 'var(--muted-foreground)',
                 }}
               >
-                趨勢強度 {(data.trend_strength * 100).toFixed(1)}%
+                趨勢強度 {(data.trend_strength * 100).toFixed(1)} / 100
               </span>
             </div>
 
@@ -515,16 +523,20 @@ function LSTMTab() {
                   {dirConfig.label}
                 </p>
                 <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-                  信心度：
+                  規則分數（非機率）：
                   <span
                     className="font-semibold tabular-nums"
                     style={{ color: 'var(--foreground)' }}
                   >
-                    {(data.confidence * 100).toFixed(1)}%
+                    {(data.confidence * 100).toFixed(1)} / 100
                   </span>
                 </p>
               </div>
             </div>
+            <p role="note" className="mt-3 text-sm" style={{ color: 'var(--muted-foreground)' }}>
+              實際模型：{data.model_used === 'ewma' ? 'EWMA 趨勢推估（非 LSTM）' : data.model_used === 'lstm' ? 'LSTM 即時訓練實驗模型' : '未提供'}。
+              資料截至：{data.data_as_of ?? '未提供'}。尚未完成樣本外績效與機率校準驗證。
+            </p>
           </Card>
 
           {/* Price chart */}
@@ -1035,7 +1047,7 @@ export default function AiPickPage() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'xgboost' && <XGBoostTab />}
+      {activeTab === 'xgboost' && <><XGBoostTab /><XGBoostLifecyclePanel /></>}
       {activeTab === 'lstm' && <LSTMTab />}
       {activeTab === 'claude' && <ClaudeTab />}
       {activeTab === 'quant' && <QuantTab />}

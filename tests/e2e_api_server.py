@@ -29,8 +29,10 @@ for suffix in ("bob", "settings"):
     accounts_store.invite("google_contract_alice", "contract@example.test", f"{suffix}@example.test", "member")
     accounts_store.resolve(f"google_contract_{suffix}", f"{suffix}@example.test", login=True)
 
-dates = pd.date_range(end=today_taipei(), periods=120, freq="D")
-prices = pd.DataFrame({"2330": [100.] * 120}, index=dates)
+dates = pd.bdate_range(end=today_taipei(), periods=332)
+prices = pd.DataFrame({"2330": [100.] * len(dates), **{
+    str(3000 + i): [100 + i + day * .01 * i for day in range(len(dates))] for i in range(1, 12)
+}}, index=dates)
 categories = pd.DataFrame({"stock_id": ["2330"], "name": ["台積電"]})
 
 
@@ -56,10 +58,14 @@ notification.LineNotifyChannel.send = disabled_delivery
 # Import real routers after binding storage/data; no fake API payloads.
 from fastapi import FastAPI
 from api.response import SafeJSONResponse
-from api.routers import accounts, alerts, dashboard, predictions, settings
+from api.routers import accounts, alerts, dashboard, predictions, settings, strategy, stocks
+from core import ai_models
+
+# Exercise the real, supported dependency-missing fallback, not a mocked response.
+ai_models.HAS_TORCH = False
 
 app = FastAPI(default_response_class=SafeJSONResponse)
-for router in (accounts.router, alerts.router, dashboard.router, predictions.router, settings.router):
+for router in (accounts.router, alerts.router, dashboard.router, predictions.router, settings.router, strategy.router, stocks.router):
     app.include_router(router)
 
 

@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def ready_client(monkeypatch):
+def ready_client(monkeypatch, isolated_api_lifespan):
     """提供 TestClient，並確保每個測試前 close 快取為已知狀態。"""
     import api.deps
     from api_server import app

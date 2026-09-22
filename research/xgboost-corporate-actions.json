@@ -1,0 +1,37 @@
+{
+  "scope": "Verified events relevant to the frozen 24-period selections; not an exhaustive dividend/corporate-action feed",
+  "verified_as_of": "2026-09-22",
+  "events": [
+    {
+      "id": "3202-halt-20250407",
+      "stock_id": "3202",
+      "type": "halt",
+      "date": "2025-04-07",
+      "source_url": "https://dsp.tpex.org.tw/web/announcement/announcement_detail.php?content_file=MTE0MDAwMzQ4MzEuaHRtbA%3D%3D&content_number=MTE0MDAwMzQ4MzE%3D"
+    },
+    {
+      "id": "1225-halt-20250407",
+      "stock_id": "1225",
+      "type": "halt",
+      "date": "2025-04-07",
+      "end_date": "2025-06-22",
+      "resumption_source_url": "https://investoredu.twse.com.tw/Mobile_Pages/..%2FFileSystem%2FFileUpload%2Ff8532e20-3724-4f3e-8dbf-7649f55f3d54.pdf",
+      "source_url": "https://wwwc.twse.com.tw/staticFiles/news/news/tsecnews/8a8216d695c717e00195f0f1af4700a4.pdf"
+    },
+    {
+      "id": "00631L-split-20260331",
+      "stock_id": "00631L",
+      "type": "split",
+      "date": "2026-03-31",
+      "ratio": 22,
+      "source_url": "https://wwwc.twse.com.tw/zh/ETFortune/announcement?company=A00005&date=20260330&fund=00631L&seq=1&type=other"
+    },
+    {
+      "id": "1589-halt-20260407",
+      "stock_id": "1589",
+      "type": "halt",
+      "date": "2026-04-07",
+      "source_url": "https://investoredu.twse.com.tw/Mobile_Pages/..%2FFileSystem%2FFileUpload%2Fd1edd836-fd52-4bf4-9936-badafcb0586d.pdf"
+    }
+  ]
+}

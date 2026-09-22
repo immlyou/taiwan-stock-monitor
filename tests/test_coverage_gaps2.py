@@ -90,30 +90,25 @@ class TestExcelReportGenerator:
     def test_generate_backtest_excel_returns_bytes(self, excel_dates, excel_close):
         from core.report_generator import generate_backtest_report
         result = self._make_backtest_result(excel_dates, excel_close)
-        try:
-            data = generate_backtest_report(result, format="excel")
-            assert isinstance(data, bytes)
-            assert len(data) > 0
-        except (AttributeError, Exception) as e:
-            # report_generator 使用 metrics.annual_return 但 PerformanceMetrics
-            # 的欄位名稱是 annualized_return，這是 source 的設計不一致，
-            # 此測試記錄此問題但不阻擋 CI
-            pytest.skip(f"backtest excel 遇到欄位名稱不一致問題: {e}")
+        data = generate_backtest_report(result, format="excel")
+        assert isinstance(data, bytes)
+        assert len(data) > 0
 
     def test_generate_backtest_excel_is_valid_xlsx(self, excel_dates, excel_close):
         """生成的 bytes 應是有效的 xlsx 格式"""
         from core.report_generator import generate_backtest_report
         result = self._make_backtest_result(excel_dates, excel_close)
-        try:
-            data = generate_backtest_report(result, format="excel")
-            excel_file = io.BytesIO(data)
-            sheets = pd.read_excel(excel_file, sheet_name=None)
-            assert "淨值走勢" in sheets
-        except (AttributeError, Exception):
-            pytest.skip("Excel 生成需要正確的 BacktestResult 格式")
+        data = generate_backtest_report(result, format="excel")
+        excel_file = io.BytesIO(data)
+        sheets = pd.read_excel(excel_file, sheet_name=None)
+        assert "淨值走勢" in sheets
 
-    def test_generate_backtest_excel_no_trades(self, excel_dates):
-        pytest.skip("generate_backtest_excel 使用 metrics.annual_return，與 PerformanceMetrics.annualized_return 欄位名稱不符，為 source 待修正項目")
+    def test_generate_backtest_excel_no_trades(self, excel_dates, excel_close):
+        from core.report_generator import generate_backtest_report
+        result = self._make_backtest_result(excel_dates, excel_close)
+        result.trades = pd.DataFrame()
+        data = generate_backtest_report(result, format="excel")
+        assert "淨值走勢" in pd.read_excel(io.BytesIO(data), sheet_name=None)
 
     def test_generate_screening_excel(self, excel_close, excel_stock_info):
         from core.report_generator import ReportGenerator

@@ -11,13 +11,13 @@ interface BacktestMetrics {
   total_return: number
   annualized_return: number
   volatility: number
-  sharpe_ratio: number
-  sortino_ratio: number
+  sharpe_ratio: number | null
+  sortino_ratio: number | null
   max_drawdown: number
   win_rate: number
   total_trades: number
-  profit_factor: number
-  calmar_ratio: number
+  profit_factor: number | null
+  calmar_ratio: number | null
 }
 
 interface PortfolioValue {
@@ -26,12 +26,12 @@ interface PortfolioValue {
 }
 
 interface BenchmarkComparison {
-  excess_return: number
-  beta: number
-  alpha: number
-  information_ratio: number
-  correlation: number
-  tracking_error: number
+  excess_return?: number | null
+  beta?: number | null
+  alpha?: number | null
+  information_ratio?: number | null
+  correlation?: number | null
+  tracking_error?: number | null
 }
 
 interface BacktestResult {
@@ -47,7 +47,12 @@ interface BacktestResult {
   }
   metrics: BacktestMetrics
   portfolio_values: PortfolioValue[]
-  benchmark_comparison: BenchmarkComparison
+  benchmark_comparison: BenchmarkComparison | null
+}
+
+function metric(value: number | null | undefined, digits = 2, suffix = '') {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toFixed(digits)}${suffix}` : '—'
 }
 
 const STRATEGIES = [
@@ -98,7 +103,8 @@ export default function BacktestPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>回測分析</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>策略歷史回測與績效驗證</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>策略歷史模擬，不代表未來績效</p>
+        <p className="text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>以前一交易日資料選股、下一交易日收盤成交；使用原始價格，未完整模擬除權息、拆股、流動性與滑價。無法計算的指標顯示「—」。</p>
       </div>
 
       {/* 設定面板 */}
@@ -174,27 +180,27 @@ export default function BacktestPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiCard
               title="總報酬率"
-              value={`${result.metrics.total_return > 0 ? '+' : ''}${result.metrics.total_return.toFixed(2)}%`}
+              value={metric(result.metrics.total_return, 2, '%')}
               accentColor={result.metrics.total_return >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}
             />
             <KpiCard
               title="年化報酬率"
-              value={`${result.metrics.annualized_return > 0 ? '+' : ''}${result.metrics.annualized_return.toFixed(2)}%`}
+              value={metric(result.metrics.annualized_return, 2, '%')}
               accentColor="var(--primary)"
             />
             <KpiCard
               title="最大回撤"
-              value={`${result.metrics.max_drawdown.toFixed(2)}%`}
+              value={metric(result.metrics.max_drawdown, 2, '%')}
               accentColor="var(--destructive)"
             />
             <KpiCard
               title="Sharpe Ratio"
-              value={result.metrics.sharpe_ratio.toFixed(2)}
+              value={metric(result.metrics.sharpe_ratio)}
               accentColor="#8b5cf6"
             />
             <KpiCard
               title="勝率"
-              value={`${result.metrics.win_rate.toFixed(1)}%`}
+              value={metric(result.metrics.win_rate, 1, '%')}
               accentColor="#f59e0b"
             />
             <KpiCard
@@ -204,12 +210,12 @@ export default function BacktestPage() {
             />
             <KpiCard
               title="獲利因子"
-              value={result.metrics.profit_factor.toFixed(2)}
+              value={metric(result.metrics.profit_factor)}
               accentColor="var(--stock-up)"
             />
             <KpiCard
               title="Calmar Ratio"
-              value={result.metrics.calmar_ratio.toFixed(2)}
+              value={metric(result.metrics.calmar_ratio)}
               accentColor="#f97316"
             />
           </div>
@@ -254,12 +260,12 @@ export default function BacktestPage() {
             <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--muted-foreground)' }}>基準比較</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
               {[
-                { label: '超額報酬', value: `${result.benchmark_comparison.excess_return.toFixed(2)}%` },
-                { label: 'Alpha', value: result.benchmark_comparison.alpha.toFixed(2) },
-                { label: 'Beta', value: result.benchmark_comparison.beta.toFixed(2) },
-                { label: 'Information Ratio', value: result.benchmark_comparison.information_ratio.toFixed(2) },
-                { label: '相關係數', value: result.benchmark_comparison.correlation.toFixed(2) },
-                { label: 'Tracking Error', value: `${result.benchmark_comparison.tracking_error.toFixed(2)}%` },
+                { label: '超額報酬', value: metric(result.benchmark_comparison?.excess_return, 2, '%') },
+                { label: 'Alpha', value: metric(result.benchmark_comparison?.alpha) },
+                { label: 'Beta', value: metric(result.benchmark_comparison?.beta) },
+                { label: 'Information Ratio', value: metric(result.benchmark_comparison?.information_ratio) },
+                { label: '相關係數', value: metric(result.benchmark_comparison?.correlation) },
+                { label: 'Tracking Error', value: metric(result.benchmark_comparison?.tracking_error, 2, '%') },
               ].map(({ label, value }) => (
                 <div key={label}>
                   <p className="text-xs mb-0.5" style={{ color: 'var(--muted-foreground)' }}>{label}</p>

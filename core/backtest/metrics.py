@@ -67,7 +67,7 @@ def calculate_volatility(portfolio_values: pd.Series, annualize: bool = True) ->
     if len(portfolio_values) < 2:
         return 0.0
 
-    returns = calculate_returns(portfolio_values)
+    returns = portfolio_values.pct_change(fill_method=None).dropna()
     vol = returns.std()
 
     # 安全檢查
@@ -94,14 +94,15 @@ def calculate_sharpe_ratio(portfolio_values: pd.Series, risk_free_rate: float = 
     if len(portfolio_values) < 2:
         return 0.0
 
-    annualized_return = calculate_annualized_return(portfolio_values) / 100
-    volatility = calculate_volatility(portfolio_values) / 100
+    returns = portfolio_values.pct_change(fill_method=None).dropna()
+    excess = returns - ((1 + risk_free_rate) ** (1 / 252) - 1)
+    volatility = excess.std(ddof=1)
 
     # 安全檢查：處理零波動率或 NaN
     if volatility == 0 or np.isnan(volatility) or np.isinf(volatility):
         return 0.0
 
-    result = (annualized_return - risk_free_rate) / volatility
+    result = excess.mean() / volatility * np.sqrt(252)
 
     # 處理結果為 NaN 或 Inf 的情況
     if np.isnan(result) or np.isinf(result):
@@ -117,22 +118,17 @@ def calculate_sortino_ratio(portfolio_values: pd.Series, risk_free_rate: float =
     if len(portfolio_values) < 2:
         return 0.0
 
-    returns = calculate_returns(portfolio_values)
-    annualized_return = calculate_annualized_return(portfolio_values) / 100
+    returns = portfolio_values.pct_change(fill_method=None).dropna()
+    if returns.empty:
+        return 0.0
+    excess = returns - ((1 + risk_free_rate) ** (1 / 252) - 1)
+    # Downside deviation is the RMS shortfall over ALL periods, not the
+    # conditional standard deviation of losses (constant losses are not riskless).
+    downside_std = float(np.sqrt(np.mean(np.minimum(excess, 0) ** 2)))
+    if downside_std == 0:
+        return float('inf') if excess.mean() > 0 else 0.0
 
-    # 只計算負報酬的標準差
-    downside_returns = returns[returns < 0]
-    if len(downside_returns) == 0:
-        # 沒有負報酬：Sortino 比率為正無限大
-        return float('inf')
-
-    downside_std = downside_returns.std() * np.sqrt(252)
-
-    # 安全檢查
-    if downside_std == 0 or np.isnan(downside_std) or np.isinf(downside_std):
-        return float('inf')
-
-    result = (annualized_return - risk_free_rate) / downside_std
+    result = excess.mean() / downside_std * np.sqrt(252)
 
     # 處理結果為 NaN 或 Inf 的情況
     if np.isnan(result):
@@ -262,6 +258,9 @@ def calculate_metrics(portfolio_values: pd.Series,
         績效指標結構
     """
     max_dd, max_dd_duration, _ = calculate_max_drawdown(portfolio_values)
+
+    if trades is not None and 'exit_date' in trades.columns:
+        trades = trades.loc[trades['exit_date'].notna()]
 
     if trades is not None and len(trades) > 0:
         win_rate = calculate_win_rate(trades)

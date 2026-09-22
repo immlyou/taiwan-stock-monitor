@@ -347,9 +347,31 @@ class PredictionTracker:
             created_date = datetime.strptime(prediction.created_at, '%Y-%m-%d %H:%M:%S').date()
             expire_date = datetime.strptime(prediction.expire_date, '%Y-%m-%d').date()
 
-            # 篩選預測期間的股價
-            mask = (price_data.index.date > created_date) & (price_data.index.date <= today)
-            period_prices = price_data.loc[mask, stock_id].dropna()
+            params = prediction.strategy_params or {}
+            session_horizon = params.get('horizon_unit') == 'trading_sessions'
+            if session_horizon:
+                # Model target is T -> T+N market sessions, not N calendar days.
+                # Missing stock quotes must not shift the target date forward.
+                signal_date = pd.Timestamp(params.get('signal_date', created_date)).date()
+                now = _now()
+                completed = price_data.index.date <= today
+                if now.hour * 60 + now.minute < 13 * 60 + 30:
+                    completed &= price_data.index.date < today
+                sessions = price_data.loc[(price_data.index.date > signal_date) & completed].sort_index()
+                if len(sessions) < prediction.verify_days:
+                    continue
+                sessions = sessions.iloc[:prediction.verify_days]
+                target_price = sessions[stock_id].iloc[-1]
+                if pd.isna(target_price) or target_price <= 0 or prediction.created_price <= 0:
+                    continue
+                expire_date = sessions.index[-1].date()
+                prediction.expire_date = expire_date.isoformat()
+                period_prices = sessions[stock_id].dropna()
+            else:
+                # Legacy calendar-based records retain their original semantics.
+                mask = (price_data.index.date > created_date) & (price_data.index.date <= min(today, expire_date))
+                period_prices = price_data.loc[mask, stock_id].sort_index().dropna()
+
 
             if len(period_prices) == 0:
                 continue
@@ -422,6 +444,8 @@ class PredictionTracker:
         # 處理過期的預測
         for prediction in self.predictions:
             if prediction.status == PredictionStatus.PENDING.value:
+                if (prediction.strategy_params or {}).get('horizon_unit') == 'trading_sessions':
+                    continue  # Calendar grace periods cannot expire a market-session target.
                 expire_date = datetime.strptime(prediction.expire_date, '%Y-%m-%d').date()
                 if today > expire_date + timedelta(days=3):  # 給 3 天緩衝
                     prediction.status = PredictionStatus.EXPIRED.value
@@ -440,7 +464,8 @@ class PredictionTracker:
 
         return results
 
-    def get_statistics(self, days: int = 30, prediction_type: str = None) -> Dict:
+    def get_statistics(self, days: int = 30, prediction_type: str = None,
+                       source: Optional[str] = None, model_version: Optional[str] = None) -> Dict:
         """
         取得預測統計
 
@@ -460,6 +485,8 @@ class PredictionTracker:
             p for p in self.predictions
             if datetime.strptime(p.created_at, '%Y-%m-%d %H:%M:%S') >= cutoff_date
             and (prediction_type is None or p.type == prediction_type)
+            and (source is None or p.source == source)
+            and (model_version is None or (p.strategy_params or {}).get('model_version') == model_version)
         ]
 
         total = len(filtered)
@@ -487,7 +514,8 @@ class PredictionTracker:
         success_rate = (success / verified * 100) if verified > 0 else 0
 
         # 計算平均報酬
-        returns = [p.actual_return for p in filtered if p.actual_return is not None]
+        returns = [p.actual_return for p in filtered if p.actual_return is not None
+                   and p.status in {PredictionStatus.SUCCESS.value, PredictionStatus.FAILED.value}]
         avg_return = sum(returns) / len(returns) if returns else 0
 
         # 依類型統計
@@ -511,7 +539,7 @@ class PredictionTracker:
             source_filtered = [p for p in filtered if p.source == source]
             source_verified = [p for p in source_filtered if p.status in [PredictionStatus.SUCCESS.value, PredictionStatus.FAILED.value]]
             source_success = sum(1 for p in source_filtered if p.status == PredictionStatus.SUCCESS.value)
-            source_returns = [p.actual_return for p in source_filtered if p.actual_return is not None]
+            source_returns = [p.actual_return for p in source_verified if p.actual_return is not None]
 
             by_source[source] = {
                 'total': len(source_filtered),

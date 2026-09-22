@@ -10,15 +10,16 @@ import {
 
 describe('release history', () => {
   it('uses the newest release as the current system version', () => {
-    expect(CURRENT_VERSION).toBe('v5.3.0')
-    expect(FRONTEND_VERSION).toBe('5.3.0')
-    expect(API_VERSION).toBe('5.3.0')
-    expect(RELEASE_MANIFEST.releaseDate).toBe('2026-09-22')
+    expect(CURRENT_VERSION).toBe('v5.4.0')
+    expect(FRONTEND_VERSION).toBe('5.4.0')
+    expect(API_VERSION).toBe('5.4.0')
+    expect(RELEASE_MANIFEST.releaseDate).toBe('2026-09-23')
     expect(RECENT_CHANGELOG[0].version).toBe(CURRENT_VERSION)
   })
 
   it('keeps every post-v4 release ordered, unique, and documented', () => {
     expect(RECENT_CHANGELOG.map((release) => release.version)).toEqual([
+      'v5.4.0',
       'v5.3.0',
       'v5.2.1',
       'v5.2.0',
@@ -46,5 +47,7 @@ describe('release history', () => {
     expect(log).toMatch(/45 秒/)
     expect(log).toMatch(/65 秒/)
     expect(log).toMatch(/single-flight/)
+    expect(log).toMatch(/23\/24 期已結清/)
+    expect(log).toMatch(/0\.0004/)
   })
 })

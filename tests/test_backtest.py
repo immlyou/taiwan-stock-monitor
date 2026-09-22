@@ -340,7 +340,9 @@ class TestBacktestRun:
             start_date=trading_dates[0],
             end_date=trading_dates[-1],
         )
-        assert len(result.portfolio_values) == len(trading_dates)
+        # Include pre-trade capital to account for first-session transaction costs.
+        assert len(result.portfolio_values) == len(trading_dates) + 1
+        assert result.portfolio_values.iloc[0] == engine.initial_capital
 
     def test_portfolio_values_always_non_negative(self, full_data, trading_dates):
         engine = BacktestEngine()

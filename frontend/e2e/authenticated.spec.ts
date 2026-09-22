@@ -97,6 +97,27 @@ test('settings exposes a retry action when its API is unavailable', async ({ pag
   await expect(page.getByRole('button', { name: '重新載入' })).toBeVisible()
 })
 
+test('backtest renders undefined ratios and absent benchmark without crashing', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.route('**/api/backtest/run', route => route.fulfill({
+    json: {
+      strategy: 'value', preset: 'standard',
+      config: { initial_capital: 1000000, start_date: '2024-01-01', end_date: '2024-12-31' },
+      metrics: { total_return: 0, annualized_return: 0, max_drawdown: 0,
+        sharpe_ratio: null, win_rate: 0, total_trades: 0, profit_factor: null, calmar_ratio: null },
+      portfolio_values: [{ date: '2024-01-01', value: 1000000 }],
+      benchmark_comparison: null,
+    },
+  }))
+  await page.goto('/backtest')
+  await expect(page.getByText(AUTH_EMAIL, { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: '執行回測' }).click()
+  await expect(page.getByText('獲利因子', { exact: true })).toBeVisible()
+  await expect(page.getByText('—', { exact: true })).toHaveCount(9)
+  expect(errors).toEqual([])
+})
+
 test('settings shows the complete version history through the current release', async ({ page }) => {
   await page.route('**/api/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname

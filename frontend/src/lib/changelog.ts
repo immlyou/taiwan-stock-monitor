@@ -24,6 +24,20 @@ import { CURRENT_VERSION } from './release'
 export const RECENT_CHANGELOG = [
   {
     version: CURRENT_VERSION,
+    date: '2026-09-23',
+    tag: 'Feature',
+    changes: [
+      '模型方法修正：統一 Wilder RSI／ATR／ADX、MFI 與交易週；XGBoost 保留缺值及共同交易日，LSTM 固定種子並揭露 EWMA 降級',
+      '回測正確性：分開訊號與成交日，修正成本、缺價估值、部分賣出及 Sharpe／Sortino；舊版回測不混用新版模型',
+      'XGBoost 生命週期：原始 24 期、480 筆選股全部核對；23/24 期已結清，1589 停牌保持未平倉，原始 9/24 指定日報價率不改寫',
+      '研究透明度：逐期交易狀態、拆股事件與官方公告、JSON 下載；平均 IC 0.0004 不當作模型已有效的證據',
+      '評分與顧問：修正百分位、缺資料假滿分及快取；排序分數不再當機率，移除分數換算預期年化報酬',
+      '參數優化與呈現：拒絕尚未實作策略參數，標示樣本內搜尋；回測無定義比率安全顯示，修正 Excel 年化欄位',
+      '驗證補強：公式與交易生命週期回歸、真實模型 API 契約、原生 XGBoost／PyTorch 共存與登入後 E2E',
+    ],
+  },
+  {
+    version: 'v5.3.0',
     date: '2026-09-22',
     tag: 'Feature',
     changes: [

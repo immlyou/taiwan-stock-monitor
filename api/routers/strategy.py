@@ -168,6 +168,10 @@ async def strategy_ai_lstm(stock_id: str):
         "name": name,
         "direction": result["direction"],
         "confidence": result["confidence"],
+        "score_kind": result.get("score_kind", "heuristic_not_probability"),
+        "model_used": result.get("model_used", "unknown"),
+        "experimental": True,
+        "data_as_of": result.get("data_as_of"),
         "predicted_prices": result["predicted_prices"],
         "trend_strength": result["trend_strength"],
         "predicted_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -249,11 +253,11 @@ async def _strategy_ai_xgboost_canonical():
             item["price"] = None
         for k, v in list(item.items()):
             if isinstance(v, float) and (pd.isna(v) or np.isinf(v)):
-                item[k] = 0.0
+                item[k] = None
             elif isinstance(v, dict):
                 for kk, vv in list(v.items()):
                     if isinstance(vv, float) and (pd.isna(vv) or np.isinf(vv)):
-                        v[kk] = 0.0
+                        v[kk] = None
 
     # feature_importance 也清理
     for k, v in list(feature_importance.items()):
@@ -265,6 +269,10 @@ async def _strategy_ai_xgboost_canonical():
         "total_candidates":   len(all_results),
         "stocks":             top_results,
         "feature_importance": feature_importance,
+        "data_as_of": str(close.index[-1])[:10] if close is not None and not close.empty else None,
+        "score_kind": "heuristic_not_probability",
+        "experimental": True,
+        "validation_status": "not_validated_for_investment",
     }
 
 
@@ -302,7 +310,15 @@ async def strategy_ai_xgboost_backtest():
             "status": "not_computed",
             "note": "尚未計算回測。可執行 scripts/backtest_xgboost.py，或啟用排程後等待產生。",
         }
-    return {"status": "ok", **res}
+    return {**res, "status": "ok" if res.get("current_model_comparable") else "legacy_not_comparable"}
+
+
+@router.get("/strategy/ai-xgboost/lifecycle")
+def strategy_ai_xgboost_lifecycle():
+    """Frozen 24-period execution research, separate from live scores and IC."""
+    from core.xgboost_lifecycle import load_lifecycle_report
+
+    return load_lifecycle_report()
 
 
 @router.get("/strategy/ai-xgboost/live-accuracy")
@@ -315,9 +331,16 @@ async def strategy_ai_xgboost_live_accuracy(
     剛上線時資料量少，需累積數週後才有統計意義。
     """
     from core.prediction_tracker import get_tracker
+    from core.ai_models import XGBoostStockPicker
 
-    stats = get_tracker().get_statistics(days=days, prediction_type="stock_pick")
-    return {"source": "xgboost", "days": days, "stats": stats}
+    stats = get_tracker().get_statistics(days=days, prediction_type="stock_pick", source="xgboost",
+                                        model_version=XGBoostStockPicker.MODEL_VERSION)
+    verified = stats.get("success", 0) + stats.get("failed", 0)
+    if not verified:
+        stats = {**stats, "success_rate": None, "avg_return": None}
+    return {"source": "xgboost", "model_version": XGBoostStockPicker.MODEL_VERSION,
+            "horizon_unit": "trading_sessions", "return_basis": "gross_signal_close_to_target_close",
+            "validation_status": "research_only", "days": days, "stats": stats}
 
 
 # ════════════════════════════════════════════════════════

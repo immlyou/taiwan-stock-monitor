@@ -54,9 +54,9 @@ def resample_ohlcv(
         return result
 
     # 週線或月線重採樣
-    # 使用新版 pandas resample 規則: W-MON (週線以週一開始), ME (月末)
+    # Weekly bins are right-closed: W-FRI groups Monday through Friday.
     resample_map = {
-        'W': 'W-MON',  # 週線，以週一為週期起始
+        'W': 'W-FRI',  # 週線，以週五為週期結束
         'M': 'ME',     # 月線，月末 (Month End)
     }
     resample_rule = resample_map.get(timeframe, timeframe)
@@ -150,6 +150,40 @@ def ema(data: pd.DataFrame, period: int = 20) -> pd.DataFrame:
     return data.ewm(span=period, adjust=False).mean()
 
 
+def _wilder_average(data, period: int, seed_period: Optional[int] = None):
+    """SMA-seeded Wilder smoothing; missing observations reset the warmup.
+
+    seed_period supports the p-1 initial DM/TR sum used by Wilder's ADX.
+    Series/DataFrame labels are preserved; non-finite inputs remain unavailable.
+    """
+    if period < 1:
+        raise ValueError("period must be positive")
+    seed = period if seed_period is None else seed_period
+    if seed < 1:
+        raise ValueError("seed_period must be positive")
+    values = np.asarray(data, dtype=float)
+    if values.ndim == 1:
+        values = values[:, None]
+    result = np.full(values.shape, np.nan)
+    count = np.zeros(values.shape[1], dtype=int)
+    total = np.zeros(values.shape[1])
+    state = np.full(values.shape[1], np.nan)
+    for i, row in enumerate(values):
+        valid = np.isfinite(row)
+        count[~valid], total[~valid], state[~valid] = 0, 0, np.nan
+        warm = valid & (count < seed)
+        active = valid & ~warm
+        total[warm] += row[warm]
+        count[warm] += 1
+        initial = warm & (count == seed)
+        state[initial] = total[initial] / period
+        state[active] = (state[active] * (period - 1) + row[active]) / period
+        result[i] = state
+    if isinstance(data, pd.Series):
+        return pd.Series(result[:, 0], index=data.index, name=data.name)
+    return pd.DataFrame(result, index=data.index, columns=data.columns)
+
+
 def rsi(data: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """
     相對強弱指標 (Relative Strength Index)
@@ -167,18 +201,11 @@ def rsi(data: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         RSI 數值 (0-100)
     """
     delta = data.diff()
-    gain = delta.where(delta > 0, 0)
-    loss = (-delta).where(delta < 0, 0)
-
-    # 使用 Wilder's smoothing (等同於 alpha=1/period 的 EMA)
-    # 這是業界標準 RSI 公式，與各大看盤軟體一致
-    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi_value = 100 - (100 / (1 + rs))
-
-    return rsi_value
+    avg_gain = _wilder_average(delta.clip(lower=0), period)
+    avg_loss = _wilder_average((-delta).clip(lower=0), period)
+    total = avg_gain + avg_loss
+    # TA-Lib convention: no movement -> 0, gain only -> 100. Warmup stays NaN.
+    return (100 * avg_gain / total.replace(0, np.nan)).mask(total == 0, 0.0)
 
 
 def macd(data: pd.DataFrame,
@@ -263,7 +290,7 @@ def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
     else:
         tr = np.maximum(np.maximum(tr1, tr2), tr3)
 
-    atr_value = tr.rolling(window=period, min_periods=1).mean()
+    atr_value = _wilder_average(tr, period)
 
     return atr_value
 
@@ -272,7 +299,7 @@ def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
 
 def returns(data: pd.DataFrame, periods: int = 1) -> pd.DataFrame:
     """計算報酬率"""
-    return data.pct_change(periods=periods)
+    return data.pct_change(periods=periods, fill_method=None)
 
 
 def cumulative_returns(data: pd.DataFrame) -> pd.DataFrame:
@@ -444,6 +471,8 @@ def kdj(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
 
     Notes:
     ------
+    - 本專案保留 EMA-span 平滑變體（alpha=2/(m+1)、首筆 RSV 初始化）。
+      不是 50 起始、alpha=1/m 的台股 KD，也不是 TA-Lib STOCH 的 SMA 變體。
     - K < 20 且 J < 0: 超賣區，可能反彈
     - K > 80 且 J > 100: 超買區，可能回落
     - K 上穿 D: 黃金交叉，買入訊號
@@ -634,14 +663,22 @@ def adx(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
             index=high.index, columns=high.columns
         )
 
-    # 平滑處理
-    atr = tr.rolling(window=period, min_periods=1).mean()
-    plus_di = 100 * plus_dm.rolling(window=period, min_periods=1).mean() / atr.replace(0, np.nan)
-    minus_di = 100 * minus_dm.rolling(window=period, min_periods=1).mean() / atr.replace(0, np.nan)
+    # Wilder initializes DM/TR from p-1 moves, then applies the p-day recursion.
+    valid = high_diff.notna() & low_diff.notna() & tr.notna()
+    plus_dm = plus_dm.where(valid)
+    minus_dm = minus_dm.where(valid)
+    smoothed_tr = _wilder_average(tr, period, period - 1)
+    plus_di = 100 * _wilder_average(plus_dm, period, period - 1) / smoothed_tr.replace(0, np.nan)
+    minus_di = 100 * _wilder_average(minus_dm, period, period - 1) / smoothed_tr.replace(0, np.nan)
+    plus_di = plus_di.mask(smoothed_tr == 0, 0.0)
+    minus_di = minus_di.mask(smoothed_tr == 0, 0.0)
+    plus_di.iloc[:period] = np.nan
+    minus_di.iloc[:period] = np.nan
 
     # 計算 DX 和 ADX
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-    adx_value = dx.rolling(window=period, min_periods=1).mean()
+    total_di = plus_di + minus_di
+    dx = (100 * (plus_di - minus_di).abs() / total_di.replace(0, np.nan)).mask(total_di == 0, 0.0)
+    adx_value = _wilder_average(dx, period)
 
     return adx_value, plus_di, minus_di
 
@@ -684,17 +721,15 @@ def mfi(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame,
 
     # 正向和負向資金流量
     tp_change = tp.diff()
-    positive_mf = raw_mf.where(tp_change > 0, 0)
-    negative_mf = raw_mf.where(tp_change < 0, 0)
+    valid = tp_change.notna() & raw_mf.notna()
+    positive_mf = raw_mf.where(tp_change > 0, 0).where(valid)
+    negative_mf = raw_mf.where(tp_change < 0, 0).where(valid)
 
     # 計算資金流量比率
-    positive_sum = positive_mf.rolling(window=period, min_periods=1).sum()
-    negative_sum = negative_mf.rolling(window=period, min_periods=1).sum()
-
-    mfr = positive_sum / negative_sum.replace(0, np.nan)
-
-    # 計算 MFI
-    mfi_value = 100 - (100 / (1 + mfr))
+    positive_sum = positive_mf.rolling(window=period, min_periods=period).sum()
+    negative_sum = negative_mf.rolling(window=period, min_periods=period).sum()
+    total = positive_sum + negative_sum
+    mfi_value = (100 * positive_sum / total.replace(0, np.nan)).mask(total == 0, 0.0)
 
     return mfi_value
 
@@ -738,14 +773,25 @@ def psar(high: pd.DataFrame, low: pd.DataFrame,
         l = low[col].values
         n = len(h)
 
-        psar_values = np.zeros(n)
+        psar_values = np.full(n, np.nan)
         trend = np.ones(n)  # 1 = 上漲, -1 = 下跌
         af = af_start
-        ep = h[0]  # 極值點
+        valid = np.isfinite(h) & np.isfinite(l)
+        valid_positions = np.flatnonzero(valid)
+        if not len(valid_positions):
+            result[col] = psar_values
+            continue
+        first = valid_positions[0]
+        ep = h[first]  # 極值點
 
-        psar_values[0] = l[0]
+        psar_values[first] = l[first]
 
-        for i in range(1, n):
+        for i in range(first + 1, n):
+            if not valid[i]:
+                continue
+            if not valid[i - 1]:
+                psar_values[i], trend[i], af, ep = l[i], 1, af_start, h[i]
+                continue
             if trend[i-1] == 1:  # 上漲趨勢
                 psar_values[i] = psar_values[i-1] + af * (ep - psar_values[i-1])
                 psar_values[i] = min(psar_values[i], l[i-1], l[i-2] if i > 1 else l[i-1])

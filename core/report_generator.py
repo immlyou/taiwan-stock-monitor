@@ -1078,7 +1078,7 @@ class ReportGenerator:
                 ],
                 '數值': [
                     f'{metrics.total_return:.2f}',
-                    f'{metrics.annual_return:.2f}',
+                    f'{metrics.annualized_return:.2f}',
                     f'{metrics.volatility:.2f}',
                     f'{metrics.sharpe_ratio:.2f}',
                     f'{metrics.sortino_ratio:.2f}',

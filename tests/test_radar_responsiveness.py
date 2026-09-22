@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 
 
-def test_health_remains_responsive_while_radar_work_is_running(monkeypatch):
+def test_health_remains_responsive_while_radar_work_is_running(monkeypatch, isolated_api_lifespan):
     """A slow radar calculation must not block unrelated HTTP requests."""
     import api.deps
     from api_server import app

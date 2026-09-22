@@ -14,11 +14,11 @@ from core.stock_score import calculate_score_table
 
 logger = logging.getLogger(__name__)
 
-# 風險偏好 → 單一持股上限權重、候選檔數、報酬係數
+# 風險偏好 → 候選檔數（不是預期報酬模型）
 _RISK = {
-    "conservative": {"max_positions": 6, "exp_factor": 0.8},
-    "moderate": {"max_positions": 8, "exp_factor": 1.0},
-    "aggressive": {"max_positions": 10, "exp_factor": 1.3},
+    "conservative": {"max_positions": 6},
+    "moderate": {"max_positions": 8},
+    "aggressive": {"max_positions": 10},
 }
 
 
@@ -28,12 +28,6 @@ def _num(v) -> Optional[float]:
         return None if f != f else f  # NaN guard
     except (TypeError, ValueError):
         return None
-
-
-def _expected_annual_return(avg_score: float, risk_factor: float) -> float:
-    """粗略推估年化報酬(%)：score 50 約 6% 基準，每 +10 分約 +2.5%，再乘風險係數。"""
-    base = 0.06 + (avg_score - 50) / 10 * 0.025
-    return round(max(-0.10, base) * risk_factor * 100, 1)
 
 
 def analyze_portfolio(
@@ -223,19 +217,14 @@ def analyze_portfolio(
                 pw_score += sc2 * v2
                 pw_val += v2
         post_avg = (pw_score / pw_val) if pw_val > 0 else (avg_score if avg_score > 0 else 50.0)
-        exp_ret = _expected_annual_return(post_avg, cfg["exp_factor"])
         t = float(target_roi)
-        verdict = "可行" if t <= exp_ret else "具挑戰" if t <= exp_ret * 1.5 else "偏高"
         feasibility = {
             "target_roi": t,
-            "estimated_annual_return": exp_ret,
+            "estimated_annual_return": None,
             "post_trade_avg_score": round(post_avg, 1),
-            "verdict": verdict,
-            "note": (
-                f"依「交易後」投組量化評分（市值加權平均 {round(post_avg, 1)}）推估年化報酬約 {exp_ret}%（非保證），"
-                f"集中度{concentration}、風險偏好「{risk_tolerance}」。目標 {t}% 評為「{verdict}」。"
-                + ("　達標需提高持股評分或承擔更高波動。" if verdict != "可行" else "")
-            ),
+            "verdict": "尚無法評估",
+            "validation_status": "not_calibrated",
+            "note": f"交易後量化評分 {round(post_avg, 1)} 是相對排序，不是年化報酬模型；缺少樣本外驗證，不能據此判定目標 {t}% 是否可行。",
         }
 
     return {
@@ -297,6 +286,7 @@ def advisor_narrative(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "1. **持股健檢點評**（80字內）：集中度、評分結構、主要風險\n"
         "2. **配置/再平衡理由**（100字內）：為何這樣買/賣\n"
         "3. **達標可行性與風險提醒**（80字內）\n"
+        "量化評分不是報酬或機率模型；不得自行換算年化報酬、勝率或宣稱目標可達成。\n"
         "4. **操盤紀律提醒**（2-3條，每條30字內）：停損/加碼/分批等\n"
         "語氣專業直接、務實，務必提醒投資有風險、此為參考非投資建議。"
     )
