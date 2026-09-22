@@ -5,10 +5,13 @@ import { RefreshCw, Check, AlertCircle } from 'lucide-react'
 import { useSWRConfig } from 'swr'
 import { systemApi, QuotaExceededError, ApiError } from '@/lib/api/client'
 import { useAppStore } from '@/store/useAppStore'
+import { useAccount } from '@/lib/hooks/useAccount'
 
 type Status = 'idle' | 'loading' | 'success' | 'error'
 
 export function RefreshDataButton() {
+  const { data: account, error: accountError } = useAccount()
+  const canRefresh = !accountError && account?.role === 'admin'
   const setDataDate = useAppStore((s) => s.setDataDate)
   const isMobile = useAppStore((s) => s.isMobile)
   const { mutate } = useSWRConfig()
@@ -85,7 +88,7 @@ export function RefreshDataButton() {
     <div className="relative flex items-center">
       <button
         onClick={handleRefresh}
-        disabled={isLoading}
+        disabled={isLoading || !canRefresh}
         className="p-2 rounded-md transition-colors hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-70 shrink-0"
         style={{
           minWidth: 40,
@@ -95,7 +98,7 @@ export function RefreshDataButton() {
           justifyContent: 'center',
         }}
         aria-label="更新最新股票資料"
-        title={isLoading ? '資料更新中…' : message || '更新最新股票資料'}
+        title={!canRefresh ? '全域資料更新僅限管理員' : isLoading ? '資料更新中…' : message || '更新最新股票資料'}
         aria-busy={isLoading}
       >
         <Icon

@@ -46,7 +46,7 @@ async def get_user_id(request: Request) -> str:
         raise HTTPException(status_code=400, detail="無效的使用者識別碼") from exc
 
 
-async def verify_api_key(
+async def verify_service_key(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> bool:
     """驗證 API Key。雲端未設定金鑰時 fail-closed。"""
@@ -61,6 +61,35 @@ async def verify_api_key(
         credentials.credentials.encode(), API_KEY.encode()
     ):
         raise HTTPException(status_code=401, detail="無效的 API Key")
+    return True
+
+
+def account_store():
+    from api import state
+    from core.accounts import AccountStore
+    return AccountStore(state.DATA_DIR)
+
+
+def verify_api_key(request: Request, _: bool = Depends(verify_service_key)) -> bool:
+    """Recheck live account state on every gateway request, not JWT role claims.
+
+    A bare service key remains a privileged credential for CLI/SSR tooling.
+    Browsers cannot set actor/bootstrapping headers: the gateway overwrites them.
+    """
+    from core.accounts import AccountError, authorize_request
+
+    user_id = request.headers.get("x-user-id")
+    email = request.headers.get("x-user-email")
+    if email or (API_KEY and user_id):
+        try:
+            account = account_store().resolve(
+                user_id or "", email or "",
+                bootstrap_email=request.headers.get("x-bootstrap-email", ""),
+            )
+            authorize_request(account, request.method, request.url.path)
+            request.state.account = account
+        except AccountError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
     return True
 
 

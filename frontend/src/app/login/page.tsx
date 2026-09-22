@@ -1,10 +1,20 @@
 import { redirect } from 'next/navigation'
 
-import { auth, signIn } from '@/auth'
+import { auth, signIn, signOut } from '@/auth'
+import { identityFromSession } from '@/lib/auth/identity'
+import { getCurrentAccount } from '@/lib/auth/account-server'
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: {
+  searchParams: Promise<{ error?: string }>
+}) {
+  const { error } = await searchParams
   const session = await auth()
-  if (session?.user?.id) redirect('/')
+  const identity = identityFromSession(session)
+  let active = false
+  if (identity.authenticated) {
+    try { await getCurrentAccount(identity); active = true } catch { /* show recovery/sign-out */ }
+  }
+  if (active && !error) redirect('/')
 
   async function signInWithGoogle() {
     'use server'
@@ -24,6 +34,10 @@ export default async function LoginPage() {
         <p className="text-sm mb-8" style={{ color: 'var(--muted-foreground)' }}>
           投資組合、自選股、警報與設定會依 Google 帳號分開保存。
         </p>
+        {(error || identity.authenticated) && <p role="alert" className="text-sm mb-4">
+          {error === 'ServiceUnavailable' ? '帳號服務暫時無法使用，請稍後重試。'
+            : '請使用已受邀且啟用的 Google 帳號；若無法登入，請聯絡管理員。'}
+        </p>}
         <form action={signInWithGoogle}>
           <button
             type="submit"
@@ -33,6 +47,10 @@ export default async function LoginPage() {
             使用 Google 登入
           </button>
         </form>
+        {identity.authenticated && <form action={async () => {
+          'use server'
+          await signOut({ redirectTo: '/login' })
+        }}><button className="mt-4 underline" type="submit">登出並切換帳號</button></form>}
       </section>
     </main>
   )

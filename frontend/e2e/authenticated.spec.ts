@@ -1,5 +1,6 @@
 import { encode } from '@auth/core/jwt'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import releaseManifest from '../../release-manifest.json'
 
 const AUTH_COOKIE = 'authjs.session-token'
 const AUTH_SECRET = process.env.AUTH_SECRET ?? 'ci-only-secret-ci-only-secret-1234'
@@ -119,7 +120,8 @@ test('settings shows the complete version history through the current release', 
     if (pathname === '/api/system/info') {
       return route.fulfill({
         json: {
-          version: '5.2.1', releaseVersion: '5.2.1', apiVersion: '5.2.1', uptime: '1 分',
+          version: releaseManifest.apiVersion, releaseVersion: releaseManifest.productVersion,
+          apiVersion: releaseManifest.apiVersion, uptime: '1 分',
           dataLastUpdated: '2026-08-28', stockCount: 2300, dbSize: '1.0 GB',
         },
       })
@@ -130,7 +132,8 @@ test('settings shows the complete version history through the current release', 
   await page.goto('/settings')
 
   await expect(page.getByRole('heading', { name: '版本記錄' })).toBeVisible()
-  await expect(page.getByText('v5.2.1', { exact: true })).toHaveCount(2)
+  await expect(page.getByText(`v${releaseManifest.productVersion}`, { exact: true })).toHaveCount(2)
+  await expect(page.getByText('v5.2.1', { exact: true })).toHaveCount(1)
   await expect(page.getByText('v0.1.0', { exact: true })).toHaveCount(1)
   await expect(page.getByText(/Google OAuth/).first()).toBeVisible()
   await expect(page.getByText(/Fugle \/ TWSE/).first()).toBeVisible()

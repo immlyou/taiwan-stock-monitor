@@ -22,10 +22,7 @@ async function proxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const identity = identityFromSession(
-    await auth(),
-    process.env.AUTH_ALLOWED_EMAIL
-  )
+  const identity = identityFromSession(await auth())
   if (!identity.authenticated) {
     return Response.json(
       { error: 'authentication_required' },
@@ -34,7 +31,20 @@ async function proxy(
   }
 
   const { path } = await params
-  const url = `${BACKEND_URL}/${path.join('/')}${request.nextUrl.search}`
+  // Internal identity assertions are never browser-accessible. Reject encoded
+  // separators/dot segments too, so URL normalization cannot bypass this rule.
+  const unsafePath = path.some((segment) =>
+    !segment || segment === '.' || segment === '..' || /[/\\%\u0000-\u001f\u007f]/.test(segment))
+  if (unsafePath || path[0] === 'internal') {
+    return Response.json({ error: 'forbidden_path' }, { status: 403 })
+  }
+  const origin = request.headers.get('origin')
+  if (!['GET', 'HEAD'].includes(request.method) && (
+    (origin && origin !== request.nextUrl.origin) || request.headers.get('sec-fetch-site') === 'cross-site'
+  )) {
+    return Response.json({ error: 'forbidden_origin' }, { status: 403 })
+  }
+  const url = `${BACKEND_URL}/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`
   const isStrategyAi = path[0] === 'strategy' && path[1]?.startsWith('ai-')
   const upstreamTimeoutMs = path[0] === 'refresh'
     ? REFRESH_UPSTREAM_TIMEOUT_MS
@@ -49,6 +59,8 @@ async function proxy(
   if (contentType) headers.set('content-type', contentType)
   if (API_KEY) headers.set('authorization', `Bearer ${API_KEY}`)
   headers.set('x-user-id', identity.userId)
+  headers.set('x-user-email', identity.email)
+  headers.set('x-bootstrap-email', process.env.AUTH_ALLOWED_EMAIL || '')
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
   const body = hasBody ? await request.arrayBuffer() : undefined
@@ -72,14 +84,14 @@ async function proxy(
       cache: 'no-store',
       signal: upstreamController.signal,
     })
-  } catch (error) {
+  } catch {
     if (upstreamController.signal.aborted) {
       return Response.json(
         { error: timedOut ? 'upstream_timeout' : 'request_cancelled' },
         { status: timedOut ? 504 : 499 }
       )
     }
-    throw error
+    return Response.json({ error: 'upstream_unavailable' }, { status: 503 })
   } finally {
     clearTimeout(timeoutId)
     request.signal.removeEventListener('abort', abortUpstream)
@@ -90,6 +102,7 @@ async function proxy(
   responseHeaders.delete('content-encoding')
   responseHeaders.delete('content-length')
   responseHeaders.delete('transfer-encoding')
+  responseHeaders.set('cache-control', 'private, no-store')
 
   return new Response(response.body, {
     status: response.status,

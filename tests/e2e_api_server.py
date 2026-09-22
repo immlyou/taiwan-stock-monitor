@@ -20,6 +20,15 @@ atexit.register(_storage.cleanup)
 state.DATA_DIR = helpers.DATA_DIR = Path(_storage.name)
 notification.NOTIFICATION_DATA_DIR = state.DATA_DIR
 
+# Deterministic invited identities; OAuth consent is outside this local suite.
+from core.accounts import AccountStore
+
+accounts_store = AccountStore(state.DATA_DIR)
+accounts_store.resolve("google_contract_alice", "contract@example.test", bootstrap_email="contract@example.test", login=True)
+for suffix in ("bob", "settings"):
+    accounts_store.invite("google_contract_alice", "contract@example.test", f"{suffix}@example.test", "member")
+    accounts_store.resolve(f"google_contract_{suffix}", f"{suffix}@example.test", login=True)
+
 dates = pd.date_range(end=today_taipei(), periods=120, freq="D")
 prices = pd.DataFrame({"2330": [100.] * 120}, index=dates)
 categories = pd.DataFrame({"stock_id": ["2330"], "name": ["台積電"]})
@@ -47,10 +56,10 @@ notification.LineNotifyChannel.send = disabled_delivery
 # Import real routers after binding storage/data; no fake API payloads.
 from fastapi import FastAPI
 from api.response import SafeJSONResponse
-from api.routers import alerts, dashboard, predictions, settings
+from api.routers import accounts, alerts, dashboard, predictions, settings
 
 app = FastAPI(default_response_class=SafeJSONResponse)
-for router in (alerts.router, dashboard.router, predictions.router, settings.router):
+for router in (accounts.router, alerts.router, dashboard.router, predictions.router, settings.router):
     app.include_router(router)
 
 
