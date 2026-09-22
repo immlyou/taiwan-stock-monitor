@@ -117,6 +117,7 @@ async def backtest_run(req: BacktestRequest):
             "strategy": req.strategy,
             "preset": req.preset,
             "config": {
+                **result.config,
                 "initial_capital": req.initial_capital,
                 "rebalance_freq": req.rebalance_freq,
                 "max_stocks": req.max_stocks,

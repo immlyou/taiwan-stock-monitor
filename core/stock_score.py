@@ -7,6 +7,7 @@ reduce the available component set for that stock.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from typing import Any, Dict, Iterable, Optional
 
 import numpy as np
@@ -101,9 +102,7 @@ def _percentile_score(
     if values.empty:
         return pd.Series(dtype=float)
 
-    ranked = values.rank(pct=True) * 100
-    if not higher_is_better:
-        ranked = 101 - ranked
+    ranked = values.rank(pct=True, ascending=higher_is_better) * 100
     return ranked.clip(lower=0, upper=100)
 
 
@@ -154,6 +153,22 @@ def _load_inputs(loader: Any) -> Dict[str, pd.DataFrame]:
     return {key: df for key in keys if (df := _safe_loader_get(loader, key)) is not None}
 
 
+def _score_input_digest(data: Dict[str, pd.DataFrame], date: pd.Timestamp) -> str:
+    """Hash only observations used by scoring; same-day corrections invalidate cache."""
+    digest = hashlib.blake2b(digest_size=16)
+    for key, frame in sorted(data.items()):
+        if frame.empty:
+            continue
+        rows = 121 if key == "close" else 20 if key == "volume" else 5 if key in {
+            "foreign_investors", "investment_trust", "dealer"
+        } else 1
+        window = frame.loc[frame.index <= date].tail(rows)
+        digest.update(key.encode())
+        digest.update(str(list(window.columns)).encode())
+        digest.update(pd.util.hash_pandas_object(window, index=True).values.tobytes())
+    return digest.hexdigest()
+
+
 def calculate_score_table(
     loader: Any,
     stock_ids: Optional[Iterable[str]] = None,
@@ -177,15 +192,16 @@ def calculate_score_table(
         try:
             from core.data_loader import DataCache
             _dc = DataCache()
-            _cache_key = f"_scorecard_{pd.Timestamp(latest_date).strftime('%Y%m%d')}"
+            _cache_key = f"_scorecard_{pd.Timestamp(latest_date).strftime('%Y%m%d')}_{_score_input_digest(data, latest_date)}"
             _cached = _dc.get(_cache_key)
             if _cached is not None:
                 return _cached
         except Exception:
             _cache_key = None
 
-    stocks = list(stock_ids) if stock_ids is not None else list(close.columns)
-    stocks = [_stock_id(s) for s in stocks if _stock_id(s) in close.columns]
+    selected = None if stock_ids is None else {_stock_id(s) for s in stock_ids}
+    # Percentiles always use the market universe, never the requested display subset.
+    stocks = list(close.columns)
     if not stocks:
         return pd.DataFrame()
 
@@ -207,9 +223,9 @@ def calculate_score_table(
         _percentile_score(revenue_mom, higher_is_better=True),
     ])
 
-    returns_20 = close[stocks].pct_change(20).loc[:latest_date].iloc[-1] if len(close.loc[:latest_date]) > 20 else pd.Series(dtype=float)
-    returns_60 = close[stocks].pct_change(60).loc[:latest_date].iloc[-1] if len(close.loc[:latest_date]) > 60 else pd.Series(dtype=float)
-    returns_120 = close[stocks].pct_change(120).loc[:latest_date].iloc[-1] if len(close.loc[:latest_date]) > 120 else pd.Series(dtype=float)
+    returns_20 = close[stocks].pct_change(20, fill_method=None).loc[:latest_date].iloc[-1] if len(close.loc[:latest_date]) > 20 else pd.Series(dtype=float)
+    returns_60 = close[stocks].pct_change(60, fill_method=None).loc[:latest_date].iloc[-1] if len(close.loc[:latest_date]) > 60 else pd.Series(dtype=float)
+    returns_120 = close[stocks].pct_change(120, fill_method=None).loc[:latest_date].iloc[-1] if len(close.loc[:latest_date]) > 120 else pd.Series(dtype=float)
 
     volume = _normalize_columns(data.get("volume", pd.DataFrame()))
     volume_score = pd.Series(dtype=float)
@@ -230,7 +246,7 @@ def calculate_score_table(
     for key in ["foreign_investors", "investment_trust", "dealer"]:
         df = _normalize_columns(data.get(key, pd.DataFrame()))
         if not df.empty:
-            flow = df.reindex(columns=stocks).loc[:latest_date].tail(5).sum()
+            flow = df.reindex(columns=stocks).loc[:latest_date].tail(5).sum(min_count=1)
             chip_components.append(_percentile_score(flow, higher_is_better=True))
     foreign_holding = _latest_row(data.get("foreign_holding", pd.DataFrame()), latest_date).reindex(stocks)
     chip_components.append(_percentile_score(foreign_holding, higher_is_better=True))
@@ -242,7 +258,7 @@ def calculate_score_table(
     flagged = _latest_row(data.get("is_flagged", pd.DataFrame()), latest_date).reindex(stocks)
     flagged_score = pd.Series(dtype=float)
     if not flagged.empty:
-        numeric_flagged = pd.to_numeric(flagged, errors="coerce").fillna(0)
+        numeric_flagged = pd.to_numeric(flagged, errors="coerce").dropna()
         flagged_score = numeric_flagged.map(lambda v: 0.0 if v else 100.0)
     quality_score = _mean_components([
         _percentile_score(market_value, higher_is_better=True, positive_only=True),
@@ -252,7 +268,7 @@ def calculate_score_table(
     ])
 
     price_window = close[stocks].loc[:latest_date].tail(60)
-    returns = price_window.pct_change().dropna()
+    returns = price_window.pct_change(fill_method=None)
     volatility = returns.std() if not returns.empty else pd.Series(dtype=float)
     drawdown = _max_drawdown(price_window)
 
@@ -311,7 +327,7 @@ def calculate_score_table(
         except Exception:
             pass
 
-    return sorted_table
+    return sorted_table if selected is None else sorted_table.loc[sorted_table.index.isin(selected)]
 
 
 def score_record_from_row(row: pd.Series) -> Dict[str, Any]:

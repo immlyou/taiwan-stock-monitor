@@ -19,7 +19,8 @@ interface OptimizeResult {
   totalReturn: number
   sharpe: number
   maxDrawdown: number
-  winRate: number
+  winRate: number | null
+  note?: string
   tradeCount: number
   grid: Array<{
     params: Record<string, number>
@@ -32,14 +33,10 @@ interface OptimizeResult {
 const PARAM_RANGES: ParamRange[] = [
   { key: 'fastPeriod', label: '快線週期', min: 3, max: 20, step: 1, unit: '日' },
   { key: 'slowPeriod', label: '慢線週期', min: 10, max: 60, step: 5, unit: '日' },
-  { key: 'rsiThreshold', label: 'RSI 閾值', min: 20, max: 40, step: 5, unit: '' },
-  { key: 'stopLoss', label: '停損 %', min: 3, max: 15, step: 1, unit: '%' },
 ]
 
 const STRATEGIES = [
   { key: 'ma_crossover', label: '均線交叉' },
-  { key: 'rsi_reversal', label: 'RSI 反轉' },
-  { key: 'breakout', label: '突破策略' },
 ]
 
 export default function OptimizerPage() {
@@ -50,8 +47,6 @@ export default function OptimizerPage() {
   const [ranges, setRanges] = useState<Record<string, { min: number; max: number }>>({
     fastPeriod: { min: 3, max: 15 },
     slowPeriod: { min: 10, max: 40 },
-    rsiThreshold: { min: 25, max: 35 },
-    stopLoss: { min: 5, max: 10 },
   })
   const [result, setResult] = useState<OptimizeResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -63,11 +58,13 @@ export default function OptimizerPage() {
   }
 
   const estimateCount = () => {
-    return PARAM_RANGES.reduce((total, p) => {
-      const range = ranges[p.key]
-      const count = Math.floor((range.max - range.min) / p.step) + 1
-      return total * count
-    }, 1)
+    let count = 0
+    for (let fast = ranges.fastPeriod.min; fast <= ranges.fastPeriod.max; fast++) {
+      for (let slow = ranges.slowPeriod.min; slow <= ranges.slowPeriod.max; slow += 5) {
+        if (fast < slow) count++
+      }
+    }
+    return count
   }
 
   const handleOptimize = async () => {
@@ -104,7 +101,7 @@ export default function OptimizerPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>參數優化</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>Grid Search 暴力窮舉最佳參數</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>均線交叉樣本內參數搜尋，不代表樣本外績效；RSI、突破及停損參數尚未實作。</p>
       </div>
 
       {/* 設定 */}
@@ -238,7 +235,8 @@ export default function OptimizerPage() {
             className="rounded-lg p-4"
             style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: '4px solid var(--primary)' }}
           >
-            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--primary)' }}>最佳參數組合</h3>
+            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--primary)' }}>樣本內最高評分組合</h3>
+            <p className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>{result.note}</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {Object.entries(result.bestParams).map(([key, value]) => {
                 const paramDef = PARAM_RANGES.find(p => p.key === key)
@@ -263,7 +261,7 @@ export default function OptimizerPage() {
               { label: '總報酬率', value: `${result.totalReturn > 0 ? '+' : ''}${result.totalReturn.toFixed(2)}%` },
               { label: 'Sharpe Ratio', value: result.sharpe.toFixed(2) },
               { label: '最大回撤', value: `${result.maxDrawdown.toFixed(2)}%` },
-              { label: '勝率', value: `${result.winRate.toFixed(1)}%` },
+              { label: '勝率', value: result.winRate == null ? '尚未計算' : `${result.winRate.toFixed(1)}%` },
               { label: '交易次數', value: String(result.tradeCount) },
             ].map(({ label, value }) => (
               <div

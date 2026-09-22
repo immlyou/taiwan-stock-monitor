@@ -8,7 +8,7 @@ import { fetchAPI } from '@/lib/api/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StockInput } from '@/components/shared/StockInput'
-import { formatCurrency, formatPercent, getChangeColorVar } from '@/lib/utils/format'
+import { formatCurrency, formatPercent } from '@/lib/utils/format'
 import { ratingColor } from '@/lib/constants/chartColors'
 
 interface PortfolioListItem { id: string; name: string; holdings_count: number }
@@ -20,7 +20,7 @@ interface PlanSell { stock_id: string; name: string; shares: number; amount: num
 interface AdvisorResult {
   health: { holdings: HealthHolding[]; avg_score: number; total_value: number; top_weight: number; concentration: string }
   plan: { buys: PlanBuy[]; sells: PlanSell[]; freed_cash: number; deployed: number; cash_after: number }
-  feasibility: { target_roi: number; estimated_annual_return: number; verdict: string; note: string } | null
+  feasibility: { target_roi: number; estimated_annual_return: number | null; verdict: string; note: string } | null
   proposed_holdings: { stock_id: string; shares: number; cost_price: number }[]
   narrative: string
   narrative_error: string | null
@@ -36,6 +36,7 @@ const card = { background: 'var(--card)', border: '1px solid var(--border)' }
 const inputStyle = { background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)' }
 
 function verdictColor(v: string) {
+  if (v === '尚無法評估') return 'var(--muted-foreground)'
   if (v === '可行') return 'var(--stock-down)'
   if (v === '具挑戰') return 'var(--flow-trust)'
   return 'var(--stock-up)'
@@ -421,7 +422,7 @@ export default function AdvisorPage() {
               <div className="flex items-center gap-4 flex-wrap">
                 <span className="text-2xl font-bold num" style={{ color: verdictColor(result.feasibility.verdict) }}>{result.feasibility.verdict}</span>
                 <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                  目標 <b style={{ color: 'var(--foreground)' }}>{result.feasibility.target_roi}%</b> · 推估年化 <b style={{ color: getChangeColorVar(result.feasibility.estimated_annual_return) }}>{formatPercent(result.feasibility.estimated_annual_return)}</b>
+                  目標 <b style={{ color: 'var(--foreground)' }}>{result.feasibility.target_roi}%</b> · 推估年化 <b style={{ color: 'var(--muted-foreground)' }}>{result.feasibility.estimated_annual_return == null ? '尚未驗證' : formatPercent(result.feasibility.estimated_annual_return)}</b>
                 </span>
               </div>
               <p className="text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>{result.feasibility.note}</p>

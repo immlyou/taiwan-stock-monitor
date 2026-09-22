@@ -43,7 +43,7 @@ class RiskAnalyzer:
 
     def calculate_returns(self, prices: pd.Series) -> pd.Series:
         """計算日報酬率"""
-        return prices.pct_change().dropna()
+        return prices.pct_change(fill_method=None).dropna()
 
     def calculate_var_historical(self, returns: pd.Series, confidence: float = 0.95) -> float:
         """
@@ -173,12 +173,7 @@ class RiskAnalyzer:
         if len(returns) == 0:
             return 0.0
 
-        downside_returns = returns[returns < threshold]
-
-        if len(downside_returns) == 0:
-            return 0.0
-
-        vol = np.sqrt(np.mean(downside_returns ** 2))
+        vol = np.sqrt(np.mean(np.minimum(returns - threshold, 0) ** 2))
 
         if annualize:
             vol *= np.sqrt(252)

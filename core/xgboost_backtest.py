@@ -5,15 +5,16 @@
 
 避免 look-ahead bias 的關鍵
 --------------------------
-在每個再平衡日 T，用 `_AsOfLoader` 把餵給模型的所有資料**截斷到 ≤ T**，
-讓 XGBoostStockPicker「以為」T 是最新交易日 —— 它只會用 ≤T 的資料訓練與預測，
-完全不碰未來。接著用「完整資料」算 T → T+forward_days 的**實際報酬**來評估。
+在每個訊號日 T，用 `_AsOfLoader` 截斷資料到 ≤ T。
+IC 衡量 T → T+forward_days 的價格預測；交易情境則 T+1 收盤進場、
+T+forward_days 收盤出場，扣除明列的費用與滑價假設。
+這只能限制索引時序，不能證明上游歷史資料未被事後修訂。
 （模型訓練時的目標雖是前向報酬，但那是 ≤T 已實現的部分，未實現的會被 NaN 濾掉。）
 
 指標
 ----
-- IC（Spearman 等級相關）：每期「預測報酬」與「實際前向報酬」的橫截面等級相關，
-  再取平均。IC > 0 代表排序有方向性；|IC| 0.03~0.05 在台股已算可用，>0.1 很強。
+- IC（Spearman 等級相關）：每期預測與實際前向報酬的橫截面等級相關。
+  不以任意固定 IC 閾值宣稱模型有效；仍需不確定性、成本與資料品質驗證。
 - IC IR：mean(IC) / std(IC)，衡量 IC 的穩定度。
 - 命中率：Top-N 選股中「實際前向報酬 > 0」的比例；對照 base rate（全體候選為正的比例）。
 - Top-N 平均報酬 vs 全體候選平均（等權）：超額 = Top-N − 全體。
@@ -27,6 +28,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
+from core.market_timing import as_of_frame
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ DEFAULT_RESULT_PATH = Path(__file__).parent.parent / "data" / "xgboost_backtest.
 # 內建 seed（隨程式碼版控）：Volume 尚無有效結果時的 fallback，讓端點一上線就有資料。
 # 放在 repo 根目錄而非 data/，因為 Railway 的 Volume 掛在 /app/data 會「遮蔽」image 內的 data/。
 SEED_RESULT_PATH = Path(__file__).parent.parent / "xgboost_backtest_seed.json"
+METHODOLOGY_VERSION = "wf-2-next-session-costs-fixed-selection"
 
 
 class _AsOfLoader:
@@ -51,12 +54,7 @@ class _AsOfLoader:
         df = self._loader.get(key, *args, **kwargs)
         if df is None:
             return df
-        try:
-            if isinstance(df.index, pd.DatetimeIndex):
-                return df.loc[:self._as_of]
-        except Exception:
-            pass
-        return df
+        return as_of_frame(df, self._as_of)
 
     def __getattr__(self, name):
         # 其他方法（get_stock_info 等）透傳給底層 loader
@@ -83,6 +81,9 @@ def walk_forward_backtest(
     top_n: int = 20,
     forward_days: int = 20,
     min_train_gap: int = 60,
+    buy_cost_rate: float = 0.001425,
+    sell_cost_rate: float = 0.004425,
+    slippage_bps: float = 10.0,
 ) -> Dict[str, Any]:
     """對 XGBoostStockPicker 做 walk-forward 回測。
 
@@ -96,12 +97,20 @@ def walk_forward_backtest(
     """
     from core.ai_models import XGBoostStockPicker
 
+    if min(n_periods, step_days, top_n) < 1 or forward_days < 2 or min_train_gap < 0:
+        raise ValueError("periods/step/top_n must be positive; forward_days >= 2")
+    if not all(np.isfinite(v) and v >= 0 for v in (buy_cost_rate, sell_cost_rate, slippage_bps)):
+        raise ValueError("costs must be finite and non-negative")
+    if sell_cost_rate >= 1 or slippage_bps >= 10000:
+        raise ValueError("costs must be below 100%")
+
     close = loader.get("close")
     if close is None or close.empty:
         raise RuntimeError("close 資料為空，無法回測")
-    close = close.sort_index()
+    close = as_of_frame(close, close.index.max())
     dates = close.index
     picker = XGBoostStockPicker()
+    picker.FORWARD_DAYS = forward_days
     lookback = getattr(picker, "LOOKBACK_DAYS", 252)
 
     last_eval_pos = len(dates) - 1 - forward_days       # T 後要有 forward_days 已實現
@@ -114,45 +123,62 @@ def walk_forward_backtest(
     positions = sorted(set(range(last_eval_pos, first_pos, -step_days)))[-n_periods:]
 
     periods: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
     for pos in positions:
         t_date = dates[pos]
         try:
             picks = picker.predict(_AsOfLoader(loader, t_date))
         except Exception as exc:  # noqa: BLE001 — 單期失敗不應中斷整個回測
             logger.warning("回測 %s 期預測失敗：%s", str(t_date)[:10], exc)
+            skipped.append({"date": str(t_date)[:10], "reason": "prediction_failed"})
             continue
 
         pred = {p["stock_id"]: float(p["predicted_return"]) for p in picks
-                if p.get("predicted_return") is not None}
+                if p.get("predicted_return") is not None and np.isfinite(p["predicted_return"])}
+        # Freeze selection BEFORE examining future quote availability.
+        top = list(pred)[:top_n]
 
         c_now = close.iloc[pos]
         c_fut = close.iloc[pos + forward_days]
         actual: Dict[str, float] = {}
+        net_actual: Dict[str, float] = {}
+        entry = close.iloc[pos + 1]
+        slip = slippage_bps / 10000
         for sid in pred:
             try:
                 pn, pf = float(c_now.get(sid)), float(c_fut.get(sid))
-                if pn > 0 and np.isfinite(pn) and np.isfinite(pf):
+                if pn > 0 and pf > 0 and np.isfinite(pn) and np.isfinite(pf):
                     actual[sid] = pf / pn - 1.0
+                    pe = float(entry.get(sid))
+                    if pe > 0 and np.isfinite(pe):
+                        net_actual[sid] = pf * (1 - slip) * (1 - sell_cost_rate) / (pe * (1 + slip) * (1 + buy_cost_rate)) - 1
             except Exception:
                 pass
         if len(actual) < 10:
+            skipped.append({"date": str(t_date)[:10], "reason": "insufficient_realized_outcomes"})
             continue
 
         ic = _spearman_ic(pred, actual)
-        ranked = [p["stock_id"] for p in picks if p["stock_id"] in actual]
-        top = ranked[:top_n]
-        top_rets = [actual[s] for s in top]
-        all_rets = list(actual.values())
+        # Incomplete selected baskets stay unavailable; do not replace failed /
+        # delisted picks with lower ranks or silently average only survivors.
+        complete = bool(top) and all(s in net_actual for s in top)
+        top_rets = [net_actual[s] for s in top] if complete else []
+        all_rets = list(net_actual.values()) if len(net_actual) == len(pred) else []
 
         periods.append({
             "date": str(t_date)[:10],
-            "n_candidates": len(actual),
+            "entry_date": str(dates[pos + 1])[:10],
+            "exit_date": str(dates[pos + forward_days])[:10],
+            "n_candidates": len(pred),
+            "outcome_coverage": len(net_actual) / len(pred) if pred else 0,
+            "selected_stocks": top,
+            "missing_selected": [s for s in top if s not in net_actual],
             "ic": round(ic, 4) if np.isfinite(ic) else None,
             "top_n_hit_rate": round(float(np.mean([1 if r > 0 else 0 for r in top_rets])), 4) if top_rets else None,
-            "base_hit_rate": round(float(np.mean([1 if r > 0 else 0 for r in all_rets])), 4),
+            "base_hit_rate": round(float(np.mean([1 if r > 0 else 0 for r in all_rets])), 4) if all_rets else None,
             "top_n_return": round(float(np.mean(top_rets)), 4) if top_rets else None,
-            "all_avg_return": round(float(np.mean(all_rets)), 4),
-            "excess_return": round(float(np.mean(top_rets) - np.mean(all_rets)), 4) if top_rets else None,
+            "all_avg_return": round(float(np.mean(all_rets)), 4) if all_rets else None,
+            "excess_return": round(float(np.mean(top_rets) - np.mean(all_rets)), 4) if top_rets and all_rets else None,
         })
 
     if not periods:
@@ -160,7 +186,7 @@ def walk_forward_backtest(
 
     ics = [p["ic"] for p in periods if p["ic"] is not None]
     hits = [p["top_n_hit_rate"] for p in periods if p["top_n_hit_rate"] is not None]
-    base_hits = [p["base_hit_rate"] for p in periods]
+    base_hits = [p["base_hit_rate"] for p in periods if p["base_hit_rate"] is not None]
     top_rets = [p["top_n_return"] for p in periods if p["top_n_return"] is not None]
     excess = [p["excess_return"] for p in periods if p["excess_return"] is not None]
 
@@ -169,6 +195,9 @@ def walk_forward_backtest(
 
     summary = {
         "periods_evaluated": len(periods),
+        "periods_requested": n_periods,
+        "complete_top_n_periods": len(top_rets),
+        "complete_benchmark_periods": len(base_hits),
         "forward_days": forward_days,
         "top_n": top_n,
         "date_range": f"{periods[0]['date']} ~ {periods[-1]['date']}",
@@ -180,7 +209,21 @@ def walk_forward_backtest(
         "mean_top_n_return": round(float(np.mean(top_rets)), 4) if top_rets else None,
         "mean_excess_return": round(float(np.mean(excess)), 4) if excess else None,
     }
-    return {"summary": summary, "periods": periods}
+    return {
+        "methodology_version": METHODOLOGY_VERSION,
+        "model_version": XGBoostStockPicker.MODEL_VERSION,
+        "validation_status": "research_only",
+        "assumptions": {
+            "signal": "after_T_close", "entry": "T_plus_1_close", "exit": f"T_plus_{forward_days}_close",
+            "holding_sessions": forward_days - 1, "ic_target": "T_to_T_plus_forward_gross_return",
+            "buy_cost_rate": buy_cost_rate, "sell_cost_rate": sell_cost_rate, "slippage_bps_each_side": slippage_bps,
+            "costs_are_scenario_assumptions": True, "minimum_commission_modeled": False,
+            "overlapping_periods": step_days < forward_days,
+            "limitations": ["snapshot_revisions_not_point_in_time_verified", "raw_close_not_total_return",
+                            "no_delisting_or_limit_liquidity_model", "period_means_not_portfolio_CAGR"],
+        },
+        "summary": summary, "periods": periods, "skipped_periods": skipped,
+    }
 
 
 # ── 結果持久化（供端點讀取）────────────────────────────────
@@ -206,8 +249,14 @@ def load_result(path: Any = DEFAULT_RESULT_PATH) -> Any:
             if candidate.exists():
                 with open(candidate, encoding="utf-8") as f:
                     data = json.load(f)
-                if data:
-                    return data
+                if isinstance(data, dict) and isinstance(data.get("summary"), dict) and isinstance(data.get("periods"), list):
+                    from core.ai_models import XGBoostStockPicker
+                    current = (candidate != SEED_RESULT_PATH
+                               and data.get("methodology_version") == METHODOLOGY_VERSION
+                               and data.get("model_version") == XGBoostStockPicker.MODEL_VERSION)
+                    return {**data, "source": "seed" if candidate == SEED_RESULT_PATH else "persisted",
+                            "current_model_comparable": current,
+                            "validation_status": "research_only" if current else "legacy_not_comparable"}
         except Exception:
             continue
     return None
@@ -224,7 +273,11 @@ def record_live_xgboost_picks(loader: Any, top_n: int = 20, verify_days: int = 2
     from core.ai_models import XGBoostStockPicker
     from core.prediction_tracker import get_tracker
 
-    picks = XGBoostStockPicker().predict(loader)[:top_n]
+    if verify_days < 1 or top_n < 1:
+        raise ValueError("top_n and verify_days must be positive")
+    picker = XGBoostStockPicker()
+    picker.FORWARD_DAYS = verify_days
+    picks = picker.predict(loader)[:top_n]
     close = loader.get("close")
     try:
         from core.intelligence import _latest_name_map
@@ -251,8 +304,16 @@ def record_live_xgboost_picks(loader: Any, top_n: int = 20, verify_days: int = 2
 
     if not stocks:
         return 0
-    get_tracker().add_batch_stock_picks(
+    tracker = get_tracker()
+    signal_date = str(close.index[-1])[:10]
+    recorded = {p.stock_id for p in tracker.predictions
+                if p.source == "xgboost" and (p.strategy_params or {}).get("signal_date") == signal_date
+                and (p.strategy_params or {}).get("model_version") == XGBoostStockPicker.MODEL_VERSION
+                and p.verify_days == verify_days}
+    stocks = [s for s in stocks if s["stock_id"] not in recorded]
+    tracker.add_batch_stock_picks(
         stocks, verify_days=verify_days, source="xgboost",
-        strategy_params={"top_n": top_n},
+        strategy_params={"top_n": top_n, "model_version": XGBoostStockPicker.MODEL_VERSION,
+                         "horizon_unit": "trading_sessions", "signal_date": signal_date},
     )
     return len(stocks)

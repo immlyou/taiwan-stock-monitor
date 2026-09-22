@@ -13,8 +13,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from core.data_loader import get_active_stocks
 from core.trading_radar import TradingRadar, _pct_change, _safe_float, _sum_tail
+from core.market_timing import as_of_frame
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -122,22 +122,24 @@ class RadarPro:
 
     def backtest(self, days: int = 180, top_n: int = 20) -> Dict[str, Any]:
         close = self.loader.get("close")
+        close = as_of_frame(close, close.index.max())
         dates = list(pd.to_datetime(close.index).dropna().unique())
         if len(dates) < 80:
             return {"windows": [], "summary": [], "note": "歷史資料不足"}
         start = max(65, len(dates) - days)
         sample_dates = [pd.Timestamp(d) for d in dates[start:-21:5]]
-        try:
-            stocks = [s for s in get_active_stocks() if s in close.columns and not s.startswith("00")]
-        except Exception:
-            stocks = [s for s in close.columns if not str(s).startswith("00")]
-        stocks = stocks[:350]
+        # A current "active stocks" list leaks today's survival into historical
+        # selection. Use the snapshot's historical columns; availability at T is
+        # checked separately. The 350-symbol cap is disclosed, not market-wide.
+        stocks = sorted(s for s in close.columns if not str(s).startswith("00"))[:350]
 
         windows = []
         horizon_returns: Dict[int, List[float]] = {5: [], 10: [], 20: []}
         for date in sample_dates:
             scored = []
             for sid in stocks:
+                if pd.isna(close.at[date, sid]) or close.at[date, sid] <= 0:
+                    continue
                 score = self._historical_score(sid, date)
                 if score is not None and score >= 62:
                     scored.append((sid, score))
@@ -152,12 +154,15 @@ class RadarPro:
                     continue
                 vals = []
                 for sid, _score in picks:
-                    entry = close[sid].iloc[date_idx]
+                    entry = close[sid].iloc[date_idx + 1]
                     exit_ = close[sid].iloc[date_idx + horizon]
                     if pd.notna(entry) and pd.notna(exit_) and float(entry) > 0:
-                        ret = (float(exit_) / float(entry) - 1) * 100
+                        # Same explicit cost scenario as the XGBoost study.
+                        ret = (float(exit_) * .999 * .995575 / (float(entry) * 1.001 * 1.001425) - 1) * 100
                         vals.append(round(ret, 2))
-                        horizon_returns[horizon].append(ret)
+                if len(vals) != len(picks):
+                    vals = []  # incomplete basket is unavailable, never survivor-only
+                horizon_returns[horizon].extend(vals)
                 returns_by_horizon[horizon] = vals
             windows.append({
                 "date": date.strftime("%Y-%m-%d"),
@@ -187,7 +192,10 @@ class RadarPro:
             "top_n": top_n,
             "windows": windows[-20:],
             "summary": summary,
-            "note": "以雷達規則的歷史代理訊號估算，供策略校準使用。",
+            "mode": "historical_proxy_not_live_radar",
+            "validation_status": "research_only",
+            "universe_count": len(stocks),
+            "note": "簡化代理規則，非現行雷達模型績效。僅歷史代號排序前 350 檔，訊號次日收盤進場；含每邊 10bps 滑價、買方 0.1425%／賣方 0.4425% 費用情境。視窗重疊、非獨立樣本，未驗證修訂資料及成交可行性。",
         }
 
     def tracking(self) -> Dict[str, Any]:

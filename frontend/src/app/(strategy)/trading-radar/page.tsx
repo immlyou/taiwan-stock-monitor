@@ -175,7 +175,7 @@ function StockCard({ item, onSelect }: { item: RadarStock; onSelect?: (stockId: 
           <p className="text-xl font-bold tabular-nums" style={{ color: actionColor(item.action) }}>{item.radar_score.toFixed(1)}</p>
         </div>
         <div>
-          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>機率分</p>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>規則分（非機率）</p>
           <p className="text-xl font-bold tabular-nums" style={{ color: 'var(--foreground)' }}>{item.probability_score.toFixed(1)}</p>
         </div>
         <div>
@@ -219,7 +219,7 @@ export default function TradingRadarPage() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>AI 操盤雷達</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-            籌碼、營收、技術位置與出貨風險的機率型訊號
+            籌碼、營收、技術位置與出貨風險的規則型訊號；權重尚未經樣本外驗證，分數不代表勝率。
           </p>
         </div>
         <div className="w-full md:w-72">
@@ -243,7 +243,7 @@ export default function TradingRadarPage() {
         <div className="space-y-6">
           <div className="grid md:grid-cols-4 gap-3">
             <KpiCard
-              title="10日估計命中率"
+              title="代理規則 10 日歷史命中率"
               value={tracking?.estimated_10d_hit_rate_pct != null ? `${tracking.estimated_10d_hit_rate_pct.toFixed(1)}%` : '—'}
               accentColor="var(--primary)"
             />
@@ -350,7 +350,8 @@ export default function TradingRadarPage() {
 
           <div className="grid md:grid-cols-3 gap-3">
             <div className="rounded-lg p-4" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>雷達訊號回測</h2>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>代理規則歷史試算（非現行模型績效）</h2>
+              <p className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>{backtest?.note ?? '研究用歷史代理，不代表未來勝率。'}</p>
               <div className="space-y-2">
                 {(backtest?.summary ?? []).map((row) => (
                   <div key={row.horizon_days} className="flex justify-between text-sm">

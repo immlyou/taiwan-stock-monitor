@@ -70,7 +70,7 @@ class RadarContext:
 
 
 class TradingRadar:
-    """Generate explainable, probability-style trading radar signals."""
+    """Generate explainable rule scores; these are not calibrated probabilities."""
 
     def __init__(self, loader: Any):
         self.loader = loader
@@ -203,7 +203,9 @@ class TradingRadar:
 
         yoy = _latest(ctx.revenue_yoy, stock_id)
         mom = _latest(ctx.revenue_mom, stock_id)
-        quant_score = _safe_float(ctx.score_map.get(stock_id)) or 50.0
+        quant_score = _safe_float(ctx.score_map.get(stock_id))
+        if quant_score is None:
+            quant_score = 50.0
 
         accumulation = self._accumulation_signal(institutional_5, institutional_20, price_change_20d, volume_ratio)
         revenue = self._revenue_signal(yoy, mom, price_change_20d)
@@ -232,6 +234,7 @@ class TradingRadar:
             "latest_price": round(latest_price, 2),
             "radar_score": radar_score,
             "probability_score": probability_score,
+            "score_kind": "heuristic_not_probability",
             "action": action,
             "action_rank": action_rank,
             "watch_price": round(ma20, 2),

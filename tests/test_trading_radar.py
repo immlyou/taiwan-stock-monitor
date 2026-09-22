@@ -63,8 +63,7 @@ def test_trading_radar_scan_returns_categories(monkeypatch):
     assert "distribution_risk" in result["categories"]
 
 
-def test_radar_pro_backtest_and_tracking(monkeypatch):
-    monkeypatch.setattr("core.radar_pro.get_active_stocks", lambda: ["2330", "2317", "2454"])
+def test_radar_pro_backtest_and_tracking():
     pro = RadarPro(RadarLoader())
 
     backtest = pro.backtest(days=80, top_n=2)
@@ -74,8 +73,7 @@ def test_radar_pro_backtest_and_tracking(monkeypatch):
     assert tracking["latest_signal_count"] >= 0
 
 
-def test_radar_pro_peer_price_news_and_chip(monkeypatch):
-    monkeypatch.setattr("core.radar_pro.get_active_stocks", lambda: ["2330", "2317", "2454"])
+def test_radar_pro_peer_price_news_and_chip():
     pro = RadarPro(RadarLoader())
 
     peers = pro.peer_comparison("2330")

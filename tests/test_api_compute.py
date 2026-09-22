@@ -147,6 +147,15 @@ class TestBacktestRouter:
 
 # ── Optimizer ────────────────────────────────────────────
 class TestOptimizerRouter:
+    @pytest.mark.parametrize("body", [
+        {"strategy": "rsi_reversal"}, {"strategy": "breakout"},
+        {"ranges": {"stopLoss": {"min": 3, "max": 5}}},
+        {"ranges": {"fastPeriod": {"min": 20, "max": 3}}},
+        {"ranges": {"fastPeriod": {"min": 1, "max": 252}, "slowPeriod": {"min": 1, "max": 252}}},
+    ])
+    def test_unimplemented_or_invalid_optimizer_contract_fails_closed(self, compute_client, body):
+        assert compute_client.post("/optimizer/run", json=body).status_code == 422
+
     def test_optimizer_unknown_stock_returns_422(self, compute_client):
         r = compute_client.post(
             "/optimizer/run",

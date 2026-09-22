@@ -6,24 +6,38 @@ from __future__ import annotations
 
 import os
 import logging
+from threading import Lock
 import numpy as np
 from typing import TYPE_CHECKING, Dict, List, Optional, Any
 
 if TYPE_CHECKING:
     from core.data_loader import DataLoader
 
+logger = logging.getLogger(__name__)
+
+# Initialize XGBoost's native runtime before optional PyTorch. On macOS arm64,
+# torch-first initialization can crash XGBoost's float64 label conversion in
+# native code (not a catchable Python exception). A subprocess test covers this.
+try:
+    import xgboost as xgb
+    HAS_XGBOOST = True
+except ImportError:
+    xgb = None
+    HAS_XGBOOST = False
+    logger.warning("xgboost 未安裝，XGBoostStockPicker 將無法使用。請執行 pip install xgboost")
+
 # 嘗試載入 PyTorch（可選依賴）
 try:
     import torch
     import torch.nn as nn
+    # Small CPU-only online LSTM: one intra-op thread prevents native OpenMP
+    # contention/crashes when PyTorch and XGBoost coexist and bounds CPU usage.
+    torch.set_num_threads(1)
     HAS_TORCH = True
     logging.getLogger(__name__).info("PyTorch 可用，啟用 LSTM 深度學習預測模式")
 except ImportError:
     HAS_TORCH = False
     logging.getLogger(__name__).info("PyTorch 不可用，使用 EWMA 趨勢偵測 fallback 模式")
-
-logger = logging.getLogger(__name__)
-
 
 class ClaudeStockAnalyzer:
     """使用 Claude API 進行個股智慧分析。
@@ -365,29 +379,8 @@ if HAS_TORCH:
 
 def _lstm_compute_rsi(prices: np.ndarray, period: int = 14) -> np.ndarray:
     """計算 RSI(period)，回傳與 prices 等長的陣列（前 period 個為 0.5）"""
-    if len(prices) < period + 1:
-        return np.full(len(prices), 0.5)
-
-    rsi = np.full(len(prices), 0.5)
-    deltas = np.diff(prices)
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-
-    avg_gain = np.mean(gains[:period])
-    avg_loss = np.mean(losses[:period])
-
-    for i in range(period, len(prices)):
-        idx = i - period
-        if idx > 0:
-            avg_gain = (avg_gain * (period - 1) + gains[i - 1]) / period
-            avg_loss = (avg_loss * (period - 1) + losses[i - 1]) / period
-        if avg_loss == 0:
-            rsi[i] = 1.0
-        else:
-            rs = avg_gain / avg_loss
-            rsi[i] = rs / (1.0 + rs)
-
-    return rsi
+    from core.indicators import rsi
+    return (rsi(_pd.Series(prices), period) / 100).fillna(0.5).to_numpy()
 
 
 def _lstm_compute_sma(prices: np.ndarray, period: int) -> np.ndarray:
@@ -521,7 +514,18 @@ def _lstm_confidence(
 
 # ─── PyTorch 即時訓練預測 ──────────────────────────────────────────────────
 
+_torch_training_lock = Lock()
+
+
 def _predict_torch(prices: np.ndarray, volumes: np.ndarray, lookback: int = 60) -> List[float]:
+    # Isolate and restore the CPU RNG; concurrent requests cannot change each
+    # other's initialization. This provides repeatability, not model validity.
+    with _torch_training_lock, torch.random.fork_rng(devices=[]):
+        torch.manual_seed(42)
+        return _predict_torch_seeded(prices, volumes, lookback)
+
+
+def _predict_torch_seeded(prices: np.ndarray, volumes: np.ndarray, lookback: int = 60) -> List[float]:
     """使用即時訓練的輕量 LSTM 預測未來 5 天（無預訓練權重）"""
     predict_days = 5
     current_price = float(prices[-1])
@@ -677,7 +681,13 @@ class LSTMTrendPredictor:
         if stock_id not in close_df.columns:
             raise ValueError(f"找不到股票 {stock_id} 的收盤價資料")
 
-        price_series = close_df[stock_id].dropna()
+        # Do not compress suspended sessions into consecutive "trading days".
+        price_series = close_df[stock_id].where(lambda s: np.isfinite(s) & (s > 0))
+        if price_series.empty or _pd.isna(price_series.iloc[-1]):
+            raise ValueError(f"股票 {stock_id} 最新交易日缺少有效收盤價")
+        gaps = np.flatnonzero(price_series.isna().to_numpy())
+        if len(gaps):
+            price_series = price_series.iloc[gaps[-1] + 1:]
         if len(price_series) < 20:
             raise ValueError(
                 f"股票 {stock_id} 歷史資料不足（僅 {len(price_series)} 天，需至少 20 天）"
@@ -719,6 +729,10 @@ class LSTMTrendPredictor:
         return {
             "direction": direction,
             "confidence": confidence,
+            "score_kind": "heuristic_not_probability",
+            "model_used": "lstm" if use_torch else "ewma",
+            "experimental": True,
+            "data_as_of": str(price_series.index[-1])[:10],
             "predicted_prices": [
                 {"day": i + 1, "price": p} for i, p in enumerate(predicted_list)
             ],
@@ -731,17 +745,6 @@ class LSTMTrendPredictor:
 # ════════════════════════════════════════════════════════════════════════════
 
 # ── XGBoost / scikit-learn 安全匯入 ─────────────────────────────────────────
-try:
-    import xgboost as xgb
-    HAS_XGBOOST = True
-except ImportError:
-    xgb = None
-    HAS_XGBOOST = False
-    logger.warning(
-        "xgboost 未安裝，XGBoostStockPicker 將無法使用。"
-        "請執行 pip install xgboost"
-    )
-
 try:
     from sklearn.preprocessing import StandardScaler
     HAS_SKLEARN = True
@@ -784,13 +787,8 @@ def _xgb_safe_last(series: "_pd.Series") -> float:
 
 def _xgb_calc_rsi(close: "_pd.Series", period: int = 14) -> "_pd.Series":
     """計算 RSI(period)。"""
-    delta    = close.diff()
-    gain     = delta.clip(lower=0)
-    loss     = (-delta).clip(lower=0)
-    avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
-    avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    from core.indicators import rsi
+    return rsi(close, period)
 
 
 def _xgb_calc_macd_hist(close: "_pd.Series") -> "_pd.Series":
@@ -816,12 +814,14 @@ class XGBoostStockPicker:
     - 每次 predict() 呼叫才訓練模型，避免常駐大型物件
     - 訓練集限 252 天，特徵矩陣規模可控
     - 過濾資料不完整的股票，降低計算量
-    - 所有 NaN 填充為 0
+    - 保留 NaN 為缺失值（不把缺少因子偽裝成真實零值）
     """
 
     LOOKBACK_DAYS      = 252   # 訓練窗口（約 1 年）
     FORWARD_DAYS       = 20    # 預測目標（未來 20 交易日報酬）
-    MIN_VALID_FEATURES = 8     # 最新一天至少需要幾個非零特徵才納入
+    WARMUP_DAYS        = 60
+    MODEL_VERSION      = "xgb-2-calendar-wilder-missing"
+    MIN_VALID_FEATURES = 8     # 最新一天至少需要幾個有限值特徵才納入（零值有效）
 
     def __init__(self, n_estimators: int = 100, max_depth: int = 5):
         if not HAS_XGBOOST:
@@ -899,13 +899,15 @@ class XGBoostStockPicker:
             "volume", "revenue_yoy", "revenue_mom", "foreign_investors",
         ]
         raw: Dict[str, _pd.DataFrame] = {}
-        needed_rows = self.LOOKBACK_DAYS + self.FORWARD_DAYS + 30
+        needed_rows = self.LOOKBACK_DAYS + self.FORWARD_DAYS + self.WARMUP_DAYS
 
         for key in keys_needed:
             try:
                 df = data_loader.get(key)
                 if df is not None and len(df) > 0:
-                    raw[key] = df.iloc[-needed_rows:].copy()
+                    if not isinstance(df.index, _pd.DatetimeIndex):
+                        raise ValueError(f"{key} 缺少可驗證的資料可用日期索引")
+                    raw[key] = _pd.DataFrame(df.sort_index().iloc[-needed_rows:]).copy()
                 else:
                     logger.warning("資料 '%s' 為空，跳過", key)
             except Exception as exc:
@@ -921,10 +923,12 @@ class XGBoostStockPicker:
     ):
         """為每支股票建立特徵面板。"""
         close_df = raw["close"]
-        window   = self.LOOKBACK_DAYS + self.FORWARD_DAYS
+        window   = self.LOOKBACK_DAYS + self.FORWARD_DAYS + self.WARMUP_DAYS
         close_df = (
             close_df.iloc[-window:] if len(close_df) >= window else close_df
         )
+        from core.indicators import rsi
+        raw = {**raw, "_rsi14": rsi(close_df.where(np.isfinite(close_df) & (close_df > 0)), 14)}
 
         valid_cols = [
             c for c in close_df.columns
@@ -961,8 +965,8 @@ class XGBoostStockPicker:
         feats : pd.DataFrame 或 None（資料不足時）
         latest : dict（最新一天因子值，供前端展示）
         """
-        close = close_df[sid].dropna()
-        if len(close) < self.LOOKBACK_DAYS:
+        close = close_df[sid].where(lambda s: np.isfinite(s) & (s > 0))
+        if close.notna().sum() < self.LOOKBACK_DAYS or not np.isfinite(close.iloc[-1]):
             return None, None
 
         idx = close.index
@@ -971,13 +975,15 @@ class XGBoostStockPicker:
             df = raw.get(key)
             if df is None or sid not in df.columns:
                 return _pd.Series(np.nan, index=idx)
+            if key in {"volume", "foreign_investors"}:
+                return df[sid].reindex(idx)
             return df[sid].reindex(idx, method="ffill")
 
         pe  = align("pe_ratio")
         pb  = align("pb_ratio")
         dy  = align("dividend_yield")
 
-        rsi14     = _xgb_calc_rsi(close, 14)
+        rsi14     = raw["_rsi14"][sid] if "_rsi14" in raw else _xgb_calc_rsi(close, 14)
         macd_hist = _xgb_calc_macd_hist(close)
         sma5      = close.rolling(5).mean()
         sma20     = close.rolling(20).mean()
@@ -994,9 +1000,9 @@ class XGBoostStockPicker:
         fi         = align("foreign_investors")
         foreign_n5 = fi.rolling(5).sum()
 
-        ret5  = close.pct_change(5)
-        ret20 = close.pct_change(20)
-        ret60 = close.pct_change(60)
+        ret5  = close.pct_change(5, fill_method=None)
+        ret20 = close.pct_change(20, fill_method=None)
+        ret60 = close.pct_change(60, fill_method=None)
 
         feats = _pd.DataFrame(
             {
@@ -1017,10 +1023,10 @@ class XGBoostStockPicker:
             },
             index=idx,
         )
-        feats = feats.fillna(0)
+        feats = feats.replace([np.inf, -np.inf], np.nan)
 
         last_row = feats.iloc[-1]
-        if int((last_row != 0).sum()) < self.MIN_VALID_FEATURES:
+        if int(last_row.notna().sum()) < self.MIN_VALID_FEATURES:
             return None, None
 
         latest = {
@@ -1055,8 +1061,8 @@ class XGBoostStockPicker:
             if sid not in close_df.columns:
                 continue
 
-            close   = close_df[sid].reindex(feats.index).ffill()
-            fut_ret = close.pct_change(self.FORWARD_DAYS).shift(-self.FORWARD_DAYS)
+            close = close_df[sid].reindex(feats.index).where(lambda s: np.isfinite(s) & (s > 0))
+            fut_ret = close.shift(-self.FORWARD_DAYS) / close - 1
 
             avail = len(feats) - self.FORWARD_DAYS
             if avail <= 10:
@@ -1068,7 +1074,9 @@ class XGBoostStockPicker:
             feat_slice = feats.iloc[start: start + n].values
             ret_slice  = fut_ret.iloc[start: start + n].values
 
-            mask = ~np.isnan(ret_slice)
+            mask = np.isfinite(ret_slice) & (np.isfinite(feat_slice).sum(axis=1) >= self.MIN_VALID_FEATURES)
+            # ret60 also enforces a complete indicator warmup before training.
+            mask &= np.isfinite(feats.iloc[start: start + n]["ret60"].to_numpy())
             if mask.sum() < 5:
                 continue
 
@@ -1084,7 +1092,7 @@ class XGBoostStockPicker:
         X_pred_rows: List[np.ndarray] = []
         pred_stocks: List[str]         = []
         for sid in stock_ids:
-            row = np.nan_to_num(feature_panel[sid].iloc[-1].values, nan=0.0)
+            row = feature_panel[sid].iloc[-1].values
             X_pred_rows.append(row)
             pred_stocks.append(sid)
 
@@ -1144,6 +1152,8 @@ class XGBoostStockPicker:
                     "stock_id":               sid,
                     "predicted_return":       round(pred_val, 6),
                     "confidence":             round(confidence, 4),
+                    "score_kind":             "heuristic_not_probability",
+                    "model_version":          self.MODEL_VERSION,
                     "factors":                latest_features.get(sid, {}),
                     "__feature_importance__": feature_importance,
                 }

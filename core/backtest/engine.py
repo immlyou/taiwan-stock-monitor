@@ -2,11 +2,13 @@
 回測引擎模組
 """
 import pandas as pd
+import numpy as np
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 
 from config import TRADING_COSTS, BACKTEST_DEFAULTS, PRICE_LIMITS
 from core.backtest.metrics import calculate_metrics, compare_with_benchmark, PerformanceMetrics
+from core.market_timing import as_of_frame
 
 
 @dataclass
@@ -78,6 +80,7 @@ class BacktestEngine:
         self.positions: Dict[str, Dict] = {}  # stock_id -> {shares, cost}
         self.trades: List[Trade] = []
         self.portfolio_history: List[Dict] = []
+        self._last_prices: Dict[str, float] = {}
 
     # 最低手續費常數
     MIN_COMMISSION = 20  # 台股最低手續費 20 元
@@ -117,11 +120,11 @@ class BacktestEngine:
 
         # 漲停：股價漲幅 >= 10%，無法買入（買不到）
         if change_pct >= self.up_limit:
-            return False, True, prev_price * (1 + self.up_limit)
+            return False, True, current_price
 
         # 跌停：股價跌幅 <= -10%，無法賣出（賣不掉）
         if change_pct <= self.down_limit:
-            return True, False, prev_price * (1 + self.down_limit)
+            return True, False, current_price
 
         return True, True, current_price
 
@@ -227,13 +230,12 @@ class BacktestEngine:
         # 計算當前投資組合總價值
         portfolio_value = self.cash
         for stock_id, pos in self.positions.items():
-            if stock_id in prices.index and not pd.isna(prices[stock_id]):
-                portfolio_value += pos['shares'] * prices[stock_id]
+            portfolio_value += pos['shares'] * self._valuation_price(stock_id, prices, pos)
 
         # 賣出不在目標清單中的股票
         stocks_to_sell = [s for s in self.positions.keys() if s not in target_stocks]
         for stock_id in stocks_to_sell:
-            if stock_id in prices.index and not pd.isna(prices[stock_id]):
+            if stock_id in prices.index and np.isfinite(prices[stock_id]) and prices[stock_id] > 0:
                 # 漲跌停檢查：跌停時無法賣出
                 can_buy, can_sell, adjusted_price = self._check_price_limit(
                     stock_id, prices[stock_id], prev_prices if prev_prices is not None else pd.Series(dtype=float)
@@ -246,7 +248,7 @@ class BacktestEngine:
 
         # 調整現有持倉並買入新股票
         for stock_id in target_stocks:
-            if stock_id not in prices.index or pd.isna(prices[stock_id]):
+            if stock_id not in prices.index or not np.isfinite(prices[stock_id]) or prices[stock_id] <= 0:
                 continue
 
             price = prices[stock_id]
@@ -275,7 +277,7 @@ class BacktestEngine:
 
     def _buy(self, stock_id: str, date: pd.Timestamp, price: float, amount: float):
         """買入股票"""
-        if amount <= 0 or self.cash <= 0:
+        if amount <= 0 or self.cash <= 0 or not np.isfinite(price) or price <= 0:
             return
 
         # 計算可買股數 (取整數)
@@ -291,11 +293,9 @@ class BacktestEngine:
             # 資金不足，二分搜尋可買股數（正確處理最低手續費 20 元邊界）
             max_shares = int(self.cash / price)
             shares = 0
-            lo, hi = 0, max_shares
+            lo, hi = 1, max_shares
             while lo <= hi:
                 mid = (lo + hi) // 2
-                if mid == 0:
-                    break
                 c = mid * price
                 tc = self._calculate_transaction_cost(c, is_sell=False)
                 if c + tc <= self.cash:
@@ -321,19 +321,22 @@ class BacktestEngine:
             old_cost = self.positions[stock_id]['cost']
             self.positions[stock_id] = {
                 'shares': old_shares + shares,
-                'cost': old_cost + cost,
+                'cost': old_cost + total_cost,
                 'entry_date': self.positions[stock_id]['entry_date'],
             }
         else:
             self.positions[stock_id] = {
                 'shares': shares,
-                'cost': cost,
+                'cost': total_cost,
                 'entry_date': date,
             }
+        self._last_prices[stock_id] = price
 
     def _sell(self, stock_id: str, date: pd.Timestamp, price: float):
         """賣出全部股票"""
         if stock_id not in self.positions:
+            return
+        if not np.isfinite(price) or price <= 0:
             return
 
         pos = self.positions[stock_id]
@@ -368,6 +371,8 @@ class BacktestEngine:
         """部分賣出"""
         if stock_id not in self.positions:
             return
+        if shares <= 0 or not np.isfinite(price) or price <= 0:
+            return
 
         pos = self.positions[stock_id]
         if shares >= pos['shares']:
@@ -381,6 +386,14 @@ class BacktestEngine:
         cost_per_share = pos['cost'] / pos['shares']
         partial_cost = cost_per_share * shares
 
+        pnl = proceeds - partial_cost - transaction_cost
+        self.trades.append(Trade(
+            stock_id=stock_id, entry_date=pos['entry_date'], entry_price=cost_per_share,
+            exit_date=date, exit_price=price, shares=shares, pnl=pnl,
+            return_pct=pnl / partial_cost * 100 if partial_cost else 0,
+            holding_days=(date - pos['entry_date']).days,
+        ))
+
         # 更新持倉
         self.positions[stock_id]['shares'] -= shares
         self.positions[stock_id]['cost'] -= partial_cost
@@ -388,13 +401,19 @@ class BacktestEngine:
         # 更新現金
         self.cash += proceeds - transaction_cost
 
+    def _valuation_price(self, stock_id: str, prices: pd.Series, pos: Dict) -> float:
+        value = prices.get(stock_id, np.nan)
+        if np.isfinite(value) and value > 0:
+            self._last_prices[stock_id] = float(value)
+        # Missing quotes retain the last mark, never authorize a synthetic trade.
+        return self._last_prices.get(stock_id, pos['cost'] / pos['shares'])
+
     def _record_portfolio_value(self, date: pd.Timestamp, prices: pd.Series):
         """記錄投資組合價值"""
         portfolio_value = self.cash
 
         for stock_id, pos in self.positions.items():
-            if stock_id in prices.index and not pd.isna(prices[stock_id]):
-                portfolio_value += pos['shares'] * prices[stock_id]
+            portfolio_value += pos['shares'] * self._valuation_price(stock_id, prices, pos)
 
         self.portfolio_history.append({
             'date': date,
@@ -444,11 +463,15 @@ class BacktestEngine:
         self.positions = {}
         self.trades = []
         self.portfolio_history = []
+        self._last_prices = {}
 
         # 取得價格數據
         close = data.get('close')
         if close is None:
             raise ValueError("數據中缺少 'close' 價格數據")
+        close = as_of_frame(close, close.index.max())
+        if max_stocks < 1:
+            raise ValueError("max_stocks must be positive")
 
         market_values = data.get('market_value')
 
@@ -466,7 +489,8 @@ class BacktestEngine:
 
         # 執行回測
         next_rebalance_idx = 0
-        prev_prices = None
+        history_before_start = close.loc[close.index < trading_dates[0]] if len(trading_dates) else close.iloc[:0]
+        prev_prices = history_before_start.iloc[-1] if not history_before_start.empty else None
 
         for date in trading_dates:
             prices = close.loc[date]
@@ -475,15 +499,24 @@ class BacktestEngine:
             if (next_rebalance_idx < len(rebalance_dates) and
                 date >= rebalance_dates[next_rebalance_idx]):
 
-                # 執行策略取得目標股票
-                target_stocks = strategy_func(data, date)
+                # Signal information ends at the preceding session; execution is
+                # today's close. Never give callbacks today's close or future data.
+                prior_dates = close.index[close.index < date]
+                if prior_dates.empty:
+                    self._record_portfolio_value(date, prices)
+                    prev_prices = prices
+                    continue
+                signal_date = prior_dates[-1]
+                signal_data = {key: as_of_frame(frame, signal_date) for key, frame in data.items()}
+                target_stocks = list(dict.fromkeys(strategy_func(signal_data, signal_date)))
 
                 # 限制股票數量
                 if len(target_stocks) > max_stocks:
                     target_stocks = target_stocks[:max_stocks]
 
                 # 計算權重
-                mv = market_values.loc[date] if market_values is not None and date in market_values.index else None
+                mv_history = signal_data.get('market_value')
+                mv = mv_history.iloc[-1] if mv_history is not None and not mv_history.empty else None
                 weights = self._allocate_weights(target_stocks, mv, weight_method)
 
                 # 執行換股 (傳入前一日價格做漲跌停判斷)
@@ -536,6 +569,9 @@ class BacktestEngine:
         ])
 
         # 計算績效指標
+        # Include pre-trade capital so first-session commissions affect returns.
+        initial_date = pd.Timestamp(start_date) - pd.Timedelta(days=1)
+        portfolio_values = pd.concat([pd.Series([self.initial_capital], index=[initial_date]), portfolio_values])
         metrics = calculate_metrics(portfolio_values, trades_df)
 
         # 與大盤比較
@@ -556,6 +592,9 @@ class BacktestEngine:
                 'rebalance_freq': rebalance_freq,
                 'max_stocks': max_stocks,
                 'weight_method': weight_method,
+                'execution': 'previous_session_signal_current_close',
+                'missing_quote_policy': 'last_mark_no_trade',
+                'limitations': ['raw_close_no_corporate_action_adjustment', 'no_liquidity_or_slippage_model'],
             }
         )
 
